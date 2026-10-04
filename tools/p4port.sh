@@ -20,6 +20,19 @@ for dev in /sys/bus/usb/devices/*; do
         basename "$dev" > "$cache"
     fi
 done
+# Second guard: every Espressif unit ever seen on another port (the C6) has
+# its serial number remembered, and a tty with one of those is refused
+# even on the P4's port.
+others="$(dirname "$cache")/.not_p4_serials"
+if [[ -f "$cache" ]]; then
+    for dev in /sys/bus/usb/devices/*; do
+        [[ -f "$dev/idVendor" && "$(cat "$dev/idVendor")" == "303a" ]] || continue
+        [[ "$(basename "$dev")" == "$(cat "$cache")" ]] && continue
+        s="$(cat "$dev/serial" 2>/dev/null || true)"
+        [[ -n "$s" ]] && { grep -qxF "$s" "$others" 2>/dev/null || echo "$s" >> "$others"; }
+    done
+fi
+
 [[ -f "$cache" ]] || { echo "p4port: P4 not seen in BadgeLink mode yet; run with the badge in BadgeLink mode first" >&2; exit 1; }
 port="$(cat "$cache")"
 
@@ -28,6 +41,11 @@ for tty in /sys/class/tty/ttyACM*; do
     # .../<port>/<port>:1.0/tty/ttyACMn -> the USB device is two levels up
     usbdev="$(basename "$(dirname "$(readlink -f "$tty/device")")")"
     if [[ "$usbdev" == "$port" ]]; then
+        serial="$(cat "/sys/bus/usb/devices/$usbdev/serial" 2>/dev/null || true)"
+        if [[ -n "$serial" ]] && grep -qxF "$serial" "$others" 2>/dev/null; then
+            echo "p4port: the tty on the P4's port has serial $serial, seen before on another port: not the P4" >&2
+            exit 1
+        fi
         echo "/dev/$(basename "$tty")"
         exit 0
     fi

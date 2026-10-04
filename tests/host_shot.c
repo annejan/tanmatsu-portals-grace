@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "demo.h"
 #include "level.h"
 #include "player.h"
 #include "portal.h"
@@ -195,8 +196,130 @@ static float yaw_to(vec3_t from, vec3_t to) {
     return atan2f(to.x - from.x, to.z - from.z);
 }
 
-int main(void) {
+// `host_shot demo <name> <t> ...`: frames of a scripted demo, as the
+// device test's shots would show them.
+static int demo_shots(int argc, char** argv) {
+    int const i = demo_find(argv[2]);
+    if (i < 0) {
+        fprintf(stderr, "no demo %s\n", argv[2]);
+        return 1;
+    }
+    static demo_state_t st;
+    for (int k = 3; k < argc; k++) {
+        float const t = (float)atof(argv[k]);
+        demo_eval(i, t, &st);
+        char name[64];
+        snprintf(name, sizeof(name), "%s_%05d", argv[2], (int)(t * 1000.0f + 0.5f));
+        for (int p = 0; p < W * H; p++) s_px[p] = 0xFFFF00FFu;
+        render_set_level(&st.lv, st.portals);
+        render_frame(NULL, &st.lv, &st.pl, st.portals);
+        save(name);
+        printf("   eye %.2f %.2f %.2f yaw %.2f pitch %.2f\n", player_eye(&st.pl).x, player_eye(&st.pl).y,
+               player_eye(&st.pl).z, st.pl.yaw, st.pl.pitch);
+    }
+    return 0;
+}
+
+// `host_shot fuzz <n>`: random wall-portal pairs in chamber 1, walked
+// into at random angles. Per crossing: pixels no pass drew (magenta),
+// and how far the first frame after the teleport is from the last one
+// before it -- what you saw through the portal should be what you get.
+static uint32_t s_before[W * H];
+
+static float frame_diff(void) {
+    double sum = 0;
+    for (int i = 0; i < W * H; i++) {
+        uint32_t const a = s_before[i], b = s_px[i];
+        sum += abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255)) + abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) +
+               abs((int)(a & 255) - (int)(b & 255));
+    }
+    return (float)(sum / (W * H * 3.0));
+}
+
+static int magenta(void) {
+    int n = 0;
+    for (int i = 0; i < W * H; i++) n += s_px[i] == 0xFFFF00FFu;
+    return n;
+}
+
+static void draw(level_t const* lv, player_t const* pl, portal_t const pt[2]) {
+    for (int i = 0; i < W * H; i++) s_px[i] = 0xFFFF00FFu;
+    render_set_level(lv, pt);
+    render_frame(NULL, lv, pl, pt);
+}
+
+static int fuzz(int n) {
+    srand(7);
+    level_t lv;
+    int     worst_i = -1, bad = 0;
+    float   worst   = 0;
+    for (int k = 0; k < n; k++) {
+        level_load(&lv, 0);
+        portal_t pt[2] = {0};
+        for (int w = 0; w < 2; w++) {
+            for (int tries = 0; tries < 100 && !pt[w].open; tries++) {
+                int const face = rand() % 4;  // the four walls
+                int const dirs[4] = {DIR_PX, DIR_NX, DIR_PZ, DIR_NZ};
+                int       x = 1 + rand() % 8, z = 1 + rand() % 14;
+                int const f = dirs[face];
+                if (f == DIR_PX) x = 0;
+                if (f == DIR_NX) x = 9;
+                if (f == DIR_PZ) z = 0;
+                if (f == DIR_NZ) z = 15;
+                portal_place_at(&lv, x, 1, z, f, v3(0, 1, 0), &pt[w ^ 1], &pt[w]);
+            }
+        }
+        if (!pt[0].open || !pt[1].open) continue;
+        // Walk at blue from 2 m out, at an angle.
+        float const ang = ((float)rand() / RAND_MAX - 0.5f) * 1.0f;
+        vec3_t const into = v3_scale(pt[0].n, -1.0f);
+        player_t     pl  = {0};
+        pl.pos           = v3_mad(v3(pt[0].center.x, 1.0f, pt[0].center.z), pt[0].n, 2.0f);
+        pl.yaw           = atan2f(into.x, into.z) + ang;
+        pl.pitch         = ((float)rand() / RAND_MAX - 0.5f) * 0.6f;
+        float const keep_pitch = pl.pitch;
+        for (int i = 0; i < 200; i++) {
+            player_t const       prev = pl;
+            player_input_t const in   = {.fwd = 1.0f};
+            int const            ev   = player_update(&pl, &lv, pt, &in, 1.0f / 50.0f);
+            pl.pitch = ev & PL_EV_TELEPORT ? pl.pitch : keep_pitch;
+            if (ev & PL_EV_TELEPORT) {
+                draw(&lv, &prev, pt);
+                memcpy(s_before, s_px, sizeof(s_px));
+                int const m0 = magenta();
+                draw(&lv, &pl, pt);
+                int const   m1 = magenta();
+                float const d  = frame_diff();
+                if (d > worst) {
+                    worst   = d;
+                    worst_i = k;
+                }
+                if (d > 25.0f || m0 > 50 || m1 > 50) {
+                    bad++;
+                    if (bad <= 6) {
+                        printf("case %d: diff %.1f magenta %d/%d  blue face %d (%.1f,%.1f) orange face %d (%.1f,%.1f) ang %.2f\n", k, d,
+                               m0, m1, pt[0].face, pt[0].center.x, pt[0].center.z, pt[1].face, pt[1].center.x,
+                               pt[1].center.z, ang);
+                        char name[32];
+                        snprintf(name, sizeof(name), "fuzz%d_after", k);
+                        save(name);
+                        memcpy(s_px, s_before, sizeof(s_px));
+                        snprintf(name, sizeof(name), "fuzz%d_before", k);
+                        save(name);
+                    }
+                }
+                break;
+            }
+        }
+    }
+    printf("fuzz: %d crossings flagged; worst diff %.1f (case %d)\n", bad, worst, worst_i);
+    return 0;
+}
+
+int main(int argc, char** argv) {
     render_init("textures");
+    if (argc > 2 && strcmp(argv[1], "fuzz") == 0) return fuzz(atoi(argv[2]));
+    if (argc > 2 && strcmp(argv[1], "demo") == 0) return demo_shots(argc, argv);
     level_t  lv;
     portal_t p[2] = {0};
 

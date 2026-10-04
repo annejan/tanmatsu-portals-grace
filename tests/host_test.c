@@ -302,7 +302,41 @@ static void test_demos(void) {
     CHECK(loops == 1, "first teleport found once (%d)", loops);
 }
 
+// Walking into an eye-level portal pair at badge frame rates: one clean
+// teleport, feet on the floor throughout. At 15-25 fps the box used to
+// stop "fitting" mid-move, the wall behind the portal turned solid round
+// it, and it was thrown up the wall or out of the world.
+static void test_frame_rates(void) {
+    float const dts[] = {0.016f, 0.02f, 0.033f, 0.04f, 0.05f, 0.06f, 0.08f, 0.1f};
+    for (size_t k = 0; k < sizeof(dts) / sizeof(dts[0]); k++) {
+        float const dt = dts[k];
+        for (int side = 0; side < 2; side++) {
+            level_t lv;
+            level_load(&lv, 0);
+            player_t p;
+            player_spawn(&p, &lv);
+            portal_t pt[2] = {0};
+            p.yaw          = -1.5707963f;
+            portal_place(&lv, player_eye(&p), player_view(&p).fwd, NULL, &pt[0]);
+            p.yaw = side ? 1.5707963f : -1.2f;  // beside it, or across the room
+            portal_place(&lv, player_eye(&p), player_view(&p).fwd, &pt[0], &pt[1]);
+            p.yaw    = -1.5707963f;
+            int   tp = 0;
+            float lo = 99, hi = -99;
+            for (float t = 0; t < 1.6f; t += dt) {
+                player_input_t const in = {.fwd = 1.0f};
+                if (player_update(&p, &lv, pt, &in, dt) & PL_EV_TELEPORT) tp++;
+                lo = fminf(lo, p.pos.y);
+                hi = fmaxf(hi, p.pos.y);
+            }
+            CHECK(tp == 1, "dt %.3f side %d: one teleport, got %d", dt, side, tp);
+            CHECK(lo > 0.99f && hi < 1.02f, "dt %.3f side %d: feet stay on the floor, y %.2f..%.2f", dt, side, lo, hi);
+        }
+    }
+}
+
 int main(void) {
+    test_frame_rates();
     test_demos();
     test_basis();
     test_map();

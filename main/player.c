@@ -43,19 +43,34 @@ static bool linked(portal_t const portals[2]) {
     return portals[0].open && portals[1].open;
 }
 
-// Behind an open portal is a tunnel two cells deep the player may stand
-// in, as long as the box fits through the hole.
-static bool in_tunnel(player_t const* p, portal_t const* pt, int x, int y, int z) {
-    vec3_t const c = portal_local(pt, v3((float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f));
-    if (fabsf(c.x) > PORTAL_HALF_W || fabsf(c.y) > PORTAL_HALF_H || c.z > 0.0f || c.z < -2.5f) return false;
+// Whether the box fits through portal `pt`'s hole. Asked ONCE per
+// substep, before it moves (see player_update): asked again mid-move it
+// flickered -- gravity's first push into the floor made a box standing
+// in the hole stop fitting, the wall behind the portal turned solid
+// round a box already inside it, and the box was thrown up the wall.
+static bool fits(player_t const* p, portal_t const* pt) {
     vec3_t const b = portal_local(pt, box_center(p));
     return fabsf(b.x) + half_along(pt->right) <= PORTAL_HALF_W + FIT_TOL &&
            fabsf(b.y) + half_along(pt->up) <= PORTAL_HALF_H + FIT_TOL && b.z < 2.0f;
 }
 
-static bool blocks(player_t const* p, level_t const* lv, portal_t const portals[2], int x, int y, int z) {
-    if (!level_solid(lv, x, y, z)) return false;
-    if (linked(portals) && (in_tunnel(p, &portals[0], x, y, z) || in_tunnel(p, &portals[1], x, y, z))) return false;
+// Behind an open portal is a tunnel two cells deep the player may stand
+// in, while the box fits through the hole.
+static bool in_tunnel(portal_t const* pt, int x, int y, int z) {
+    vec3_t const c = portal_local(pt, v3((float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f));
+    return fabsf(c.x) < PORTAL_HALF_W && fabsf(c.y) < PORTAL_HALF_H && c.z < 0.0f && c.z > -2.5f;
+}
+
+typedef struct {
+    level_t const*  lv;
+    portal_t const* portals;
+    bool            open[2];  // this substep: the box fits portal i, and the pair is linked
+} world_t;
+
+static bool blocks(world_t const* w, int x, int y, int z) {
+    if (!level_solid(w->lv, x, y, z)) return false;
+    for (int i = 0; i < 2; i++)
+        if (w->open[i] && in_tunnel(&w->portals[i], x, y, z)) return false;
     return true;
 }
 
@@ -63,19 +78,26 @@ static float* axis_of(vec3_t* v, int a) {
     return a == 0 ? &v->x : a == 1 ? &v->y : &v->z;
 }
 
-// Move along one axis and push back out of whatever it ran into.
-// True if it hit something.
-static bool move_axis(player_t* p, level_t const* lv, portal_t const portals[2], int a, float delta) {
-    if (delta == 0.0f) return false;
-    *axis_of(&p->pos, a) += delta;
-
+static void box_cells(player_t const* p, int c0[3], int c1[3]) {
     float const lo[3] = {p->pos.x - PL_HALF_W, p->pos.y, p->pos.z - PL_HALF_W};
     float const hi[3] = {p->pos.x + PL_HALF_W, p->pos.y + PL_HEIGHT, p->pos.z + PL_HALF_W};
-    int         c0[3], c1[3];
     for (int i = 0; i < 3; i++) {
         c0[i] = (int)floorf(lo[i] + EPS);
         c1[i] = (int)floorf(hi[i] - EPS);
     }
+}
+
+// Move along one axis and push back out of whatever it ran into.
+// True if it hit something. A cell the box was already in before the
+// move does not push it: being shoved along this axis out of something
+// it got into some other way is how a box ends up on top of a wall.
+static bool move_axis(player_t* p, world_t const* w, int a, float delta) {
+    if (delta == 0.0f) return false;
+    int b0[3], b1[3];
+    box_cells(p, b0, b1);
+    *axis_of(&p->pos, a) += delta;
+    int c0[3], c1[3];
+    box_cells(p, c0, c1);
     float const below = (a == 1) ? 0.0f : PL_HALF_W;           // pos to the box's low side
     float const above = (a == 1) ? PL_HEIGHT : PL_HALF_W;      // pos to the box's high side
     bool        hit   = false;
@@ -83,7 +105,9 @@ static bool move_axis(player_t* p, level_t const* lv, portal_t const portals[2],
     for (int y = c0[1]; y <= c1[1]; y++)
         for (int z = c0[2]; z <= c1[2]; z++)
             for (int x = c0[0]; x <= c1[0]; x++) {
-                if (!blocks(p, lv, portals, x, y, z)) continue;
+                if (!blocks(w, x, y, z)) continue;
+                bool const was_in = x >= b0[0] && x <= b1[0] && y >= b0[1] && y <= b1[1] && z >= b0[2] && z <= b1[2];
+                if (was_in) continue;
                 int const   cell = a == 0 ? x : a == 1 ? y : z;
                 float const fix  = delta > 0 ? (float)cell - above - EPS : (float)(cell + 1) + below + EPS;
                 if (!hit || (delta > 0 ? fix < best : fix > best)) best = fix;
@@ -184,12 +208,15 @@ int player_update(player_t* p, level_t const* lv, portal_t const portals[2], pla
     float const sdt = dt / (float)n;
     for (int s = 0; s < n; s++) {
         vec3_t const eye0 = player_eye(p);
-        if (move_axis(p, lv, portals, 1, p->vel.y * sdt)) {
+        world_t      w    = {lv, portals, {false, false}};
+        if (linked(portals))
+            for (int i = 0; i < 2; i++) w.open[i] = fits(p, &portals[i]);
+        if (move_axis(p, &w, 1, p->vel.y * sdt)) {
             if (p->vel.y < 0.0f) p->on_ground = true;
             p->vel.y = 0.0f;
         }
-        if (move_axis(p, lv, portals, 0, p->vel.x * sdt)) p->vel.x = 0.0f;
-        if (move_axis(p, lv, portals, 2, p->vel.z * sdt)) p->vel.z = 0.0f;
+        if (move_axis(p, &w, 0, p->vel.x * sdt)) p->vel.x = 0.0f;
+        if (move_axis(p, &w, 2, p->vel.z * sdt)) p->vel.z = 0.0f;
 
         if (linked(portals)) {
             vec3_t const eye1 = player_eye(p);

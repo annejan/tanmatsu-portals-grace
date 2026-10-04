@@ -105,13 +105,15 @@ set(ENGINE_DEPS "")
 #       touches, and passes within a hair of a portal's plane on the
 #       way through. The far limit drops to 64000 * 0.05 = 3200 m.
 #   RENDER_HORIZON_Y    the middle of the screen, for a first-person view.
+#   SE_SCENE_LINE_CAP   the game draws no lines, but the engine's splash
+#       writes its title in line segments: at 64 it was cut off mid-word.
 #   SE_SCENE_TEXTURED_TRI_CAP  one pass holds the whole chamber; the
 #       lists are reused pass by pass.
 #   SE_SCENE_DEPTH16_INTERNAL  the quarter-resolution depth plane in
 #       internal SRAM: every covered pixel reads it.
 add_compile_definitions(RENDER_NEAR_CLIP_Z=0.05f)
 add_compile_definitions(RENDER_HORIZON_Y=240.0f)
-add_compile_definitions(SE_SCENE_LINE_CAP=64)
+add_compile_definitions(SE_SCENE_LINE_CAP=1024)
 add_compile_definitions(SE_SCENE_TEXTURED_TRI_CAP=2048)
 add_compile_definitions(SE_SCENE_DEPTH16_INTERNAL=1)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/synthengine3D/CMakeLists.txt)
