@@ -96,6 +96,14 @@ void portal_corners(portal_t const* p, vec3_t out[4]) {
     out[3]         = v3_add(v3_sub(p->center, r), u);
 }
 
+void portal_oval(portal_t const* p, float scale, vec3_t out[PORTAL_OVAL_N]) {
+    for (int i = 0; i < PORTAL_OVAL_N; i++) {
+        float const a = 6.2831853f * (float)i / (float)PORTAL_OVAL_N;
+        out[i]        = v3_add(p->center, v3_add(v3_scale(p->right, cosf(a) * PORTAL_HALF_W * scale),
+                                                 v3_scale(p->up, sinf(a) * PORTAL_HALF_H * scale)));
+    }
+}
+
 vec3_t portal_local(portal_t const* p, vec3_t w) {
     vec3_t const d = v3_sub(w, p->center);
     return v3(v3_dot(d, p->right), v3_dot(d, p->up), v3_dot(d, p->n));
@@ -135,15 +143,16 @@ static plane_t plane_through(vec3_t a, vec3_t b, vec3_t c, vec3_t inside) {
 
 void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in,
                          clipset_t* out) {
-    clipset_t cs = {0};
+    static clipset_t cs;  // static: three of these deep is a lot of stack
+    cs.n = 0;
     if (in != NULL) cs = *in;
-    vec3_t c[4];
-    portal_corners(entry, c);
+    vec3_t c[PORTAL_OVAL_N];
+    portal_oval(entry, 1.0f, c);
     // A point on the ray from the eye through the hole's middle, a little
     // beyond it: inside all four planes however obliquely the eye looks.
     vec3_t const inside = v3_mad(entry->center, v3_sub(entry->center, eye), 0.1f);
-    for (int i = 0; i < 4 && cs.n < PORTAL_MAX_PLANES - 1; i++) {
-        cs.p[cs.n++] = plane_through(eye, c[i], c[(i + 1) % 4], inside);
+    for (int i = 0; i < PORTAL_OVAL_N && cs.n < PORTAL_MAX_PLANES - 1; i++) {
+        cs.p[cs.n++] = plane_through(eye, c[i], c[(i + 1) % PORTAL_OVAL_N], inside);
     }
     out->n = 0;
     for (int i = 0; i < cs.n; i++) out->p[out->n++] = plane_map(entry, exit, cs.p[i]);
@@ -153,7 +162,7 @@ void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye
 }
 
 int clip_polygon(clipset_t const* cs, cvert_t const* in, int n, cvert_t* out) {
-    cvert_t buf[2][CLIP_MAX_VERTS];
+    static cvert_t buf[2][CLIP_MAX_VERTS];  // static: off the task's stack
     memcpy(buf[0], in, (size_t)n * sizeof(cvert_t));
     int cur = 0;
     for (int k = 0; k < cs->n && n > 0; k++) {

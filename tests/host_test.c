@@ -86,7 +86,7 @@ static void test_clip(void) {
     vec3_t const eye = v3(5.0f, 2.6f, 3.0f);
     clipset_t    cs;
     portal_clip_through(&a, &b, eye, NULL, &cs);
-    CHECK(cs.n == 5, "five planes, got %d", cs.n);
+    CHECK(cs.n == PORTAL_OVAL_N + 1, "a plane per oval edge and the exit's wall, got %d", cs.n);
     // The far wall seen straight through: kept. The wall b hangs on: gone.
     vec3_t const veye = portal_map_point(&a, &b, eye);
     vec3_t const look = v3_sub(b.center, veye);

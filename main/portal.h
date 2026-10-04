@@ -39,6 +39,13 @@ bool portal_place_at(level_t const* lv, int x, int y, int z, int face, vec3_t up
 // The four corners, in order round the edge.
 void portal_corners(portal_t const* p, vec3_t out[4]);
 
+// The opening is an oval: a PORTAL_OVAL_N-sided polygon inscribed in the
+// 1 x 2 rectangle, touching the middle of each side. `scale` grows or
+// shrinks it about the centre; points go round in order, starting at
+// the right-hand side. The physics still uses the rectangle.
+#define PORTAL_OVAL_N 16
+void portal_oval(portal_t const* p, float scale, vec3_t out[PORTAL_OVAL_N]);
+
 // A point / a direction / a camera basis carried from `a` to `b`.
 vec3_t  portal_map_point(portal_t const* a, portal_t const* b, vec3_t p);
 vec3_t  portal_map_dir(portal_t const* a, portal_t const* b, vec3_t d);
@@ -56,7 +63,9 @@ typedef struct {
     float  d;
 } plane_t;
 
-#define PORTAL_MAX_PLANES 16
+// Each view through a portal adds a plane per edge of the oval and one
+// for the exit's wall: 17 a level, three levels deep.
+#define PORTAL_MAX_PLANES 56
 
 typedef struct {
     plane_t p[PORTAL_MAX_PLANES];

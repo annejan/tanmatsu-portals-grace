@@ -120,29 +120,66 @@ static void submit_level(cam_t const* cam, clipset_t const* cs) {
     }
 }
 
-// A rectangle on portal `p`'s plane, from (r0, u0) to (r1, u1) in its
-// frame, lifted `lift` off the wall.
-static void portal_rect(portal_t const* p, float r0, float u0, float r1, float u1, float lift, cam_t const* cam,
-                        clipset_t const* cs, uint32_t argb) {
-    vec3_t const  c = v3_mad(p->center, p->n, lift);
-    cvert_t const v[4] = {
-        {v3_add(v3_scale(p->right, r0), v3_add(c, v3_scale(p->up, u0))), 0, 0},
-        {v3_add(v3_scale(p->right, r1), v3_add(c, v3_scale(p->up, u0))), 0, 0},
-        {v3_add(v3_scale(p->right, r1), v3_add(c, v3_scale(p->up, u1))), 0, 0},
-        {v3_add(v3_scale(p->right, r0), v3_add(c, v3_scale(p->up, u1))), 0, 0},
-    };
-    submit_quad(v, p->n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
+// A triangle on a portal's plane, `lift` off the wall.
+static void portal_tri(portal_t const* p, vec3_t a, vec3_t b, vec3_t c, float lift, cam_t const* cam,
+                       clipset_t const* cs, material_info_t const* m, uint32_t argb, uint32_t flags) {
+    vec3_t const  off = v3_scale(p->n, lift);
+    cvert_t       v[4];
+    vec3_t const  w[3] = {v3_add(a, off), v3_add(b, off), v3_add(c, off)};
+    // Texture coordinates from the world position along the face's two
+    // in-plane axes: the same grid the level mesh tiles its panels on.
+    int const a_ = p->face / 2, ua = (a_ + 1) % 3, va = (a_ + 2) % 3;
+    for (int i = 0; i < 3; i++) {
+        float const k[3] = {w[i].x, w[i].y, w[i].z};
+        v[i]             = (cvert_t){w[i], k[ua], k[va]};
+    }
+    if (v3_dot(v3_sub(cam->pos, w[0]), p->n) <= 0.0f) return;
+    if (cs == NULL) {
+        emit_poly(v, 3, m, argb, flags);
+        return;
+    }
+    cvert_t out[CLIP_MAX_VERTS];
+    int const k = clip_polygon(cs, v, 3, out);
+    if (k >= 3) emit_poly(out, k, m, argb, flags);
+}
+
+// The wall between the oval and the two cell faces the mesh left out:
+// a fan from each corner of the rectangle over its quarter of the oval.
+static void portal_frame(portal_t const* p, cam_t const* cam, clipset_t const* cs) {
+    material_info_t const* m = &s_mat[MAT_WHITE];
+    vec3_t                 o[PORTAL_OVAL_N];
+    portal_oval(p, 1.0f, o);
+    int const q = PORTAL_OVAL_N / 4;
+    for (int k = 0; k < 4; k++) {
+        float const  sr     = (k == 0 || k == 3) ? 1.0f : -1.0f;
+        float const  su     = (k < 2) ? 1.0f : -1.0f;
+        vec3_t const corner = v3_add(p->center, v3_add(v3_scale(p->right, sr * PORTAL_HALF_W),
+                                                       v3_scale(p->up, su * PORTAL_HALF_H)));
+        for (int i = 0; i < q; i++)
+            portal_tri(p, corner, o[k * q + i], o[(k * q + i + 1) % PORTAL_OVAL_N], 0.0f, cam, cs, m, m->argb, m->flags);
+    }
+}
+
+// The opening as a flat oval: a portal with nothing to show through it.
+static void portal_disc(portal_t const* p, cam_t const* cam, clipset_t const* cs, uint32_t argb) {
+    vec3_t o[PORTAL_OVAL_N];
+    portal_oval(p, 1.0f, o);
+    for (int i = 0; i < PORTAL_OVAL_N; i++)
+        portal_tri(p, p->center, o[i], o[(i + 1) % PORTAL_OVAL_N], 0.002f, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
 
 // The coloured rim: it straddles the edge of the opening, hiding the
 // pixel seam between the view and the wall round it.
 static void portal_rim(portal_t const* p, int which, cam_t const* cam, clipset_t const* cs) {
-    float const w = PORTAL_HALF_W, h = PORTAL_HALF_H, o = 0.04f, i = 0.07f, l = 0.004f;
+    vec3_t in[PORTAL_OVAL_N], out[PORTAL_OVAL_N];
+    portal_oval(p, 0.92f, in);
+    portal_oval(p, 1.05f, out);
     uint32_t const c = s_rim[which];
-    portal_rect(p, -w - o, -h - o, w + o, -h + i, l, cam, cs, c);
-    portal_rect(p, -w - o, h - i, w + o, h + o, l, cam, cs, c);
-    portal_rect(p, -w - o, -h + i, -w + i, h - i, l, cam, cs, c);
-    portal_rect(p, w - i, -h + i, w + o, h - i, l, cam, cs, c);
+    for (int i = 0; i < PORTAL_OVAL_N; i++) {
+        int const j = (i + 1) % PORTAL_OVAL_N;
+        portal_tri(p, in[i], out[i], out[j], 0.004f, cam, cs, NULL, c, SE_TRI_EMISSIVE);
+        portal_tri(p, in[i], out[j], in[j], 0.004f, cam, cs, NULL, c, SE_TRI_EMISSIVE);
+    }
 }
 
 static void set_camera(cam_t const* cam) {
@@ -161,8 +198,8 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
     submit_level(cam, cs);
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
-        if (fill & (1 << i)) portal_rect(&portals[i], -PORTAL_HALF_W, -PORTAL_HALF_H, PORTAL_HALF_W, PORTAL_HALF_H,
-                                         0.002f, cam, cs, fill_argb[i]);
+        portal_frame(&portals[i], cam, cs);
+        if (fill & (1 << i)) portal_disc(&portals[i], cam, cs, fill_argb[i]);
         portal_rim(&portals[i], i, cam, cs);
     }
     scene_render(SE_RENDER_ZBUFFER);
@@ -194,7 +231,7 @@ static void view_frustum(cam_t const* cam, clipset_t* out) {
 // Whether any of portal `p`'s opening is in view of `cam` within `cs`.
 static bool portal_visible(portal_t const* p, cam_t const* cam, clipset_t const* cs) {
     if (v3_dot(v3_sub(cam->pos, p->center), p->n) <= 0.001f) return false;
-    clipset_t all;
+    static clipset_t all;  // static: off the task's stack
     view_frustum(cam, &all);
     if (cs != NULL)
         for (int i = 0; i < cs->n && all.n < PORTAL_MAX_PLANES; i++) all.p[all.n++] = cs->p[i];
@@ -210,14 +247,16 @@ static void draw_through(pax_buf_t* target, portal_t const portals[2], int which
                          clipset_t const* cs_in, int depth) {
     portal_t const* in  = &portals[which];
     portal_t const* out = &portals[which ^ 1];
-    clipset_t       cs;
-    portal_clip_through(in, out, cam->pos, cs_in, &cs);
+    // One clip set per depth, static: three of these deep is a lot of stack.
+    static clipset_t sets[RENDER_PORTAL_DEPTH_MAX + 1];
+    clipset_t* const cs = &sets[depth];
+    portal_clip_through(in, out, cam->pos, cs_in, cs);
     cam_t const v = {portal_map_point(in, out, cam->pos), portal_map_basis(in, out, &cam->b)};
 
     // From beyond `out` the only portal that can be in view is `in`.
-    bool const deeper = depth + 1 < s_depth && portal_visible(in, &v, &cs);
-    if (deeper) draw_through(target, portals, which, &v, &cs, depth + 1);
-    draw_pass(target, &v, &cs, portals, deeper ? 0 : 1 << which, s_deep);
+    bool const deeper = depth + 1 < s_depth && portal_visible(in, &v, cs);
+    if (deeper) draw_through(target, portals, which, &v, cs, depth + 1);
+    draw_pass(target, &v, cs, portals, deeper ? 0 : 1 << which, s_deep);
 }
 
 void render_frame(pax_buf_t* target, level_t const* lv, player_t const* pl, portal_t const portals[2]) {
