@@ -10,7 +10,7 @@
     "32x32": "icon32.png",
     "64x64": "icon64.png"
   },
-  "author": "annejan",
+  "author": "Anne Jan Brouwer",
   "license_type": "MIT",
   "application": [
     {
@@ -18,7 +18,7 @@
         "tanmatsu",
         "konsool"
       ],
-      "revision": 2,
+      "revision": 1,
       "type": "script",
       "interpreter": "at.cavac.graceloader",
       "executable": "app.so",
@@ -45,5 +45,6 @@
         }
       ]
     }
-  ]
+  ],
+  "license_file": "LICENSE"
 }

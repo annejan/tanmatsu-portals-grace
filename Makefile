@@ -70,7 +70,7 @@ HOST_SRCS   := main/level.c main/portal.c main/player.c main/demo.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures
+.PHONY: check shots textures icons
 check:
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
@@ -84,6 +84,9 @@ shots:
 
 textures:
 	python3 tools/make_textures.py
+
+icons:
+	python3 tools/make_icons.py
 
 # SynthEngine3D, the 3D engine: not part of the template, added per app as a
 # git submodule (CMakeLists.txt builds it when synthengine3D/ is there, and is
@@ -216,7 +219,7 @@ mode_debug:
 	echo "Using $(BADGELINK_SH)"; \
 	"$(BADGELINK_SH)" $(BADGELINK_CONN) mode debug
 
-APP_REPO_PATH ?= ../tanmatsu-app-repository/$(APP_SLUG_NAME)
+APP_REPO_PATH ?= ../app-repository/$(APP_SLUG_NAME)
 
 .PHONY: apprepo
 apprepo: build
@@ -226,6 +229,7 @@ apprepo: build
 	cp metadata/icon16.png $(APP_REPO_PATH)/icon16.png
 	cp metadata/icon32.png $(APP_REPO_PATH)/icon32.png
 	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
+	cp LICENSE $(APP_REPO_PATH)/LICENSE
 	cp $(BUILD)/app.so $(APP_REPO_PATH)/app.so
 	mkdir -p $(APP_REPO_PATH)/textures
 	cp textures/*.png $(APP_REPO_PATH)/textures/
