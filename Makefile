@@ -1,5 +1,10 @@
 PORT ?= /dev/ttyACM0
-BADGELINKPORT ?= $(PORT)
+# Empty: badgelink talks to the P4 over USB directly (16d0:0f9a). On a
+# Tanmatsu /dev/ttyACM* is the ESP32-C6 radio coprocessor, and opening
+# it resets the radio and crashes the running badge -- so install / run
+# never touch it unless BADGELINKPORT is set on purpose (a serial port,
+# or host:port for a TCP proxy).
+BADGELINKPORT ?=
 
 SHELL := /usr/bin/env bash
 
@@ -133,7 +138,7 @@ badgelink:
 	cd badgelink/tools; ./install.sh
 
 # Determine badgelink connection argument: --tcp for host:port, --port for serial devices
-BADGELINK_CONN := $(if $(findstring :,$(BADGELINKPORT)),--tcp $(BADGELINKPORT),--port $(BADGELINKPORT))
+BADGELINK_CONN := $(if $(BADGELINKPORT),$(if $(findstring :,$(BADGELINKPORT)),--tcp $(BADGELINKPORT),--port $(BADGELINKPORT)))
 
 .PHONY: install
 install: build
