@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "input.h"
 #include "level.h"
 #include "settings.h"
@@ -15,6 +16,7 @@ static screen_t s_scr;
 static int      s_cursor[SCR_COUNT];
 static int      s_chamber;  // the one being played
 static uint32_t s_act;      // this frame's actions, from events
+static int64_t  s_opened_us;
 
 enum { A_UP = 1, A_DOWN = 2, A_LEFT = 4, A_RIGHT = 8, A_OK = 16, A_BACK = 32 };
 
@@ -26,6 +28,7 @@ static void go(screen_t s) {
 void menu_open(int current_chamber) {
     s_chamber            = current_chamber;
     s_act                = 0;
+    s_opened_us          = esp_timer_get_time();
     s_cursor[SCR_PAUSE]  = 0;
     go(SCR_PAUSE);
 }
@@ -45,6 +48,10 @@ bool menu_is_open_key(bsp_input_event_t const* ev) {
 // navigation event; collected into one bit set per frame, it counts once.
 void menu_event(bsp_input_event_t const* ev) {
     if (s_scr == SCR_NONE) return;
+    // The built-in keyboard sends Esc twice, as a scancode and as a
+    // navigation key, in the same frame. The first opened this menu; the
+    // second must not close it again before it was ever drawn.
+    if (esp_timer_get_time() - s_opened_us < 250000 && menu_is_open_key(ev)) return;
     if (ev->type == INPUT_EVENT_TYPE_SCANCODE) {
         uint16_t const sc = ev->args_scancode.scancode;
         if ((sc & BSP_INPUT_SCANCODE_RELEASE_MODIFIER) != 0) return;
