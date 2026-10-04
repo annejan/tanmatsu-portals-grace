@@ -22,6 +22,7 @@ set(APP_SOURCES
     main/portal.c
     main/render.c
     main/settings.c
+    main/sound.c
 )
 
 # Automated device tests (main/testkit/, README "Device tests"): perf and

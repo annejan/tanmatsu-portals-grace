@@ -7,6 +7,7 @@
 #include "chamber.h"
 #include "level.h"
 #include "settings.h"
+#include "sound.h"
 #include "synthengine3d.h"
 
 static char const TAG[] = "menu";
@@ -105,7 +106,7 @@ static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
     {.label = "Settings"}, {.label = "Controls"},        {.label = "Quit to launcher"},
 };
 
-enum { SET_GYRO, SET_HALF, SET_DEPTH, SET_VOLUME, SET_SCREEN, SET_KEYS, SET_BACK, SET_ROWS };
+enum { SET_GYRO, SET_HALF, SET_DEPTH, SET_MUSIC, SET_SFX, SET_VOLUME, SET_SCREEN, SET_KEYS, SET_BACK, SET_ROWS };
 #define CONTROLS_ROWS (ACT_COUNT + 2)  // every action, reset, back
 
 static se_menu_row_t s_set_rows[SET_ROWS];
@@ -163,6 +164,10 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                                                      .checked = settings_half_res()};
             s_set_rows[SET_DEPTH]  = (se_menu_row_t){.label = "Portal depth", .kind = SE_MENU_VAL_TEXT,
                                                      .value = s_depth_text};
+            s_set_rows[SET_MUSIC]  = (se_menu_row_t){.label = "Music", .kind = SE_MENU_VAL_CHECK,
+                                                     .checked = settings_music()};
+            s_set_rows[SET_SFX]    = (se_menu_row_t){.label = "Sound effects", .kind = SE_MENU_VAL_CHECK,
+                                                     .checked = settings_effects()};
             s_set_rows[SET_VOLUME] = (se_menu_row_t){.label = "Volume", .kind = SE_MENU_VAL_RANGE,
                                                      .range_pct = se_hw_get_volume()};
             s_set_rows[SET_SCREEN] = (se_menu_row_t){.label = "Screen brightness", .kind = SE_MENU_VAL_RANGE,
@@ -225,6 +230,7 @@ menu_cmd_t menu_update(void) {
     if (act & A_OK) r = se_menu_input(&m, SE_MENU_ACT_ACTIVATE);
     if (act & A_BACK) r = se_menu_input(&m, SE_MENU_ACT_BACK);
     int const cur      = m.cursor;
+    if (cur != s_cursor[s_scr] || r == SE_MENU_RESULT_ACTIVATED) sound_play(SND_MENU);
     s_cursor[s_scr]    = cur;
 
     switch (s_scr) {
@@ -252,6 +258,12 @@ menu_cmd_t menu_update(void) {
                 settings_set_gyro(!settings_gyro());
             } else if (cur == SET_HALF && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_half_res(!settings_half_res());
+            } else if (cur == SET_MUSIC && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_music(!settings_music());
+                sound_set_music(settings_music());
+            } else if (cur == SET_SFX && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_effects(!settings_effects());
+                sound_set_effects(settings_effects());
             } else if (cur == SET_DEPTH && (r == SE_MENU_RESULT_ACTIVATED || (act & A_RIGHT))) {
                 settings_set_portal_depth(settings_portal_depth() % 3 + 1);
             } else if (cur == SET_DEPTH && (act & A_LEFT)) {

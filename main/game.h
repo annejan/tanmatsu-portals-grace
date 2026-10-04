@@ -41,10 +41,16 @@ typedef struct {
 
 // Events, on top of player_event_t's.
 enum {
-    GAME_EV_PORTAL = 1 << 8,   // a portal moved: re-mesh
-    GAME_EV_PICKUP = 1 << 9,
-    GAME_EV_DROP   = 1 << 10,
-    GAME_EV_BUTTON = 1 << 11,  // a button went down or up
+    GAME_EV_PORTAL      = 1 << 8,   // a portal moved: re-mesh
+    GAME_EV_PICKUP      = 1 << 9,
+    GAME_EV_DROP        = 1 << 10,
+    GAME_EV_BUTTON      = 1 << 11,  // a button went down or up
+    GAME_EV_BUTTON_DOWN = 1 << 12,
+    GAME_EV_BUTTON_UP   = 1 << 13,
+    GAME_EV_DOOR        = 1 << 14,  // a door started to open or to shut
+    GAME_EV_SHOT_BLUE   = 1 << 15,  // a portal placed
+    GAME_EV_SHOT_ORANGE = 1 << 16,
+    GAME_EV_SHOT_FAIL   = 1 << 17,  // a shot the surface would not take
 };
 
 void game_load(game_t* g, int chamber);

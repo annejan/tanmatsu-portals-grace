@@ -178,8 +178,14 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     g->pl.yaw += in->dyaw;
     g->pl.pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, g->pl.pitch + in->dpitch));
-    for (int i = 0; i < 2; i++)
-        if (in->fire[i] && game_fire(g, i)) ev |= GAME_EV_PORTAL;
+    for (int i = 0; i < 2; i++) {
+        if (!in->fire[i]) continue;
+        if (game_fire(g, i)) {
+            ev |= GAME_EV_PORTAL | (i == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE);
+        } else {
+            ev |= GAME_EV_SHOT_FAIL;
+        }
+    }
     if (in->use) ev |= game_use(g);
 
     // The player, among the cubes.
@@ -202,7 +208,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             aabb_t const c = cube_aabb(&g->cubes[i]);
             down           = i != g->held && on_button(bt, &c);
         }
-        if (down != bt->pressed) ev |= GAME_EV_BUTTON;
+        if (down != bt->pressed) ev |= GAME_EV_BUTTON | (down ? GAME_EV_BUTTON_DOWN : GAME_EV_BUTTON_UP);
         bt->pressed = down;
     }
 
@@ -213,11 +219,14 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         bool    want = false;
         for (int b = 0; b < g->lv.n_buttons; b++)
             if (g->lv.buttons[b].link == dr->link && g->lv.buttons[b].pressed) want = true;
+        float const was = dr->open;
         if (want) {
             dr->open = fminf(1.0f, dr->open + DOOR_SPEED * dt);
         } else if (!door_blocked(g, dr)) {
             dr->open = fmaxf(0.0f, dr->open - DOOR_SPEED * dt);
         }
+        // Started moving, from either end.
+        if ((was == 0.0f || was == 1.0f) && dr->open != was) ev |= GAME_EV_DOOR;
     }
     return ev;
 }

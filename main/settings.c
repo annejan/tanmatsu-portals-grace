@@ -7,6 +7,8 @@
 static bool s_gyro  = false;
 static bool s_half  = true;
 static int  s_depth = 2;
+static bool s_music = true;
+static bool s_fx    = true;
 
 static uint8_t get(nvs_handle_t h, char const* key, uint8_t fallback) {
     uint8_t v = fallback;
@@ -30,6 +32,8 @@ void settings_load(void) {
         s_gyro  = get(h, "gyro", s_gyro) != 0;
         s_half  = get(h, "half", s_half) != 0;
         s_depth = get(h, "depth", (uint8_t)s_depth);
+        s_music = get(h, "music", s_music) != 0;
+        s_fx    = get(h, "sfx", s_fx) != 0;
         nvs_close(h);
     }
     render_set_portal_depth(s_depth);
@@ -43,6 +47,24 @@ bool settings_gyro(void) {
 void settings_set_gyro(bool on) {
     s_gyro = on;
     put("gyro", on);
+}
+
+bool settings_music(void) {
+    return s_music;
+}
+
+void settings_set_music(bool on) {
+    s_music = on;
+    put("music", on);
+}
+
+bool settings_effects(void) {
+    return s_fx;
+}
+
+void settings_set_effects(bool on) {
+    s_fx = on;
+    put("sfx", on);
 }
 
 bool settings_half_res(void) {

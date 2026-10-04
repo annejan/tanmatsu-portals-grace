@@ -21,6 +21,7 @@
 #include "portal.h"
 #include "render.h"
 #include "settings.h"
+#include "sound.h"
 #include "synthengine3d.h"
 #include "testkit/devtest.h"
 #include "testkit/showtime.h"
@@ -130,6 +131,9 @@ static void on_init(void* user) {
     if (!s_half_ok) ESP_LOGW(TAG, "no quarter-resolution layer; drawing at full resolution");
 
     se_splash_ex("PORTALS", "for Tanmatsu", 1.0f);
+    sound_init();
+    sound_set_music(settings_music());
+    sound_set_effects(settings_effects());
     load_chamber(0);
     message(s_game.lv.name);
     devtest_start(&TEST);
@@ -210,6 +214,7 @@ static void on_update(float dt, void* user) {
         .use    = in.use,
     };
     int const ev = game_step(&s_game, &gin, dt);
+    sound_events(ev);
     if (ev & GAME_EV_PORTAL) render_set_level(&s_game.lv, s_game.portals);
     if (ev & PL_EV_DIED) {
         load_chamber(s_game.chamber);
