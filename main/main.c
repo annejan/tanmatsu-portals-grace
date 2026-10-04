@@ -11,6 +11,7 @@
 #include "graceloader.h"
 #include "chamber.h"
 #include "demo.h"
+#include "editor.h"
 #include "input.h"
 #include "level.h"
 #include "menu.h"
@@ -38,6 +39,13 @@ static se_ppa_layer_t s_layer;
 static char  s_msg[64];
 static float s_msg_t;
 static int   s_pending_chamber = -1;  // load this once the message is read
+
+// Playing the chambers, editing one, or play-testing the one being edited.
+typedef enum { MODE_PLAY, MODE_EDIT, MODE_TEST } app_mode_t;
+static app_mode_t s_mode;
+static int    s_play_chamber;  // where play goes back to after the editor
+static bool   s_test_back;     // Esc in a play-test: back to the editor
+static float  s_test_done;     // the play-test reached the exit: back after a moment
 static float s_fps;
 static int   s_frames;
 static float s_period_t, s_period_ms;
@@ -139,8 +147,31 @@ static void on_init(void* user) {
     devtest_start(&TEST);
 }
 
+static void start_playtest(void) {
+    game_load_level(&s_game, editor_level());
+    render_set_level(&s_game.lv, s_game.portals);
+    s_mode      = MODE_TEST;
+    s_test_back = false;
+    s_test_done = 0.0f;
+    message("Play-test: Esc goes back to the editor");
+    input_resync();
+}
+
+static void back_to_editor(void) {
+    s_mode = MODE_EDIT;
+    editor_resume();
+}
+
 static void on_input(bsp_input_event_t const* ev, void* user) {
     (void)user;
+    if (s_mode == MODE_EDIT) {
+        editor_event(ev);
+        return;
+    }
+    if (s_mode == MODE_TEST) {
+        if (menu_is_open_key(ev)) s_test_back = true;
+        return;
+    }
     // A menu that is showing has the keyboard, all of it.
     if (menu_active()) {
         menu_event(ev);
@@ -162,6 +193,11 @@ static void menu_frame(void) {
             load_chamber(cmd.chamber);
             message(s_game.lv.name);
             break;
+        case MENU_CMD_EDITOR:
+            s_play_chamber = s_game.chamber;
+            editor_open(s_game.chamber, CHAMBER_DIR);
+            s_mode = MODE_EDIT;
+            break;
         case MENU_CMD_QUIT: bsp_device_restart_to_launcher(); break;
         default: break;
     }
@@ -178,6 +214,21 @@ static void on_update(float dt, void* user) {
         demo_frame();
         return;
     }
+    if (s_mode == MODE_EDIT) {
+        editor_cmd_t const c = editor_update(dt);
+        if (c == EDITOR_CMD_PLAYTEST) start_playtest();
+        if (c == EDITOR_CMD_QUIT) {
+            s_mode = MODE_PLAY;
+            load_chamber(s_play_chamber < level_count() ? s_play_chamber : 0);
+            message(s_game.lv.name);
+            input_resync();
+        }
+        return;
+    }
+    if (s_mode == MODE_TEST && (s_test_back || (s_test_done > 0.0f && (s_test_done -= dt) <= 0.0f))) {
+        back_to_editor();
+        return;
+    }
     if (menu_active()) {
         menu_frame();
         return;
@@ -191,8 +242,12 @@ static void on_update(float dt, void* user) {
         message(settings_gyro() ? "Gyroscope on" : "Gyroscope off");
     }
     if (in.restart) {
-        load_chamber(s_game.chamber);
-        message(s_game.lv.name);
+        if (s_mode == MODE_TEST) {
+            start_playtest();
+        } else {
+            load_chamber(s_game.chamber);
+            message(s_game.lv.name);
+        }
     }
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
@@ -216,6 +271,16 @@ static void on_update(float dt, void* user) {
     int const ev = game_step(&s_game, &gin, dt);
     sound_events(ev);
     if (ev & GAME_EV_PORTAL) render_set_level(&s_game.lv, s_game.portals);
+    if (s_mode == MODE_TEST) {
+        if (ev & PL_EV_DIED) {
+            start_playtest();
+            message("Test subject lost. Again.");
+        } else if ((ev & PL_EV_EXIT) && s_test_done <= 0.0f) {
+            message("It can be solved. Back to the editor...");
+            s_test_done = MESSAGE_S;
+        }
+        return;
+    }
     if (ev & PL_EV_DIED) {
         load_chamber(s_game.chamber);
         message("Test subject lost. Again.");
@@ -273,6 +338,10 @@ static void hud(pax_buf_t* fb) {
 
 static void on_render(pax_buf_t* fb, void* user) {
     (void)user;
+    if (s_mode == MODE_EDIT) {
+        editor_draw(fb);
+        return;
+    }
     bool const       half   = settings_half_res() && s_half_ok;
     pax_buf_t* const target = half ? &s_layer.buf : fb;
     scene_set_render_scale(half ? 2 : 1);

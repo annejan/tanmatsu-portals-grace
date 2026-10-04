@@ -54,6 +54,8 @@ enum {
 };
 
 void game_load(game_t* g, int chamber);
+// The same with a level from elsewhere (the editor's play-test).
+void game_load_level(game_t* g, level_t const* lv);
 // One step; returns PL_EV_* | GAME_EV_* bits.
 int game_step(game_t* g, game_input_t const* in, float dt);
 

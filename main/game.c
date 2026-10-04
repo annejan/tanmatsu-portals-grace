@@ -13,10 +13,17 @@ static void cube_spawn(game_t* g, int i) {
 }
 
 void game_load(game_t* g, int chamber) {
+    static level_t lv;  // static: a level is too big for the stack
+    level_load(&lv, chamber);
+    game_load_level(g, &lv);
+    g->chamber = chamber;
+}
+
+void game_load_level(game_t* g, level_t const* lv) {
     memset(g, 0, sizeof(*g));
-    level_load(&g->lv, chamber);
+    g->lv = *lv;
     player_spawn(&g->pl, &g->lv);
-    g->chamber  = chamber;
+    g->chamber  = -1;
     g->n_cubes  = g->lv.n_cubes;
     g->held     = -1;
     g->held_via = -1;

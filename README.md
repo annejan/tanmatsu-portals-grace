@@ -49,6 +49,34 @@ Aim portals at white panels. On a wall, a portal sits on the lower of the two
 panels it could use, so a shot at eye height stands on the floor, where you can
 walk into it.
 
+## The chamber editor
+
+Esc → **Chamber editor** edits the chamber you are playing. A built-in
+chamber is edited as a copy, `my-<name>`. To start from an empty chamber,
+choose **New empty chamber** in the editor's menu.
+
+The editor shows one layer at a time, from above. The top of the map is the
+far side.
+
+| Key | |
+|---|---|
+| arrows | move the cursor (hold to move faster) |
+| Q / E | go one layer down / up |
+| 1 – 9 | select a brush: metal, white, air, goo, exit, door, button, cube, start. Press 6 or 7 again to step through the door or button letters `a`–`d` / `A`–`D`. |
+| Space | paint. Hold it while you move to paint a line. |
+| B | press it at one corner, then at the other corner, to fill a rectangle |
+| Backspace | erase (set the cell to air) |
+| R | turn the start direction |
+| P | play-test. Esc goes back to the editor. |
+| F | save to `/sd/portals/chambers/<name>.txt` |
+| Esc | the editor's menu: play-test, save, size, start facing, new, quit |
+
+The editor works with the characters of the chamber file. The game reads
+the saved file in the same way as a hand-written one. If you save a chamber
+with a mistake, such as a door that is not a box, the editor shows the
+parser's message and does not save. A built-in chamber's `solution` is
+kept, but the editor does not check that it still works.
+
 ## Building
 
 ```sh
@@ -98,6 +126,9 @@ the camera basis and the clip planes all go through that one map
 | `main/physics.*` | box physics for the player and the cubes, the tunnel behind a portal, teleporting |
 | `main/player.*` | walking, jumping, the view |
 | `main/game.*` | one chamber in play: cubes, carrying, buttons, doors |
+| `main/chamber.*` | the chamber file format: parsing, writing, the list of chambers |
+| `main/draft.*`, `main/editor.*` | the chamber editor |
+| `main/sound.*` | sound effects and music |
 | `main/demo.*` | scripted runs that solve each chamber, for tests on the PC and the badge |
 | `main/render.*` | the portal passes |
 | `main/input.*` | bindings (se_bindings), keyboard, gyroscope |

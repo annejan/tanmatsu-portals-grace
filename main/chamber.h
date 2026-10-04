@@ -42,10 +42,22 @@ extern int const               chamber_builtin_count;
 // in `err`. `steps` may be NULL to skip the solution.
 bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, char* err, size_t err_n);
 
+// Write `lv` out in the file format, solution and all (`steps` may be
+// NULL). Returns the length, or -1 if `out` was too small.
+int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n);
+
+// The character a cell is written as ('#', 'W', 'S', 'a', ...).
+char chamber_cell_char(level_t const* lv, int x, int y, int z);
+
 // The list: built-ins first, then what chamber_load_dir() added.
 int         chamber_count(void);
 char const* chamber_id(int i);
+char const* chamber_text(int i);  // the file as it was read
 bool        chamber_build(int i, level_t* lv, step_t* steps, int* n_steps);
 // Add every *.txt in `dir` that parses, in name order. Returns how many;
 // a file that does not parse is skipped, and logged.
 int chamber_load_dir(char const* dir);
+// Forget the chambers chamber_load_dir() added, and read `dir` again.
+int chamber_reload_dir(char const* dir);
+// How many of the list are built in.
+int chamber_builtin_n(void);

@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include "chamber.h"
 #include "demo.h"
+#include "draft.h"
 #include "game.h"
 #include "level.h"
 #include "player.h"
@@ -384,6 +385,84 @@ static void test_things(void) {
           g.cubes[0].body.pos.y, g.cubes[0].body.pos.z);
 }
 
+// Every built-in chamber, written out and read back, is the same chamber
+// with the same solution: what the editor saves is what it loaded.
+static void test_chamber_write(void) {
+    static level_t a, b;
+    static step_t  sa[SCRIPT_MAX_STEPS], sb[SCRIPT_MAX_STEPS];
+    static char    text[32 * 1024];
+    char           err[96];
+    for (int i = 0; i < chamber_builtin_count; i++) {
+        int na = 0, nb = 0;
+        CHECK(chamber_build(i, &a, sa, &na), "%s builds", chamber_id(i));
+        int const len = chamber_write(&a, sa, na, text, sizeof(text));
+        CHECK(len > 0, "%s writes", chamber_id(i));
+        bool const ok = chamber_parse(text, &b, sb, &nb, err, sizeof(err));
+        CHECK(ok, "%s reads back: %s", chamber_id(i), err);
+        if (!ok) continue;
+        CHECK(memcmp(a.cells, b.cells, sizeof(a.cells)) == 0 && a.w == b.w && a.h == b.h && a.d == b.d,
+              "%s: same cells", chamber_id(i));
+        CHECK(strcmp(a.name, b.name) == 0 && strcmp(a.hint, b.hint) == 0 && fabsf(a.spawn_yaw - b.spawn_yaw) < 1e-4f,
+              "%s: same header", chamber_id(i));
+        CHECK(a.n_doors == b.n_doors && a.n_buttons == b.n_buttons && a.n_cubes == b.n_cubes &&
+                  memcmp(a.doors, b.doors, sizeof(a.doors)) == 0 && memcmp(a.buttons, b.buttons, sizeof(a.buttons)) == 0,
+              "%s: same doors, buttons, cubes", chamber_id(i));
+        CHECK(na == nb, "%s: same number of steps (%d, %d)", chamber_id(i), na, nb);
+        for (int k = 0; k < na && k < nb; k++)
+            CHECK(sa[k].op == sb[k].op && sa[k].which == sb[k].which && fabsf(sa[k].a - sb[k].a) < 1e-3f &&
+                      fabsf(sa[k].b - sb[k].b) < 1e-3f && fabsf(sa[k].c - sb[k].c) < 1e-3f,
+                  "%s: step %d the same", chamber_id(i), k);
+    }
+    CHECK(chamber_write(&a, NULL, 0, text, 16) == -1, "a short buffer is refused");
+}
+
+// The editor's draft: a new one is a valid chamber; every built-in one
+// goes through it unchanged; painting and resizing do what they say.
+static void test_draft(void) {
+    static draft_t d;
+    static level_t lv, ref;
+    static char    a[24 * 1024], b[24 * 1024];
+    char           err[96];
+    draft_new(&d, "my-01", 10, 6, 12);
+    CHECK(draft_level(&d, &lv, err, sizeof(err)), "a new draft is a chamber: %s", err);
+    CHECK(lv.w == 10 && lv.h == 6 && lv.d == 12 && level_get(&lv, 0, 2, 5) == MAT_WHITE &&
+              level_get(&lv, 4, 2, 5) == MAT_AIR,
+          "with white walls and air inside");
+
+    for (int i = 0; i < chamber_builtin_count; i++) {
+        CHECK(draft_from_text(&d, chamber_id(i), chamber_text(i)), "%s loads into a draft", chamber_id(i));
+        CHECK(draft_level(&d, &lv, err, sizeof(err)), "%s: the draft parses: %s", chamber_id(i), err);
+        chamber_build(i, &ref, NULL, NULL);
+        CHECK(memcmp(lv.cells, ref.cells, sizeof(lv.cells)) == 0 && lv.n_doors == ref.n_doors &&
+                  lv.n_buttons == ref.n_buttons && lv.n_cubes == ref.n_cubes,
+              "%s: the same chamber", chamber_id(i));
+        CHECK(draft_text(&d, a, sizeof(a)) > 0 && strstr(a, "\nsolution\n") != NULL, "%s: keeps its solution",
+              chamber_id(i));
+    }
+
+    draft_new(&d, "my-02", 8, 5, 8);
+    draft_paint(&d, 2, 1, 2, 'S');
+    int s_count = 0;
+    for (int y = 0; y < d.h; y++)
+        for (int z = 0; z < d.d; z++)
+            for (int x = 0; x < d.w; x++) s_count += draft_get(&d, x, y, z) == 'S';
+    CHECK(s_count == 1, "painting S moves the start (%d)", s_count);
+    draft_paint(&d, 3, 1, 3, 'a');
+    draft_paint(&d, 5, 1, 3, 'a');
+    CHECK(!draft_level(&d, &lv, err, sizeof(err)) && strstr(err, "door 'a'") != NULL, "a broken door is reported: %s", err);
+    draft_paint(&d, 4, 1, 3, 'a');
+    CHECK(draft_level(&d, &lv, err, sizeof(err)) && lv.n_doors == 1, "a door three wide: %s", err);
+
+    draft_paint(&d, 6, 1, 6, 'C');
+    draft_resize(&d, 5, 5, 5);
+    draft_resize(&d, 8, 5, 8);
+    CHECK(draft_get(&d, 6, 1, 6) == '#', "cells cut off by a resize come back as metal");
+    draft_text(&d, a, sizeof(a));
+    draft_from_text(&d, "x", a);
+    draft_text(&d, b, sizeof(b));
+    CHECK(strcmp(a, b) == 0, "text -> draft -> text is the same text");
+}
+
 // Chambers from a directory come after the built-in ones, in name order;
 // a file that does not parse is skipped. Run last: it adds to the list.
 static void test_chamber_dir(void) {
@@ -434,6 +513,8 @@ int main(void) {
     test_chamber_2();
     test_chamber_3();
     test_loop();
+    test_chamber_write();
+    test_draft();
     test_chamber_dir();
     if (s_fail) {
         printf("%d check(s) failed\n", s_fail);

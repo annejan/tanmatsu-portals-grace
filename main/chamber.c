@@ -1,5 +1,6 @@
 #include "chamber.h"
 #include <ctype.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,11 +267,104 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     return true;
 }
 
+// --- Writing --------------------------------------------------------------
+
+typedef struct {
+    char*  p;
+    size_t n, len;
+    bool   full;
+} sink_t;
+
+static void put(sink_t* o, char const* fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int const k = vsnprintf(o->p + o->len, o->len < o->n ? o->n - o->len : 0, fmt, ap);
+    va_end(ap);
+    if (k < 0 || o->len + (size_t)k >= o->n) {
+        o->full = true;
+        return;
+    }
+    o->len += (size_t)k;
+}
+
+char chamber_cell_char(level_t const* lv, int x, int y, int z) {
+    for (int i = 0; i < lv->n_buttons; i++)
+        if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z) return (char)('A' + lv->buttons[i].link);
+    for (int i = 0; i < lv->n_cubes; i++)
+        if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
+            return 'C';
+    if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z) return 'S';
+    switch (level_get(lv, x, y, z)) {
+        case MAT_AIR: return '.';
+        case MAT_WHITE: return 'W';
+        case MAT_GOO: return '~';
+        case MAT_EXIT: return 'E';
+        case MAT_DOOR: {
+            int const d = level_door_at(lv, x, y, z);
+            return (char)('a' + (d >= 0 ? lv->doors[d].link : 0));
+        }
+        default: return '#';
+    }
+}
+
+static char const* facing_name(float yaw) {
+    int d = (int)lroundf(yaw / DEG);
+    d     = ((d % 360) + 360) % 360;
+    return d == 0 ? "north" : d == 90 ? "east" : d == 180 ? "south" : d == 270 ? "west" : NULL;
+}
+
+int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n) {
+    sink_t o = {out, out_n, 0, false};
+    if (out_n) out[0] = '\0';
+    put(&o, "name: %s\n", lv->name);
+    if (lv->hint[0]) put(&o, "hint: %s\n", lv->hint);
+    put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
+    char const* f = facing_name(lv->spawn_yaw);
+    if (f) put(&o, "facing: %s\n", f);
+    else put(&o, "facing: %g\n", (double)(lv->spawn_yaw / DEG));
+    for (int y = 0; y < lv->h; y++) {
+        bool all_metal = true;
+        for (int z = 0; z < lv->d && all_metal; z++)
+            for (int x = 0; x < lv->w && all_metal; x++)
+                if (chamber_cell_char(lv, x, y, z) != '#') all_metal = false;
+        if (all_metal) continue;  // a missing layer is metal
+        put(&o, "\nlayer %d\n", y);
+        for (int z = lv->d - 1; z >= 0; z--) {
+            char row[LV_MAX_W + 2];
+            for (int x = 0; x < lv->w; x++) row[x] = chamber_cell_char(lv, x, y, z);
+            row[lv->w]     = '\n';
+            row[lv->w + 1] = '\0';
+            put(&o, "%s", row);
+        }
+    }
+    if (steps != NULL && n_steps > 0) {
+        static char const* const colour[2] = {"blue", "orange"};
+        put(&o, "\nsolution\n");
+        for (int i = 0; i < n_steps; i++) {
+            step_t const* s = &steps[i];
+            switch (s->op) {
+                case OP_SHOOT: put(&o, "shoot %s %g %g %g\n", colour[s->which & 1], (double)s->a, (double)s->b, (double)s->c); break;
+                case OP_SHOOT_VIEW: put(&o, "shoot_view %s\n", colour[s->which & 1]); break;
+                case OP_FACE: put(&o, "face %g %g\n", (double)(s->a / DEG), (double)(s->b / DEG)); break;
+                case OP_FACE_POINT: put(&o, "look %g %g %g\n", (double)s->a, (double)s->b, (double)s->c); break;
+                case OP_WALK: put(&o, "walk %g\n", (double)s->a); break;
+                case OP_WALK_TO: put(&o, "walk_to %g %g %g\n", (double)s->a, (double)s->c, (double)s->b); break;
+                case OP_STEP_OFF: put(&o, "step_off %g\n", (double)s->a); break;
+                case OP_WAIT: put(&o, "wait %g\n", (double)s->a); break;
+                case OP_USE: put(&o, "use\n"); break;
+                default: break;
+            }
+        }
+    }
+    return o.full ? -1 : (int)o.len;
+}
+
 // --- The list ---------------------------------------------------------
 
 typedef struct {
     char        id[32];
     char const* text;
+    bool        owned;  // read from a file: ours to free
 } entry_t;
 
 static entry_t s_list[CHAMBER_MAX];
@@ -294,6 +388,11 @@ int chamber_count(void) {
 char const* chamber_id(int i) {
     init();
     return i >= 0 && i < s_n ? s_list[i].id : "?";
+}
+
+char const* chamber_text(int i) {
+    init();
+    return i >= 0 && i < s_n ? s_list[i].text : "";
 }
 
 bool chamber_build(int i, level_t* lv, step_t* steps, int* n_steps) {
@@ -369,6 +468,18 @@ static int list_dir(char const* dir) {
 }
 #endif
 
+int chamber_builtin_n(void) {
+    return chamber_builtin_count < CHAMBER_MAX ? chamber_builtin_count : CHAMBER_MAX;
+}
+
+int chamber_reload_dir(char const* dir) {
+    init();
+    for (int i = chamber_builtin_n(); i < s_n; i++)
+        if (s_list[i].owned) free((void*)s_list[i].text);
+    s_n = chamber_builtin_n();
+    return chamber_load_dir(dir);
+}
+
 int chamber_load_dir(char const* dir) {
     init();
     char const* order[CHAMBER_MAX];
@@ -403,6 +514,7 @@ int chamber_load_dir(char const* dir) {
         }
         size_t const len = strlen(order[i]) - 4;
         snprintf(s_list[s_n].id, sizeof(s_list[s_n].id), "%.*s", (int)len, order[i]);
+        s_list[s_n].owned  = true;
         s_list[s_n++].text = text;
         LOGI("%s: %s", path, check.name);
         added++;
