@@ -142,6 +142,9 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     jump_t plates[LV_MAX_JUMPS];
     vec3_t targets[LV_MAX_JUMPS];
     int    n_plates = 0, n_targets = 0;
+    // The moving platform: the box its M cells span, and the N cell.
+    int  m_box[6] = {0}, n_cell[3] = {0}, n_m = 0;
+    bool have_m = false, have_n = false;
     char buf[128];
     char const* p = text;
 
@@ -164,6 +167,24 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         if (n_plates >= LV_MAX_JUMPS) return fail(&c, "more than %d faith plates", LV_MAX_JUMPS);
                         m                  = MAT_JUMP;
                         plates[n_plates++] = (jump_t){x, layer, z, v3(0, 0, 0)};
+                        break;
+                    case 'M':
+                        if (!have_m) {
+                            m_box[0] = m_box[3] = x, m_box[1] = m_box[4] = layer, m_box[2] = m_box[5] = z;
+                            have_m   = true;
+                        }
+                        if (x < m_box[0]) m_box[0] = x;
+                        if (layer < m_box[1]) m_box[1] = layer;
+                        if (z < m_box[2]) m_box[2] = z;
+                        if (x > m_box[3]) m_box[3] = x;
+                        if (layer > m_box[4]) m_box[4] = layer;
+                        if (z > m_box[5]) m_box[5] = z;
+                        n_m++;
+                        break;
+                    case 'N':
+                        if (have_n) return fail(&c, "more than one N");
+                        n_cell[0] = x, n_cell[1] = layer, n_cell[2] = z;
+                        have_n    = true;
                         break;
                     case 'T':
                         if (n_targets >= LV_MAX_JUMPS) return fail(&c, "more than %d targets", LV_MAX_JUMPS);
@@ -265,6 +286,17 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         lv->jumps[i]     = plates[i];
     }
     lv->n_jumps = n_plates;
+    if (have_m != have_n) return fail(&c, "a moving platform needs its M cells and one N");
+    if (have_m) {
+        int const sx = m_box[3] - m_box[0] + 1, sy = m_box[4] - m_box[1] + 1, sz = m_box[5] - m_box[2] + 1;
+        if (n_m != sx * sy * sz) return fail(&c, "the M cells are not a box");
+        lv->platform = (platform_t){
+            v3((float)m_box[0], (float)m_box[1], (float)m_box[2]),
+            v3((float)m_box[3] + 1, (float)m_box[4] + 1, (float)m_box[5] + 1),
+            v3((float)(n_cell[0] - m_box[0]), (float)(n_cell[1] - m_box[1]), (float)(n_cell[2] - m_box[2])),
+        };
+        lv->n_platforms = 1;
+    }
 
     // Each door must fill its box, one cell thick across x or z.
     for (int i = 0; i < lv->n_doors; i++) {
@@ -315,6 +347,14 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
         if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
             return 'C';
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z) return 'S';
+    if (lv->n_platforms) {
+        platform_t const* p = &lv->platform;
+        if ((float)x >= p->lo.x && (float)x < p->hi.x && (float)y >= p->lo.y && (float)y < p->hi.y && (float)z >= p->lo.z &&
+            (float)z < p->hi.z)
+            return 'M';
+        if (x == (int)(p->lo.x + p->travel.x) && y == (int)(p->lo.y + p->travel.y) && z == (int)(p->lo.z + p->travel.z))
+            return 'N';
+    }
     for (int i = 0; i < lv->n_jumps; i++)
         if ((int)floorf(lv->jumps[i].target.x) == x && (int)floorf(lv->jumps[i].target.y) == y &&
             (int)floorf(lv->jumps[i].target.z) == z)

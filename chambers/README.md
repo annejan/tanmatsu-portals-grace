@@ -109,6 +109,8 @@ cells are metal.
 | `F` | a fizzler: air you can walk through. Touching it closes both portals and destroys a cube you carry. A cube that touches it comes back where it started. Portal shots pass through it. |
 | `J` | a faith plate, in the floor: it throws the player or a cube to its target |
 | `T` | a faith plate's target: the air cell where it lands you. The first `J` goes with the first `T`, in reading order (layer by layer upwards, each layer top line first, left to right). |
+| `M` | a moving platform: a box of `M` cells where it starts. It is solid, and what stands on it rides along. |
+| `N` | where the platform goes: the cell its lowest corner travels to. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 
 (`C` is the cube, not button C. The game supports buttons and doors `a`–`d`,
 but chambers usually use only `A` and `B`.)

@@ -6,6 +6,8 @@
 #define CUBE_PULL     12.0f  // how hard a carried cube is pulled to the hold point
 #define CUBE_MAX_PULL 12.0f  // m/s
 #define DOOR_SPEED    2.5f   // of the way open, a second
+#define PLAT_SPEED    1.5f   // m/s
+#define PLAT_PAUSE    1.0f   // s at each end
 
 static void cube_spawn(game_t* g, int i) {
     vec3_t const s     = g->lv.cubes[i];
@@ -32,6 +34,11 @@ void game_load_level(game_t* g, level_t const* lv) {
 
 aabb_t cube_aabb(cube_t const* c) {
     return body_aabb(&c->body);
+}
+
+aabb_t platform_aabb(game_t const* g) {
+    platform_t const* p = &g->lv.platform;
+    return (aabb_t){v3_add(p->lo, g->plat_at), v3_add(p->hi, g->plat_at)};
 }
 
 static aabb_t player_aabb(player_t const* p) {
@@ -114,6 +121,7 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
     for (int i = 0; i < g->n_cubes; i++)
         if (i != skip && i != g->held) out[n++] = cube_aabb(&g->cubes[i]);
     if (skip >= 0 && skip != g->held) out[n++] = player_aabb(&g->pl);
+    if (g->lv.n_platforms) out[n++] = platform_aabb(g);
     return n;
 }
 
@@ -144,7 +152,7 @@ static bool in_fizzler(level_t const* lv, aabb_t const* a) {
 static int step_cube(game_t* g, int i, float dt) {
     int ev = 0;
     body_t* b = &g->cubes[i].body;
-    aabb_t  boxes[LV_MAX_CUBES + 1];
+    aabb_t  boxes[LV_MAX_CUBES + 2];
     int     n = gather_boxes(g, i, boxes);
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
 
@@ -216,6 +224,55 @@ static bool door_blocked(game_t const* g, door_t const* d) {
     return false;
 }
 
+// Where along its trip the platform is at time t: there, a pause, back, a pause.
+static float trip(float t, float move) {
+    float const cycle = 2.0f * (move + PLAT_PAUSE);
+    float       u     = fmodf(t, cycle);
+    if (u < PLAT_PAUSE) return 0.0f;
+    u -= PLAT_PAUSE;
+    if (u < move) return u / move;
+    u -= move;
+    if (u < PLAT_PAUSE) return 1.0f;
+    u -= PLAT_PAUSE;
+    return 1.0f - u / move;
+}
+
+// Standing on top of box `p`: resting on it, and over it.
+static bool riding(aabb_t const* p, aabb_t const* b) {
+    return fabsf(b->lo.y - p->hi.y) < 0.06f && b->lo.x < p->hi.x && b->hi.x > p->lo.x && b->lo.z < p->hi.z &&
+           b->hi.z > p->lo.z;
+}
+
+// Glide the platform on, carrying what stands on it. It waits rather
+// than move into anything that is not riding it.
+static void move_platform(game_t* g, float dt) {
+    if (!g->lv.n_platforms) return;
+    platform_t const* p    = &g->lv.platform;
+    float const       len  = v3_len(p->travel);
+    if (len < 0.01f) return;
+    float const  t1   = g->plat_t + dt;
+    vec3_t const at1  = v3_scale(p->travel, trip(t1, len / PLAT_SPEED));
+    vec3_t const step = v3_sub(at1, g->plat_at);
+    aabb_t const now  = platform_aabb(g);
+    aabb_t const next = {v3_add(now.lo, step), v3_add(now.hi, step)};
+
+    aabb_t const pa      = player_aabb(&g->pl);
+    bool const   pl_ride = riding(&now, &pa);
+    bool         cube_ride[LV_MAX_CUBES];
+    for (int i = 0; i < g->n_cubes; i++) {
+        aabb_t const c = cube_aabb(&g->cubes[i]);
+        cube_ride[i]   = i != g->held && riding(&now, &c);
+        if (!cube_ride[i] && i != g->held && aabb_overlap(&next, &c)) return;  // in the way: wait
+    }
+    if (!pl_ride && aabb_overlap(&next, &pa)) return;
+
+    g->plat_t  = t1;
+    g->plat_at = at1;
+    if (pl_ride) g->pl.pos = v3_add(g->pl.pos, step);
+    for (int i = 0; i < g->n_cubes; i++)
+        if (cube_ride[i]) g->cubes[i].body.pos = v3_add(g->cubes[i].body.pos, step);
+}
+
 int game_step(game_t* g, game_input_t const* in, float dt) {
     int ev = 0;
     if (dt <= 0.0f) return 0;
@@ -233,8 +290,10 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     }
     if (in->use) ev |= game_use(g);
 
+    move_platform(g, dt);
+
     // The player, among the cubes.
-    aabb_t boxes[LV_MAX_CUBES + 1];
+    aabb_t boxes[LV_MAX_CUBES + 2];
     int const          n   = gather_boxes(g, -1, boxes);
     phys_world_t const w   = {&g->lv, g->portals, boxes, n};
     player_input_t const pin = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};

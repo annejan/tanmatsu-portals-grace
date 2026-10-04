@@ -29,6 +29,8 @@ typedef struct {
     int      held_via;  // -1, or the portal i such that the cube is beyond it: see game.c
     float    held_far;  // seconds the carried cube has been too far from the hold point
     int      chamber;
+    float    plat_t;    // the moving platform's clock: where it is in its trip
+    vec3_t   plat_at;   // ... and how far from where it started
 } game_t;
 
 typedef struct {
@@ -71,3 +73,5 @@ bool game_fire(game_t* g, int which);
 int  game_use(game_t* g);
 
 aabb_t cube_aabb(cube_t const* c);
+// The moving platform where it is now (only if lv.n_platforms).
+aabb_t platform_aabb(game_t const* g);

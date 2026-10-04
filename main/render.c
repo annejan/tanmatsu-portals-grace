@@ -264,6 +264,15 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         aabb_t const b = cube_aabb(&g->cubes[i]);
         submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
     }
+    // The moving platform: a metal slab with a glowing edge.
+    if (g->lv.n_platforms) {
+        aabb_t const p = platform_aabb(g);
+        submit_box(p.lo, p.hi, cam, cs, &s_mat[MAT_METAL], s_mat[MAT_METAL].argb, 0);
+        submit_box(v3(p.lo.x, p.hi.y, p.lo.z), v3(p.hi.x, p.hi.y + 0.01f, p.lo.z + 0.06f), cam, cs, NULL, 0xFF2C8CFFu,
+                   SE_TRI_EMISSIVE);
+        submit_box(v3(p.lo.x, p.hi.y, p.hi.z - 0.06f), v3(p.hi.x, p.hi.y + 0.01f, p.hi.z), cam, cs, NULL, 0xFF2C8CFFu,
+                   SE_TRI_EMISSIVE);
+    }
     // Where a faith plate lands you: a faint orange square on the floor.
     for (int i = 0; i < g->lv.n_jumps; i++) {
         vec3_t const t = g->lv.jumps[i].target;

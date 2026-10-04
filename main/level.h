@@ -53,6 +53,13 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_CUBES   4
 #define LV_MAX_JUMPS   4
 
+// A moving platform: the box [lo, hi) where it starts, and how far it
+// travels; it glides there and back, pausing at each end.
+typedef struct {
+    vec3_t lo, hi;
+    vec3_t travel;
+} platform_t;
+
 // A door fills the cells [x0, x1) x [y0, y1) x [z0, z1), one cell thick
 // along x or z. It opens while any button with its `link` is pressed.
 typedef struct {
@@ -91,6 +98,8 @@ typedef struct {
     int         n_cubes;
     jump_t      jumps[LV_MAX_JUMPS];
     int         n_jumps;
+    platform_t  platform;  // M cells and the N cell; none when n_platforms is 0
+    int         n_platforms;
 } level_t;
 
 // The chambers (chamber.h): the built-in ones, then any from the SD card.

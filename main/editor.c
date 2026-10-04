@@ -134,6 +134,8 @@ static char const* brush_name(char c) {
         case 'F': return "fizzler";
         case 'J': return "faith plate";
         case 'T': return "plate target";
+        case 'M': return "platform";
+        case 'N': return "platform goes to";
         default: return c >= 'a' && c <= 'd' ? "door" : c >= 'A' && c <= 'D' ? "button" : "?";
     }
 }
@@ -265,6 +267,8 @@ void editor_event(bsp_input_event_t const* ev) {
         case BSP_INPUT_SCANCODE_MINUS: s_brush = 'F'; break;
         case BSP_INPUT_SCANCODE_EQUAL: s_brush = 'J'; break;
         case BSP_INPUT_SCANCODE_T: s_brush = 'T'; break;
+        case BSP_INPUT_SCANCODE_M: s_brush = 'M'; break;
+        case BSP_INPUT_SCANCODE_N: s_brush = 'N'; break;
         case BSP_INPUT_SCANCODE_Q:
         case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGDN: layer(-1); break;
         case BSP_INPUT_SCANCODE_E:
@@ -446,6 +450,8 @@ static uint32_t cell_colour(char c, bool floor_below) {
         case 'F': return 0xFF3070D0u;
         case 'J': return 0xFFE08020u;
         case 'T': return 0xFF6A3A10u;
+        case 'M': return 0xFF5A6070u;
+        case 'N': return 0xFF2C5C9Cu;
         case '.':
         case ' ': return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
         default:
@@ -510,13 +516,14 @@ void editor_draw(pax_buf_t* fb) {
         char        key;
         char        ch;
     } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', 'A'},
-                         {'8', 'C'}, {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}};
+                         {'8', 'C'}, {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}, {'M', 'M'},
+                         {'N', 'N'}};
     int const n_palette = (int)(sizeof(palette) / sizeof(palette[0]));
     for (int i = 0; i < n_palette; i++) {
         char ch = palette[i].ch;
         if (ch == 'a') ch = s_door;
         if (ch == 'A') ch = s_button;
-        float const y   = 90.0f + (float)i * 18.0f;
+        float const y   = 86.0f + (float)i * 16.0f;
         bool const  sel = s_brush == ch;
         pax_simple_rect(fb, cell_colour(ch, true), tx, y, 14, 14);
         snprintf(line, sizeof(line), "%c %s%s%c", palette[i].key, brush_name(ch),
