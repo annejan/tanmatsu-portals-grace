@@ -1,236 +1,201 @@
+// =====================================================================
+//  Tanmatsu Portal -- a portal puzzle on SynthEngine3D
+// =====================================================================
+
+#include <math.h>
 #include <stdio.h>
-#include "bsp/device.h"
-#include "bsp/display.h"
-#include "bsp/input.h"
-#include "bsp/led.h"
-#include "bsp/power.h"
-#include "gl_input.h"
-#include "driver/gpio.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_types.h"
 #include "esp_log.h"
-#include "hal/lcd_types.h"
-#include "nvs_flash.h"
+#include "esp_timer.h"
+#include "graceloader.h"
+#include "input.h"
+#include "level.h"
 #include "pax_fonts.h"
 #include "pax_gfx.h"
 #include "pax_text.h"
-#include "portmacro.h"
+#include "player.h"
+#include "portal.h"
+#include "render.h"
+#include "synthengine3d.h"
 
-// Constants
-static char const TAG[] = "main";
+static char const TAG[] = "portal";
 
-// Global variables
-static size_t                       display_h_res        = 0;
-static size_t                       display_v_res        = 0;
-static bsp_display_color_format_t   display_color_format = BSP_DISPLAY_COLOR_FORMAT_16_565RGB;
-static bsp_display_endianness_t     display_data_endian  = BSP_DISPLAY_ENDIAN_LITTLE;
-static pax_buf_t                    fb                   = {0};
-static QueueHandle_t                input_event_queue    = NULL;
+#define MESSAGE_S 2.5f
 
-#if defined(CONFIG_BSP_TARGET_KAMI)
-// Temporary addition for supporting epaper devices (irrelevant for Tanmatsu)
-static pax_col_t palette[] = {0xffffffff, 0xff000000, 0xffff0000};  // white, black, red
-#endif
+static level_t        s_lv;
+static player_t       s_pl;
+static portal_t       s_portals[2];
+static int            s_chamber;
+static bool           s_gyro;
+static bool           s_half = true;
+static bool           s_half_ok;
+static se_ppa_layer_t s_layer;
 
-void blit(void) {
-    bsp_display_blit(0, 0, display_h_res, display_v_res, pax_buf_get_pixels(&fb));
+static char  s_msg[64];
+static float s_msg_t;
+static int   s_pending_chamber = -1;  // load this once the message is read
+static float s_fps;
+static int64_t s_render_us;
+
+static void message(char const* text) {
+    snprintf(s_msg, sizeof(s_msg), "%s", text);
+    s_msg_t = MESSAGE_S;
+}
+
+static void load_chamber(int index) {
+    s_chamber = index;
+    level_load(&s_lv, index);
+    player_spawn(&s_pl, &s_lv);
+    s_portals[0].open = s_portals[1].open = false;
+    render_set_level(&s_lv, s_portals);
+    ESP_LOGI(TAG, "chamber %d: %s", index, s_lv.name);
+}
+
+static void fire(int which) {
+    vec3_t const  eye  = player_eye(&s_pl);
+    basis_t const view = player_view(&s_pl);
+    portal_t      p;
+    if (!portal_place(&s_lv, eye, view.fwd, &s_portals[which ^ 1], &p)) return;
+    s_portals[which] = p;
+    render_set_level(&s_lv, s_portals);
+}
+
+// --- Engine callbacks ---------------------------------------------------
+
+static void on_init(void* user) {
+    (void)user;
+    static char tex_dir[160];
+    snprintf(tex_dir, sizeof(tex_dir), "%s/textures", graceloader_get_install_basepath());
+    render_init(tex_dir);
+
+    // The half-size layer a quarter-resolution frame draws into.
+    s_half_ok = false;
+    if (se_ppa_init()) {
+        se_display_info_t di;
+        se_display_info(&di);
+        s_half_ok = se_ppa_layer_alloc(&s_layer, DISPLAY_LOG_W / 2, DISPLAY_LOG_H / 2, di.pax_format, di.reversed,
+                                       di.orientation);
+    }
+    if (!s_half_ok) ESP_LOGW(TAG, "no quarter-resolution layer; drawing at full resolution");
+
+    se_splash_ex("PORTALS", "for Tanmatsu", 1.0f);
+    load_chamber(0);
+    message(s_lv.name);
+}
+
+static void on_update(float dt, void* user) {
+    (void)user;
+    if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
+
+    input_frame_t in;
+    input_poll(&in, dt, s_gyro);
+
+    if (in.gyro) {
+        s_gyro = !s_gyro;
+        message(s_gyro ? "Gyroscope on" : "Gyroscope off");
+    }
+    if (in.half && s_half_ok) s_half = !s_half;
+    if (in.depth) {
+        render_set_portal_depth(render_portal_depth() % RENDER_PORTAL_DEPTH_MAX + 1);
+        char m[32];
+        snprintf(m, sizeof(m), "Portal depth %d", render_portal_depth());
+        message(m);
+    }
+    if (in.restart) {
+        load_chamber(s_chamber);
+        message(s_lv.name);
+    }
+    if (in.next) s_pending_chamber = (s_chamber + 1) % level_count();
+
+    if (s_msg_t > 0.0f) s_msg_t -= dt;
+    if (s_pending_chamber >= 0 && (s_msg_t <= 0.0f || in.next)) {
+        load_chamber(s_pending_chamber);
+        s_pending_chamber = -1;
+        message(s_lv.name);
+        return;
+    }
+    if (s_pending_chamber >= 0) return;  // the chamber is done; wait out the message
+
+    s_pl.yaw += in.dyaw;
+    s_pl.pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, s_pl.pitch + in.dpitch));
+    if (in.fire[0]) fire(PORTAL_BLUE);
+    if (in.fire[1]) fire(PORTAL_ORANGE);
+
+    player_input_t const pin = {.fwd = in.fwd, .strafe = in.strafe, .jump = in.jump};
+    int const            ev  = player_update(&s_pl, &s_lv, s_portals, &pin, dt);
+    if (ev & PL_EV_DIED) {
+        load_chamber(s_chamber);
+        message("Test subject lost. Again.");
+    } else if (ev & PL_EV_EXIT) {
+        int const next = s_chamber + 1;
+        message(next < level_count() ? "Chamber complete" : "All chambers complete. Cake later.");
+        s_pending_chamber = next % level_count();
+    }
+}
+
+static void on_backdrop(pax_buf_t* fb, void* user) {
+    (void)fb;
+    (void)user;  // every pixel is drawn by the passes; nothing to clear
+}
+
+static void hud(pax_buf_t* fb) {
+    float const cx = RENDER_HALF_W, cy = RENDER_HORIZON_Y;
+    // The crosshair: blue half left, orange half right, filled when placed.
+    for (int i = 0; i < 2; i++) {
+        uint32_t const col = i == 0 ? 0xFF2C8CFFu : 0xFFFF8A1Cu;
+        float const    x   = i == 0 ? cx - 12 : cx + 6;
+        if (s_portals[i].open) {
+            pax_simple_rect(fb, col, x, cy - 8, 6, 16);
+        } else {
+            pax_outline_rect(fb, col, x, cy - 8, 6, 16);
+        }
+    }
+    pax_simple_rect(fb, 0xFFFFFFFFu, cx - 1, cy - 1, 2, 2);
+
+    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_lv.name);
+    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_lv.hint);
+    int  passes, tris;
+    char stat[64];
+    render_stats(&passes, &tris);
+    snprintf(stat, sizeof(stat), "%2.0f fps %3lld ms  %d pass %d tri%s%s", s_fps, s_render_us / 1000, passes, tris,
+             s_half ? "  half" : "", s_gyro ? "  gyro" : "");
+    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
+
+    if (s_msg_t > 0.0f) {
+        pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
+        pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
+    }
+}
+
+static void on_render(pax_buf_t* fb, void* user) {
+    (void)user;
+    bool const       half   = s_half && s_half_ok;
+    pax_buf_t* const target = half ? &s_layer.buf : fb;
+    scene_set_render_scale(half ? 2 : 1);
+
+    int64_t const t0 = esp_timer_get_time();
+    render_frame(target, &s_lv, &s_pl, s_portals);
+    if (half) {
+        // The CPU's pixels to PSRAM before the PPA's DMA reads them.
+        se_ppa_layer_sync(&s_layer);
+        if (se_ppa_blit_scaled(fb, 0, &s_layer, 2)) {
+            se_ppa_wait_job(0);
+            se_ppa_buf_invalidate(fb);  // the HUD draws on top with the CPU
+        }
+    }
+    s_render_us = esp_timer_get_time() - t0;
+    hud(fb);
 }
 
 void app_main(void) {
-    // Start the GPIO interrupt service
-    gpio_install_isr_service(0);
-
-    // Initialize the Non Volatile Storage partition
-    esp_err_t res = nvs_flash_init();
-    if (res == ESP_ERR_NVS_NO_FREE_PAGES || res == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        res = nvs_flash_erase();
-        if (res != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to erase NVS flash: %d", res);
-            return;
-        }
-        res = nvs_flash_init();
-    }
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize NVS flash: %d", res);
-        return;
-    }
-
-    // Initialize the Board Support Package
-    const bsp_configuration_t bsp_configuration = {
-        .display =
-            {
-                .requested_color_format = BSP_DISPLAY_COLOR_FORMAT_24_888RGB,
-                .num_fbs                = 1,
-            },
+    static se_app_config_t const cfg = {
+        .f1_exits      = true,
+        .backdrop_argb = 0xFF000000u,
     };
-    res = bsp_device_initialize(&bsp_configuration);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize BSP: %d", res);
-        return;
-    }
-
-    // Get display parameters and rotation
-    res = bsp_display_get_parameters(&display_h_res, &display_v_res, &display_color_format, &display_data_endian);
-    if (res != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to get display parameters: %d", res);
-        return;
-    }
-
-    // Convert BSP color format into PAX buffer type
-    pax_buf_type_t format = PAX_BUF_24_888RGB;
-    switch (display_color_format) {
-        case BSP_DISPLAY_COLOR_FORMAT_16_565RGB:
-            format = PAX_BUF_16_565RGB;
-            break;
-        case BSP_DISPLAY_COLOR_FORMAT_24_888RGB:
-            format = PAX_BUF_24_888RGB;
-            break;
-        default:
-            break;
-    }
-
-    // Convert BSP display rotation format into PAX orientation type
-    bsp_display_rotation_t display_rotation = bsp_display_get_default_rotation();
-    pax_orientation_t orientation = PAX_O_UPRIGHT;
-    switch (display_rotation) {
-        case BSP_DISPLAY_ROTATION_90:
-            orientation = PAX_O_ROT_CCW;
-            break;
-        case BSP_DISPLAY_ROTATION_180:
-            orientation = PAX_O_ROT_HALF;
-            break;
-        case BSP_DISPLAY_ROTATION_270:
-            orientation = PAX_O_ROT_CW;
-            break;
-        case BSP_DISPLAY_ROTATION_0:
-        default:
-            orientation = PAX_O_UPRIGHT;
-            break;
-    }
-
-        // Initialize graphics stack
-#if defined(CONFIG_BSP_TARGET_KAMI)
-    // Temporary addition for supporting epaper devices (irrelevant for Tanmatsu)
-    format = PAX_BUF_2_PAL;
-#endif
-    pax_buf_init(&fb, NULL, display_h_res, display_v_res, format);
-    pax_buf_reversed(&fb, display_data_endian == BSP_DISPLAY_ENDIAN_BIG);
-#if defined(CONFIG_BSP_TARGET_KAMI)
-    // Temporary addition for supporting epaper devices (irrelevant for Tanmatsu)
-    fb.palette      = palette;
-    fb.palette_size = sizeof(palette) / sizeof(pax_col_t);
-#endif
-    pax_buf_set_orientation(&fb, orientation);
-
-#if defined(CONFIG_BSP_TARGET_KAMI)
-#define BLACK 0
-#define WHITE 1
-#define RED   2
-#else
-#define BLACK 0xFF000000
-#define WHITE 0xFFFFFFFF
-#define RED   0xFFFF0000
-#endif
-
-    // Get input event queue from graceloader (merges native + USB keyboard)
-    ESP_ERROR_CHECK(gl_input_get_queue(&input_event_queue));
-
-    // LEDs
-    bsp_led_set_pixel(0, 0xFF0000);  // Red
-    bsp_led_set_pixel(1, 0x00FF00);  // Green
-    bsp_led_set_pixel(2, 0x0000FF);  // Blue
-    bsp_led_set_pixel(3, 0xFFFF00);  // Yellow
-    bsp_led_set_pixel(4, 0x00FFFF);  // Magenta
-    bsp_led_set_pixel(5, 0xFF00FF);  // Cyan
-    bsp_led_send();                  // Send data to the coprocessor
-    bsp_led_set_mode(false);         // Take control over all LEDs by disabling automatic mode
-
-    // Main section of the app
-
-    // This example shows how to read from the BSP event queue to read input events
-
-    // If you want to run something at an interval in this same main thread you can replace portMAX_DELAY with an amount
-    // of ticks to wait, for example pdMS_TO_TICKS(1000)
-
-    pax_background(&fb, WHITE);
-    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 0, "Welcome! Press any key to trigger an event.");
-    blit();
-
-    while (1) {
-        bsp_input_event_t event;
-        if (xQueueReceive(input_event_queue, &event, portMAX_DELAY) == pdTRUE) {
-            switch (event.type) {
-                case INPUT_EVENT_TYPE_KEYBOARD: {
-                    if (event.args_keyboard.ascii != '\b' ||
-                        event.args_keyboard.ascii != '\t') {  // Ignore backspace & tab keyboard events
-                        ESP_LOGI(TAG, "Keyboard event %c (%02x) %s", event.args_keyboard.ascii,
-                                 (uint8_t)event.args_keyboard.ascii, event.args_keyboard.utf8);
-                        pax_simple_rect(&fb, WHITE, 0, 0, pax_buf_get_width(&fb), 72);
-                        pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 0, "Keyboard event");
-                        char text[64];
-                        snprintf(text, sizeof(text), "ASCII:     %c (0x%02x)", event.args_keyboard.ascii,
-                                 (uint8_t)event.args_keyboard.ascii);
-                        pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 18, text);
-                        snprintf(text, sizeof(text), "UTF-8:     %s", event.args_keyboard.utf8);
-                        pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 36, text);
-                        snprintf(text, sizeof(text), "Modifiers: 0x%0" PRIX32, event.args_keyboard.modifiers);
-                        pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 54, text);
-                        blit();
-                    }
-                    break;
-                }
-                case INPUT_EVENT_TYPE_NAVIGATION: {
-                    ESP_LOGI(TAG, "Navigation event %0" PRIX32 ": %s", (uint32_t)event.args_navigation.key,
-                             event.args_navigation.state ? "pressed" : "released");
-
-                    if (event.args_navigation.key == BSP_INPUT_NAVIGATION_KEY_F1) {
-                        bsp_device_restart_to_launcher();
-                    }
-                    if (event.args_navigation.key == BSP_INPUT_NAVIGATION_KEY_F2) {
-                        bsp_input_set_backlight_brightness(0);
-                    }
-                    if (event.args_navigation.key == BSP_INPUT_NAVIGATION_KEY_F3) {
-                        bsp_input_set_backlight_brightness(100);
-                    }
-
-                    pax_simple_rect(&fb, WHITE, 0, 100, pax_buf_get_width(&fb), 72);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 100 + 0, "Navigation event");
-                    char text[64];
-                    snprintf(text, sizeof(text), "Key:       0x%0" PRIX32, (uint32_t)event.args_navigation.key);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 100 + 18, text);
-                    snprintf(text, sizeof(text), "State:     %s", event.args_navigation.state ? "pressed" : "released");
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 100 + 36, text);
-                    snprintf(text, sizeof(text), "Modifiers: 0x%0" PRIX32, event.args_navigation.modifiers);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 100 + 54, text);
-                    blit();
-                    break;
-                }
-                case INPUT_EVENT_TYPE_ACTION: {
-                    ESP_LOGI(TAG, "Action event 0x%0" PRIX32 ": %s", (uint32_t)event.args_action.type,
-                             event.args_action.state ? "yes" : "no");
-                    pax_simple_rect(&fb, WHITE, 0, 200 + 0, pax_buf_get_width(&fb), 72);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 200 + 0, "Action event");
-                    char text[64];
-                    snprintf(text, sizeof(text), "Type:      0x%0" PRIX32, (uint32_t)event.args_action.type);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 200 + 36, text);
-                    snprintf(text, sizeof(text), "State:     %s", event.args_action.state ? "yes" : "no");
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 200 + 54, text);
-                    blit();
-                    break;
-                }
-                case INPUT_EVENT_TYPE_SCANCODE: {
-                    ESP_LOGI(TAG, "Scancode event 0x%0" PRIX32, (uint32_t)event.args_scancode.scancode);
-                    pax_simple_rect(&fb, WHITE, 0, 300 + 0, pax_buf_get_width(&fb), 72);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 300 + 0, "Scancode event");
-                    char text[64];
-                    snprintf(text, sizeof(text), "Scancode:  0x%0" PRIX32, (uint32_t)event.args_scancode.scancode);
-                    pax_draw_text(&fb, BLACK, pax_font_sky_mono, 16, 0, 300 + 36, text);
-                    blit();
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-    }
+    static se_app_callbacks_t const cb = {
+        .on_init     = on_init,
+        .on_update   = on_update,
+        .on_backdrop = on_backdrop,
+        .on_render   = on_render,
+    };
+    se_run(&cfg, &cb, NULL);
 }

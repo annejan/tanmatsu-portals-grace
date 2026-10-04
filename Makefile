@@ -4,7 +4,7 @@ BADGELINKPORT ?= $(PORT)
 SHELL := /usr/bin/env bash
 
 # App installation settings
-APP_SLUG_NAME ?= tld.username.gracetemplate
+APP_SLUG_NAME ?= com.annejan.portals
 APP_INSTALL_BASE_PATH ?= /int/apps/
 APP_INSTALL_PATH = $(APP_INSTALL_BASE_PATH)$(APP_SLUG_NAME)
 
@@ -24,6 +24,10 @@ export IDF_GITHUB_ASSETS
 
 BUILD ?= build
 
+# The chamber textures. Generated (tools/make_textures.py) and committed,
+# so a clone builds without Pillow; `make textures` regenerates them.
+TEXTURES := $(patsubst textures/%,%,$(wildcard textures/*.png))
+
 MAKEFLAGS += --silent
 
 ####
@@ -32,11 +36,43 @@ MAKEFLAGS += --silent
 all: build
 
 .PHONY: build
-build:
+build: check
 	@echo "=== Building app.so ==="
 	mkdir -p $(BUILD)
 	cd $(BUILD) && cmake .. && make
 	@echo "=== Build complete: $(BUILD)/app.so ==="
+
+# ---------------------------------------------------------------------
+# Host checks: no badge, a second to run. `build` depends on `check`, so
+# a broken invariant stops the build that broke it.
+#
+#   make check   portal maths, placement, and a scripted player solving
+#                every chamber with real shots and physics
+#   make shots   the game's renderer through a software rasterizer:
+#                build/shots/*.png, to look at the portal passes
+#
+# The engine settings come out of CMakeLists.txt, so the host draws with
+# the near plane and horizon the badge does.
+# ---------------------------------------------------------------------
+HOSTCC      ?= cc
+HOST_SRCS   := main/level.c main/portal.c main/player.c
+ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
+HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
+
+.PHONY: check shots textures
+check:
+	mkdir -p $(BUILD)
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
+	$(BUILD)/host_test
+
+shots:
+	mkdir -p $(BUILD)/shots
+	$(HOSTCC) -O2 -Wall -Wextra $(HOST_ENGINE) -Imain $(ENGINE_DEFS) tests/host_shot.c main/render.c $(HOST_SRCS) -lm -o $(BUILD)/host_shot
+	$(BUILD)/host_shot
+	python3 -c "from PIL import Image; import glob; [Image.open(f).save(f[:-4] + '.png') for f in glob.glob('$(BUILD)/shots/*.ppm')]"
+
+textures:
+	python3 tools/make_textures.py
 
 # SynthEngine3D, the 3D engine: not part of the template, added per app as a
 # git submodule (CMakeLists.txt builds it when synthengine3D/ is there, and is
@@ -114,6 +150,11 @@ install: build
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
 	@echo "Uploading app.so..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/app.so ../../$(BUILD)/app.so
+	@echo "Uploading textures..."
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/textures || true
+	for t in $(TEXTURES); do \
+	  (cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/textures/$$t ../../textures/$$t) || exit 1; \
+	done
 	@echo "=== Installation complete ==="
 
 GRACELOADER_SLUG ?= at.cavac.graceloader
@@ -168,6 +209,8 @@ apprepo: build
 	cp metadata/icon32.png $(APP_REPO_PATH)/icon32.png
 	cp metadata/icon64.png $(APP_REPO_PATH)/icon64.png
 	cp $(BUILD)/app.so $(APP_REPO_PATH)/app.so
+	mkdir -p $(APP_REPO_PATH)/textures
+	cp textures/*.png $(APP_REPO_PATH)/textures/
 	@echo "=== App repository updated at $(APP_REPO_PATH) ==="
 
 # Preparation

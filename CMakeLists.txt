@@ -11,6 +11,11 @@ project(app C)
 set(APP_SOURCES
     main/main.c
     main/crt0.c
+    main/input.c
+    main/level.c
+    main/player.c
+    main/portal.c
+    main/render.c
 )
 
 # Automated device tests (main/testkit/, README "Automated device tests").
@@ -68,6 +73,22 @@ target_compile_options(app_obj PRIVATE
 # app.so by the link script below, since the custom command, not CMake, links.
 set(ENGINE_OBJS "")
 set(ENGINE_DEPS "")
+# Engine settings. Compile definitions that must reach the synthengine3d
+# target too, so they come before add_subdirectory().
+#
+#   RENDER_NEAR_CLIP_Z  down from 0.5: the eye is 0.3 from a wall it
+#       touches, and passes within a hair of a portal's plane on the
+#       way through. The far limit drops to 64000 * 0.05 = 3200 m.
+#   RENDER_HORIZON_Y    the middle of the screen, for a first-person view.
+#   SE_SCENE_TEXTURED_TRI_CAP  one pass holds the whole chamber; the
+#       lists are reused pass by pass.
+#   SE_SCENE_DEPTH16_INTERNAL  the quarter-resolution depth plane in
+#       internal SRAM: every covered pixel reads it.
+add_compile_definitions(RENDER_NEAR_CLIP_Z=0.05f)
+add_compile_definitions(RENDER_HORIZON_Y=240.0f)
+add_compile_definitions(SE_SCENE_LINE_CAP=64)
+add_compile_definitions(SE_SCENE_TEXTURED_TRI_CAP=2048)
+add_compile_definitions(SE_SCENE_DEPTH16_INTERNAL=1)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/synthengine3D/CMakeLists.txt)
     message(STATUS "SynthEngine3D: building synthengine3D/")
     add_subdirectory(synthengine3D)
