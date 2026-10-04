@@ -15,16 +15,22 @@
 // by a quick attack and a falling tail, through an optional low-pass. Up
 // to four notes in a row make a jingle.
 
-typedef enum { W_SINE, W_SQUARE, W_SAW, W_TRI, W_NOISE } wave_t;
+typedef enum {
+    W_SINE,
+    W_SQUARE,
+    W_SAW,
+    W_TRI,
+    W_NOISE
+} wave_t;
 
 typedef struct {
     wave_t wave;
-    float  f0, f1;     // Hz, swept exponentially over the note
-    float  dur;        // seconds, per note
-    float  attack;     // seconds
-    float  gain;       // 0..1
-    float  lowpass;    // Hz, 0 for none
-    float  notes[4];   // a jingle: each note's f0 (f1 = f0); 0 ends it
+    float  f0, f1;    // Hz, swept exponentially over the note
+    float  dur;       // seconds, per note
+    float  attack;    // seconds
+    float  gain;      // 0..1
+    float  lowpass;   // Hz, 0 for none
+    float  notes[4];  // a jingle: each note's f0 (f1 = f0); 0 ends it
 } recipe_t;
 
 static recipe_t const s_recipe[SND_COUNT] = {
@@ -50,9 +56,9 @@ typedef struct {
     recipe_t       r;
     bool           used;
     int64_t        free_us;  // reusable from then: finished, and surely reaped by the mixer
-    uint32_t       t, n;  // samples played of this note, and its length
-    int            note;  // jingle: which note
-    float          inc, k;  // phase increment, and its factor per sample (the sweep)
+    uint32_t       t, n;     // samples played of this note, and its length
+    int            note;     // jingle: which note
+    float          inc, k;   // phase increment, and its factor per sample (the sweep)
     uint32_t       phase, noise;
     audio_biquad_t lp;
 } fx_t;
@@ -84,21 +90,31 @@ static void fx_render(sfx_voice_t* self, int16_t* out, size_t frames) {
         }
         float s;
         switch (v->r.wave) {
-            case W_SQUARE: s = audio_dsp_square(v->phase); break;
-            case W_SAW: s = audio_dsp_saw(v->phase); break;
-            case W_TRI: s = audio_dsp_triangle(v->phase); break;
-            case W_NOISE: s = audio_dsp_noise(&v->noise); break;
-            default: s = audio_dsp_sin(v->phase); break;
+            case W_SQUARE:
+                s = audio_dsp_square(v->phase);
+                break;
+            case W_SAW:
+                s = audio_dsp_saw(v->phase);
+                break;
+            case W_TRI:
+                s = audio_dsp_triangle(v->phase);
+                break;
+            case W_NOISE:
+                s = audio_dsp_noise(&v->noise);
+                break;
+            default:
+                s = audio_dsp_sin(v->phase);
+                break;
         }
         if (v->r.lowpass > 0) s = audio_biquad_tick(&v->lp, s);
-        float const x   = (float)v->t / (float)v->n;
-        float const att = v->r.attack > 0 ? fminf(1.0f, (float)v->t / (v->r.attack * SR)) : 1.0f;
-        float const env = att * (1.0f - x) * (1.0f - x);
-        int16_t const o = audio_dsp_to_s16(s * env * v->r.gain);
-        out[2 * i]      = o;
-        out[2 * i + 1]  = o;
-        v->phase += (uint32_t)v->inc;
-        v->inc *= v->k;
+        float const   x    = (float)v->t / (float)v->n;
+        float const   att  = v->r.attack > 0 ? fminf(1.0f, (float)v->t / (v->r.attack * SR)) : 1.0f;
+        float const   env  = att * (1.0f - x) * (1.0f - x);
+        int16_t const o    = audio_dsp_to_s16(s * env * v->r.gain);
+        out[2 * i]         = o;
+        out[2 * i + 1]     = o;
+        v->phase          += (uint32_t)v->inc;
+        v->inc            *= v->k;
         v->t++;
     }
 }
@@ -150,7 +166,7 @@ void sound_events(int ev) {
 // preset's progressions and arps, but at 76-88 BPM, a soft sine arp, a
 // warm pad in front, a kick on the one and nothing else for drums.
 
-static se_music_config_t      s_music;
+static se_music_config_t             s_music;
 static se_music_drum_pattern_t const s_drums[] = {
     {.kick = 0x0001, .snare = 0x0000, .hat = 0x0000},
     {.kick = 0x0101, .snare = 0x0000, .hat = 0x0000},
@@ -158,25 +174,25 @@ static se_music_drum_pattern_t const s_drums[] = {
 static uint16_t const s_bass[] = {0x0101, 0x0001};
 
 void sound_init(void) {
-    s_music                    = *se_music_synthwave_preset();
-    s_music.bpm_min            = 76;
-    s_music.bpm_span           = 12;
-    s_music.drum_patterns      = s_drums;
-    s_music.drum_pattern_count = (int)(sizeof(s_drums) / sizeof(s_drums[0]));
-    s_music.bass_patterns      = s_bass;
-    s_music.bass_pattern_count = (int)(sizeof(s_bass) / sizeof(s_bass[0]));
-    s_music.arp.osc            = SE_OSC_SINE;
-    s_music.arp.osc_count      = 1;
-    s_music.arp.gain *= 0.5f;
-    s_music.arp.env.release    = 0.6f;
-    s_music.bass.filter        = SE_FILTER_LPF;
-    s_music.bass.cutoff_hz     = 300.0f;
-    s_music.pad.gain *= 1.3f;
-    s_music.pad.amp_lfo_hz     = 0.15f;
-    s_music.pad.amp_lfo_depth  = 0.3f;
-    s_music.kick.gain *= 0.6f;
-    s_music.snare_voice = NULL;
-    s_music.hat_voice   = NULL;
+    s_music                     = *se_music_synthwave_preset();
+    s_music.bpm_min             = 76;
+    s_music.bpm_span            = 12;
+    s_music.drum_patterns       = s_drums;
+    s_music.drum_pattern_count  = (int)(sizeof(s_drums) / sizeof(s_drums[0]));
+    s_music.bass_patterns       = s_bass;
+    s_music.bass_pattern_count  = (int)(sizeof(s_bass) / sizeof(s_bass[0]));
+    s_music.arp.osc             = SE_OSC_SINE;
+    s_music.arp.osc_count       = 1;
+    s_music.arp.gain           *= 0.5f;
+    s_music.arp.env.release     = 0.6f;
+    s_music.bass.filter         = SE_FILTER_LPF;
+    s_music.bass.cutoff_hz      = 300.0f;
+    s_music.pad.gain           *= 1.3f;
+    s_music.pad.amp_lfo_hz      = 0.15f;
+    s_music.pad.amp_lfo_depth   = 0.3f;
+    s_music.kick.gain          *= 0.6f;
+    s_music.snare_voice         = NULL;
+    s_music.hat_voice           = NULL;
     audio_mixer_set_music(music_procedural_create(&s_music, 0x9047A1u));
     audio_mixer_set_music_volume(60);
 }

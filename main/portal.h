@@ -17,7 +17,10 @@
 #define PORTAL_HALF_W 0.5f
 #define PORTAL_HALF_H 1.0f
 
-enum { PORTAL_BLUE = 0, PORTAL_ORANGE = 1 };
+enum {
+    PORTAL_BLUE   = 0,
+    PORTAL_ORANGE = 1
+};
 
 typedef struct {
     bool   open;
@@ -33,8 +36,7 @@ bool portal_place(level_t const* lv, vec3_t eye, vec3_t look, portal_t const* ot
 
 // Fill `out` as the portal on (cell, face), with the given `up` -- for
 // tests and for setting a chamber up. False if it does not fit there.
-bool portal_place_at(level_t const* lv, int x, int y, int z, int face, vec3_t up, portal_t const* other,
-                     portal_t* out);
+bool portal_place_at(level_t const* lv, int x, int y, int z, int face, vec3_t up, portal_t const* other, portal_t* out);
 
 // The four corners, in order round the edge.
 void portal_corners(portal_t const* p, vec3_t out[4]);
@@ -77,8 +79,7 @@ typedef struct {
 // view) narrowed by the four planes through the eye and the entry's
 // edges, mapped to the far side, plus the exit's own plane, which cuts
 // away everything behind the wall it hangs on.
-void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in,
-                         clipset_t* out);
+void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in, clipset_t* out);
 
 // Clip a convex polygon of `n` vertices against every plane in `cs`.
 // Vertices carry texture coordinates along. Returns the new count; 0 if

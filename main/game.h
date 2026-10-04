@@ -9,11 +9,11 @@
 #include "player.h"
 #include "portal.h"
 
-#define CUBE_HALF   0.3f  // the cube is 0.6 m on a side
-#define CUBE_HOLD   1.3f  // carried this far in front of the eye
-#define CUBE_REACH  2.0f  // picked up from no further than this
-#define CUBE_LETGO  2.5f  // dropped when this far from where it should be ...
-#define CUBE_STUCK  0.4f  // ... for this long: stuck, not merely swinging round
+#define CUBE_HALF  0.3f  // the cube is 0.6 m on a side
+#define CUBE_HOLD  1.3f  // carried this far in front of the eye
+#define CUBE_REACH 2.0f  // picked up from no further than this
+#define CUBE_LETGO 2.5f  // dropped when this far from where it should be ...
+#define CUBE_STUCK 0.4f  // ... for this long: stuck, not merely swinging round
 
 typedef struct {
     body_t body;
@@ -29,8 +29,8 @@ typedef struct {
     int      held_via;  // -1, or the portal i such that the cube is beyond it: see game.c
     float    held_far;  // seconds the carried cube has been too far from the hold point
     int      chamber;
-    float    plat_t;    // the moving platform's clock: where it is in its trip
-    vec3_t   plat_at;   // ... and how far from where it started
+    float    plat_t;   // the moving platform's clock: where it is in its trip
+    vec3_t   plat_at;  // ... and how far from where it started
 } game_t;
 
 typedef struct {
@@ -43,7 +43,7 @@ typedef struct {
 
 // Events, on top of player_event_t's.
 enum {
-    GAME_EV_PORTAL      = 1 << 8,   // a portal moved: re-mesh
+    GAME_EV_PORTAL      = 1 << 8,  // a portal moved: re-mesh
     GAME_EV_PICKUP      = 1 << 9,
     GAME_EV_DROP        = 1 << 10,
     GAME_EV_BUTTON      = 1 << 11,  // a button went down or up
@@ -57,16 +57,11 @@ enum {
     GAME_EV_LAUNCH      = 1 << 19,  // a faith plate threw something
 };
 
-// The velocity that carries a body from `from` (its base) to land on
-// `to`: an arc peaking JUMP_APEX above the higher of the two.
-#define JUMP_APEX 2.5f
-vec3_t jump_velocity(vec3_t from, vec3_t to);
-
 void game_load(game_t* g, int chamber);
 // The same with a level from elsewhere (the editor's play-test).
 void game_load_level(game_t* g, level_t const* lv);
 // One step; returns PL_EV_* | GAME_EV_* bits.
-int game_step(game_t* g, game_input_t const* in, float dt);
+int  game_step(game_t* g, game_input_t const* in, float dt);
 
 // The pieces of a step, for scripts that act between steps.
 bool game_fire(game_t* g, int which);

@@ -10,7 +10,7 @@
 #define PLAT_PAUSE    1.0f   // s at each end
 
 static void cube_spawn(game_t* g, int i) {
-    vec3_t const s     = g->lv.cubes[i];
+    vec3_t const s   = g->lv.cubes[i];
     g->cubes[i].body = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
 }
 
@@ -70,7 +70,7 @@ bool game_fire(game_t* g, int which) {
 static float ray_aabb(vec3_t o, vec3_t d, aabb_t const* b) {
     float const ol[3] = {o.x, o.y, o.z}, dl[3] = {d.x, d.y, d.z};
     float const lo[3] = {b->lo.x, b->lo.y, b->lo.z}, hi[3] = {b->hi.x, b->hi.y, b->hi.z};
-    float t0 = 0.0f, t1 = 1e30f;
+    float       t0 = 0.0f, t1 = 1e30f;
     for (int a = 0; a < 3; a++) {
         if (fabsf(dl[a]) < 1e-9f) {
             if (ol[a] < lo[a] || ol[a] > hi[a]) return -1.0f;
@@ -125,7 +125,11 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
     return n;
 }
 
-vec3_t jump_velocity(vec3_t from, vec3_t to) {
+// The velocity that carries a body from `from` (its base) to land on
+// `to`: an arc peaking JUMP_APEX above the higher of the two.
+#define JUMP_APEX 2.5f
+
+static vec3_t jump_velocity(vec3_t from, vec3_t to) {
     float const apex = fmaxf(from.y, to.y) + JUMP_APEX;
     float const vy   = sqrtf(2.0f * PHYS_GRAVITY * (apex - from.y));
     float const t    = vy / PHYS_GRAVITY + sqrtf(2.0f * (apex - to.y) / PHYS_GRAVITY);
@@ -150,10 +154,10 @@ static bool in_fizzler(level_t const* lv, aabb_t const* a) {
 }
 
 static int step_cube(game_t* g, int i, float dt) {
-    int ev = 0;
-    body_t* b = &g->cubes[i].body;
-    aabb_t  boxes[LV_MAX_CUBES + 2];
-    int     n = gather_boxes(g, i, boxes);
+    int                ev = 0;
+    body_t*            b  = &g->cubes[i].body;
+    aabb_t             boxes[LV_MAX_CUBES + 2];
+    int                n = gather_boxes(g, i, boxes);
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
 
     if (i == g->held) {
@@ -167,9 +171,9 @@ static int step_cube(game_t* g, int i, float dt) {
     } else {
         b->vel.y = fmaxf(b->vel.y - PHYS_GRAVITY * dt, -PHYS_MAX_FALL);
         if (b->on_ground) {
-            float const k = expf(-CUBE_FRICTION * dt);
-            b->vel.x *= k;
-            b->vel.z *= k;
+            float const k  = expf(-CUBE_FRICTION * dt);
+            b->vel.x      *= k;
+            b->vel.z      *= k;
         }
     }
 
@@ -187,9 +191,10 @@ static int step_cube(game_t* g, int i, float dt) {
 
     // Lost in the goo, out of the world or through a fizzler: a new one
     // where it started.
-    uint8_t const under = level_get(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z));
-    aabb_t const  box   = body_aabb(b);
-    bool const    fizz  = in_fizzler(&g->lv, &box);
+    uint8_t const under =
+        level_get(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z));
+    aabb_t const box  = body_aabb(b);
+    bool const   fizz = in_fizzler(&g->lv, &box);
     if (b->pos.y < -4.0f || (b->on_ground && under == MAT_GOO) || fizz) {
         if (i == g->held) drop(g);
         cube_spawn(g, i);
@@ -199,9 +204,9 @@ static int step_cube(game_t* g, int i, float dt) {
     // A faith plate throws a cube that is not being carried.
     jump_t const* j = i != g->held && b->on_ground ? plate_under(&g->lv, b->pos) : NULL;
     if (j != NULL) {
-        b->vel       = jump_velocity(b->pos, j->target);
-        b->on_ground = false;
-        ev |= GAME_EV_LAUNCH;
+        b->vel        = jump_velocity(b->pos, j->target);
+        b->on_ground  = false;
+        ev           |= GAME_EV_LAUNCH;
     }
     return ev;
 }
@@ -247,8 +252,8 @@ static bool riding(aabb_t const* p, aabb_t const* b) {
 // than move into anything that is not riding it.
 static void move_platform(game_t* g, float dt) {
     if (!g->lv.n_platforms) return;
-    platform_t const* p    = &g->lv.platform;
-    float const       len  = v3_len(p->travel);
+    platform_t const* p   = &g->lv.platform;
+    float const       len = v3_len(p->travel);
     if (len < 0.01f) return;
     float const  t1   = g->plat_t + dt;
     vec3_t const at1  = v3_scale(p->travel, trip(t1, len / PLAT_SPEED));
@@ -278,8 +283,8 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     if (dt <= 0.0f) return 0;
     if (dt > 0.1f) dt = 0.1f;
 
-    g->pl.yaw += in->dyaw;
-    g->pl.pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, g->pl.pitch + in->dpitch));
+    g->pl.yaw   += in->dyaw;
+    g->pl.pitch  = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, g->pl.pitch + in->dpitch));
     for (int i = 0; i < 2; i++) {
         if (!in->fire[i]) continue;
         if (game_fire(g, i)) {
@@ -293,20 +298,20 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     move_platform(g, dt);
 
     // The player, among the cubes.
-    aabb_t boxes[LV_MAX_CUBES + 2];
-    int const          n   = gather_boxes(g, -1, boxes);
-    phys_world_t const w   = {&g->lv, g->portals, boxes, n};
-    player_input_t const pin = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
-    int                via = -1;
-    ev |= player_update_in(&g->pl, &w, &pin, dt, &via);
+    aabb_t               boxes[LV_MAX_CUBES + 2];
+    int const            n    = gather_boxes(g, -1, boxes);
+    phys_world_t const   w    = {&g->lv, g->portals, boxes, n};
+    player_input_t const pin  = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
+    int                  via  = -1;
+    ev                       |= player_update_in(&g->pl, &w, &pin, dt, &via);
     if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
 
     // A fizzler: the portals close, and a cube carried in goes.
     aabb_t const pbox = player_aabb(&g->pl);
     if (in_fizzler(&g->lv, &pbox)) {
         if (g->portals[0].open || g->portals[1].open) {
-            g->portals[0].open = g->portals[1].open = false;
-            ev |= GAME_EV_PORTAL | GAME_EV_FIZZLE;
+            g->portals[0].open = g->portals[1].open  = false;
+            ev                                      |= GAME_EV_PORTAL | GAME_EV_FIZZLE;
         }
         if (g->held >= 0) {
             int const c = g->held;
@@ -318,9 +323,9 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     // A faith plate.
     jump_t const* j = g->pl.on_ground ? plate_under(&g->lv, g->pl.pos) : NULL;
     if (j != NULL) {
-        g->pl.vel       = jump_velocity(g->pl.pos, j->target);
-        g->pl.on_ground = false;
-        ev |= GAME_EV_LAUNCH;
+        g->pl.vel        = jump_velocity(g->pl.pos, j->target);
+        g->pl.on_ground  = false;
+        ev              |= GAME_EV_LAUNCH;
     }
 
     for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);

@@ -1,4 +1,5 @@
 #include "editor.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -6,7 +7,6 @@
 #include "draft.h"
 #include "esp_log.h"
 #include "esp_timer.h"
-#include <math.h>
 #include "gl_input.h"
 #include "pax_fonts.h"
 #include "pax_text.h"
@@ -18,39 +18,38 @@ static char const TAG[] = "editor";
 #define REPEAT_FIRST 0.30f  // a held key moves the cursor again after this
 #define REPEAT_NEXT  0.07f  // ... and then this often
 
-static bool    s_active;
-static draft_t s_d;
-static char    s_dir[96];
-static int     s_x, s_z, s_y = 1;  // the cursor, and the layer shown
-static char    s_brush = 'W';
-static char    s_door  = 'a', s_button = 'A';
-static bool    s_painting;          // Space held: paint as the cursor moves
-static bool    s_anchor_set;        // B pressed once: a box from here
-static int     s_ax, s_az;
-static float   s_held_t[4];         // per direction: how long it has been held
-static float   s_next_t[4];         // ... and when it moves again
-static int64_t s_menu_opened_us;
-static char    s_msg[96];
-static float   s_msg_t;
-static bool    s_menu;              // the editor's own menu is open
-static int     s_menu_cursor;
-static uint32_t s_act;              // menu actions this frame, from events
-static bool    s_want_test, s_want_quit;
-static level_t s_level;             // the parsed chamber, for a play-test
+static bool     s_active;
+static draft_t  s_d;
+static char     s_dir[96];
+static int      s_x, s_z, s_y = 1;  // the cursor, and the layer shown
+static char     s_brush = 'W';
+static char     s_door = 'a', s_button = 'A';
+static bool     s_painting;    // Space held: paint as the cursor moves
+static bool     s_anchor_set;  // B pressed once: a box from here
+static int      s_ax, s_az;
+static float    s_held_t[4];  // per direction: how long it has been held
+static float    s_next_t[4];  // ... and when it moves again
+static int64_t  s_menu_opened_us;
+static char     s_msg[96];
+static float    s_msg_t;
+static bool     s_menu;  // the editor's own menu is open
+static int      s_menu_cursor;
+static uint32_t s_act;  // menu actions this frame, from events
+static bool     s_want_test, s_want_quit;
+static level_t  s_level;  // the parsed chamber, for a play-test
 
-enum { A_UP = 1, A_DOWN = 2, A_LEFT = 4, A_RIGHT = 8, A_OK = 16, A_BACK = 32 };
+enum {
+    A_UP    = 1,
+    A_DOWN  = 2,
+    A_LEFT  = 4,
+    A_RIGHT = 8,
+    A_OK    = 16,
+    A_BACK  = 32
+};
 
 static void say(char const* fmt, char const* arg) {
     snprintf(s_msg, sizeof(s_msg), fmt, arg);
     s_msg_t = 4.0f;
-}
-
-bool editor_active(void) {
-    return s_active;
-}
-
-void editor_close(void) {
-    s_active = false;
 }
 
 level_t const* editor_level(void) {
@@ -58,15 +57,17 @@ level_t const* editor_level(void) {
 }
 
 void editor_resume(void) {
-    s_active  = true;
+    s_active   = true;
     s_painting = false;
 }
 
 // A file name not yet in the list: my-01, my-02, ...
 static void fresh_id(char* out, size_t n, char const* base) {
     for (int k = 0; k < 100; k++) {
-        if (base != NULL && k == 0) snprintf(out, n, "my-%s", base);
-        else snprintf(out, n, "my-%02d", k + (base == NULL ? 1 : 0));
+        if (base != NULL && k == 0)
+            snprintf(out, n, "my-%s", base);
+        else
+            snprintf(out, n, "my-%02d", k + (base == NULL ? 1 : 0));
         bool taken = false;
         for (int i = 0; i < chamber_count() && !taken; i++) taken = strcmp(chamber_id(i), out) == 0;
         if (!taken) return;
@@ -78,8 +79,10 @@ void editor_open(int index, char const* chamber_dir) {
     char id[32];
     if (index >= 0 && index < chamber_count()) {
         bool const builtin = index < chamber_builtin_n();
-        if (builtin) fresh_id(id, sizeof(id), chamber_id(index));
-        else snprintf(id, sizeof(id), "%s", chamber_id(index));
+        if (builtin)
+            fresh_id(id, sizeof(id), chamber_id(index));
+        else
+            snprintf(id, sizeof(id), "%s", chamber_id(index));
         if (!draft_from_text(&s_d, id, chamber_text(index))) draft_new(&s_d, id, 12, 6, 12);
         if (builtin) say("A copy: saved as %s.txt", id);
     } else {
@@ -87,9 +90,9 @@ void editor_open(int index, char const* chamber_dir) {
         draft_new(&s_d, id, 12, 6, 12);
         say("New chamber %s", id);
     }
-    s_x = s_d.w / 2;
-    s_z = s_d.d / 2;
-    s_y = s_d.h > 1 ? 1 : 0;
+    s_x      = s_d.w / 2;
+    s_z      = s_d.d / 2;
+    s_y      = s_d.h > 1 ? 1 : 0;
     s_active = true;
     s_menu = s_painting = s_anchor_set = false;
 }
@@ -123,20 +126,34 @@ static void layer(int dy) {
 
 static char const* brush_name(char c) {
     switch (c) {
-        case '#': return "metal";
-        case 'W': return "white panel";
-        case '.': return "air";
-        case '~': return "goo";
-        case 'E': return "exit";
-        case 'C': return "cube";
-        case 'S': return "start";
-        case 'G': return "glass";
-        case 'F': return "fizzler";
-        case 'J': return "faith plate";
-        case 'T': return "plate target";
-        case 'M': return "platform";
-        case 'N': return "platform goes to";
-        default: return c >= 'a' && c <= 'd' ? "door" : c >= 'A' && c <= 'D' ? "button" : "?";
+        case '#':
+            return "metal";
+        case 'W':
+            return "white panel";
+        case '.':
+            return "air";
+        case '~':
+            return "goo";
+        case 'E':
+            return "exit";
+        case 'C':
+            return "cube";
+        case 'S':
+            return "start";
+        case 'G':
+            return "glass";
+        case 'F':
+            return "fizzler";
+        case 'J':
+            return "faith plate";
+        case 'T':
+            return "plate target";
+        case 'M':
+            return "platform";
+        case 'N':
+            return "platform goes to";
+        default:
+            return c >= 'a' && c <= 'd' ? "door" : c >= 'A' && c <= 'D' ? "button" : "?";
     }
 }
 
@@ -197,35 +214,62 @@ void editor_event(bsp_input_event_t const* ev) {
     if (s_menu) {
         // The built-in keyboard sends Esc twice, as a scancode and as a
         // navigation key: the second must not close the menu the first opened.
-        bool const esc = (ev->type == INPUT_EVENT_TYPE_SCANCODE && ev->args_scancode.scancode == BSP_INPUT_SCANCODE_ESC) ||
-                         (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_ESC);
+        bool const esc =
+            (ev->type == INPUT_EVENT_TYPE_SCANCODE && ev->args_scancode.scancode == BSP_INPUT_SCANCODE_ESC) ||
+            (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_ESC);
         if (esc && esp_timer_get_time() - s_menu_opened_us < 250000) return;
         if (ev->type == INPUT_EVENT_TYPE_SCANCODE) {
             uint16_t const sc = ev->args_scancode.scancode;
             if (sc & BSP_INPUT_SCANCODE_RELEASE_MODIFIER) return;
             switch (sc) {
-                case BSP_INPUT_SCANCODE_ESC: s_act |= A_BACK; break;
+                case BSP_INPUT_SCANCODE_ESC:
+                    s_act |= A_BACK;
+                    break;
                 case BSP_INPUT_SCANCODE_ENTER:
-                case BSP_INPUT_SCANCODE_SPACE: s_act |= A_OK; break;
+                case BSP_INPUT_SCANCODE_SPACE:
+                    s_act |= A_OK;
+                    break;
                 case BSP_INPUT_SCANCODE_W:
-                case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP: s_act |= A_UP; break;
+                case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP:
+                    s_act |= A_UP;
+                    break;
                 case BSP_INPUT_SCANCODE_S:
-                case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN: s_act |= A_DOWN; break;
+                case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN:
+                    s_act |= A_DOWN;
+                    break;
                 case BSP_INPUT_SCANCODE_A:
-                case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT: s_act |= A_LEFT; break;
+                case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT:
+                    s_act |= A_LEFT;
+                    break;
                 case BSP_INPUT_SCANCODE_D:
-                case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT: s_act |= A_RIGHT; break;
-                default: break;
+                case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT:
+                    s_act |= A_RIGHT;
+                    break;
+                default:
+                    break;
             }
         } else if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state) {
             switch (ev->args_navigation.key) {
-                case BSP_INPUT_NAVIGATION_KEY_ESC: s_act |= A_BACK; break;
-                case BSP_INPUT_NAVIGATION_KEY_RETURN: s_act |= A_OK; break;
-                case BSP_INPUT_NAVIGATION_KEY_UP: s_act |= A_UP; break;
-                case BSP_INPUT_NAVIGATION_KEY_DOWN: s_act |= A_DOWN; break;
-                case BSP_INPUT_NAVIGATION_KEY_LEFT: s_act |= A_LEFT; break;
-                case BSP_INPUT_NAVIGATION_KEY_RIGHT: s_act |= A_RIGHT; break;
-                default: break;
+                case BSP_INPUT_NAVIGATION_KEY_ESC:
+                    s_act |= A_BACK;
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_RETURN:
+                    s_act |= A_OK;
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_UP:
+                    s_act |= A_UP;
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_DOWN:
+                    s_act |= A_DOWN;
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_LEFT:
+                    s_act |= A_LEFT;
+                    break;
+                case BSP_INPUT_NAVIGATION_KEY_RIGHT:
+                    s_act |= A_RIGHT;
+                    break;
+                default:
+                    break;
             }
         }
         return;
@@ -243,16 +287,26 @@ void editor_event(bsp_input_event_t const* ev) {
     switch (sc) {
         case BSP_INPUT_SCANCODE_ESC:
             s_menu_opened_us = esp_timer_get_time();
-            s_menu        = true;
-            s_menu_cursor = 0;
-            s_act         = 0;
-            s_painting    = false;
+            s_menu           = true;
+            s_menu_cursor    = 0;
+            s_act            = 0;
+            s_painting       = false;
             break;
-        case BSP_INPUT_SCANCODE_1: s_brush = '#'; break;
-        case BSP_INPUT_SCANCODE_2: s_brush = 'W'; break;
-        case BSP_INPUT_SCANCODE_3: s_brush = '.'; break;
-        case BSP_INPUT_SCANCODE_4: s_brush = '~'; break;
-        case BSP_INPUT_SCANCODE_5: s_brush = 'E'; break;
+        case BSP_INPUT_SCANCODE_1:
+            s_brush = '#';
+            break;
+        case BSP_INPUT_SCANCODE_2:
+            s_brush = 'W';
+            break;
+        case BSP_INPUT_SCANCODE_3:
+            s_brush = '.';
+            break;
+        case BSP_INPUT_SCANCODE_4:
+            s_brush = '~';
+            break;
+        case BSP_INPUT_SCANCODE_5:
+            s_brush = 'E';
+            break;
         case BSP_INPUT_SCANCODE_6:
             if (s_brush >= 'a' && s_brush <= 'd') s_door = (char)('a' + (s_brush - 'a' + 1) % LV_MAX_DOORS);
             s_brush = s_door;
@@ -261,27 +315,49 @@ void editor_event(bsp_input_event_t const* ev) {
             if (s_brush >= 'A' && s_brush <= 'D') s_button = (char)('A' + (s_brush - 'A' + 1) % LV_MAX_BUTTONS);
             s_brush = s_button;
             break;
-        case BSP_INPUT_SCANCODE_8: s_brush = 'C'; break;
-        case BSP_INPUT_SCANCODE_9: s_brush = 'S'; break;
-        case BSP_INPUT_SCANCODE_0: s_brush = 'G'; break;
-        case BSP_INPUT_SCANCODE_MINUS: s_brush = 'F'; break;
-        case BSP_INPUT_SCANCODE_EQUAL: s_brush = 'J'; break;
-        case BSP_INPUT_SCANCODE_T: s_brush = 'T'; break;
-        case BSP_INPUT_SCANCODE_M: s_brush = 'M'; break;
-        case BSP_INPUT_SCANCODE_N: s_brush = 'N'; break;
+        case BSP_INPUT_SCANCODE_8:
+            s_brush = 'C';
+            break;
+        case BSP_INPUT_SCANCODE_9:
+            s_brush = 'S';
+            break;
+        case BSP_INPUT_SCANCODE_0:
+            s_brush = 'G';
+            break;
+        case BSP_INPUT_SCANCODE_MINUS:
+            s_brush = 'F';
+            break;
+        case BSP_INPUT_SCANCODE_EQUAL:
+            s_brush = 'J';
+            break;
+        case BSP_INPUT_SCANCODE_T:
+            s_brush = 'T';
+            break;
+        case BSP_INPUT_SCANCODE_M:
+            s_brush = 'M';
+            break;
+        case BSP_INPUT_SCANCODE_N:
+            s_brush = 'N';
+            break;
         case BSP_INPUT_SCANCODE_Q:
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGDN: layer(-1); break;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGDN:
+            layer(-1);
+            break;
         case BSP_INPUT_SCANCODE_E:
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGUP: layer(+1); break;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGUP:
+            layer(+1);
+            break;
         case BSP_INPUT_SCANCODE_BACKSPACE:
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_DEL: draft_paint(&s_d, s_x, s_y, s_z, '.'); break;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_DEL:
+            draft_paint(&s_d, s_x, s_y, s_z, '.');
+            break;
         case BSP_INPUT_SCANCODE_B:
             if (s_anchor_set) {
                 box_fill();
                 s_anchor_set = false;
             } else {
-                s_ax = s_x;
-                s_az = s_z;
+                s_ax         = s_x;
+                s_az         = s_z;
                 s_anchor_set = true;
             }
             break;
@@ -289,9 +365,14 @@ void editor_event(bsp_input_event_t const* ev) {
             s_d.yaw += 1.5707963f;
             if (s_d.yaw > 3.2f) s_d.yaw -= 6.2831853f;
             break;
-        case BSP_INPUT_SCANCODE_P: playtest(); break;
-        case BSP_INPUT_SCANCODE_F: save(); break;
-        default: break;
+        case BSP_INPUT_SCANCODE_P:
+            playtest();
+            break;
+        case BSP_INPUT_SCANCODE_F:
+            save();
+            break;
+        default:
+            break;
     }
 }
 
@@ -307,7 +388,18 @@ static bool nav_held(bsp_input_navigation_key_t key) {
 
 // --- The editor's menu ----------------------------------------------------
 
-enum { M_BACK, M_TEST, M_SAVE, M_W, M_H, M_D, M_FACING, M_NEW, M_QUIT, M_ROWS };
+enum {
+    M_BACK,
+    M_TEST,
+    M_SAVE,
+    M_W,
+    M_H,
+    M_D,
+    M_FACING,
+    M_NEW,
+    M_QUIT,
+    M_ROWS
+};
 
 static char          s_val[4][16];
 static se_menu_row_t s_rows[M_ROWS];
@@ -330,16 +422,16 @@ static void build_menu(se_menu_def_t* def) {
     s_rows[M_NEW]    = (se_menu_row_t){.label = "New empty chamber"};
     s_rows[M_QUIT]   = (se_menu_row_t){.label = "Quit the editor"};
     *def             = (se_menu_def_t){
-                    .title     = "EDITOR",
-                    .subtitle  = s_d.id,
-                    .rows      = s_rows,
-                    .row_count = M_ROWS,
-                    .hint      = "Left / Right: change a size",
-                    .panel_w   = 0.70f,
-                    .panel_h   = 0.92f,
-                    .title_h   = 28.0f,
-                    .row_h     = 30.0f,
-                    .value_dx  = 270.0f,
+        .title     = "EDITOR",
+        .subtitle  = s_d.id,
+        .rows      = s_rows,
+        .row_count = M_ROWS,
+        .hint      = "Left / Right: change a size",
+        .panel_w   = 0.70f,
+        .panel_h   = 0.92f,
+        .title_h   = 28.0f,
+        .row_h     = 30.0f,
+        .value_dx  = 270.0f,
     };
 }
 
@@ -355,7 +447,7 @@ static void menu_frame(void) {
     if (act & A_OK) r = se_menu_input(&m, SE_MENU_ACT_ACTIVATE);
     if (act & A_BACK) r = se_menu_input(&m, SE_MENU_ACT_BACK);
     if (m.cursor != s_menu_cursor || r == SE_MENU_RESULT_ACTIVATED) sound_play(SND_MENU);
-    s_menu_cursor = m.cursor;
+    s_menu_cursor  = m.cursor;
     int const step = (act & A_RIGHT) ? 1 : (act & A_LEFT) ? -1 : 0;
 
     if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == M_BACK)) {
@@ -396,7 +488,8 @@ editor_cmd_t editor_update(float dt) {
     } else {
         // The cursor: arrows (either kind) or WASD, repeating while held.
         bool const dir[4] = {
-            held(BSP_INPUT_SCANCODE_ESCAPED_GREY_UP) || nav_held(BSP_INPUT_NAVIGATION_KEY_UP) || held(BSP_INPUT_SCANCODE_W),
+            held(BSP_INPUT_SCANCODE_ESCAPED_GREY_UP) || nav_held(BSP_INPUT_NAVIGATION_KEY_UP) ||
+                held(BSP_INPUT_SCANCODE_W),
             held(BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN) || nav_held(BSP_INPUT_NAVIGATION_KEY_DOWN) ||
                 held(BSP_INPUT_SCANCODE_S),
             held(BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT) || nav_held(BSP_INPUT_NAVIGATION_KEY_LEFT) ||
@@ -440,20 +533,33 @@ editor_cmd_t editor_update(float dt) {
 
 static uint32_t cell_colour(char c, bool floor_below) {
     switch (c) {
-        case '#': return 0xFF3A3D44u;
-        case 'W': return 0xFFD0D0C8u;
-        case '~': return 0xFF8A7020u;
-        case 'E': return 0xFF30C060u;
-        case 'C': return 0xFF9AA0A8u;
-        case 'S': return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
-        case 'G': return 0xFF8EC8E0u;
-        case 'F': return 0xFF3070D0u;
-        case 'J': return 0xFFE08020u;
-        case 'T': return 0xFF6A3A10u;
-        case 'M': return 0xFF5A6070u;
-        case 'N': return 0xFF2C5C9Cu;
+        case '#':
+            return 0xFF3A3D44u;
+        case 'W':
+            return 0xFFD0D0C8u;
+        case '~':
+            return 0xFF8A7020u;
+        case 'E':
+            return 0xFF30C060u;
+        case 'C':
+            return 0xFF9AA0A8u;
+        case 'S':
+            return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
+        case 'G':
+            return 0xFF8EC8E0u;
+        case 'F':
+            return 0xFF3070D0u;
+        case 'J':
+            return 0xFFE08020u;
+        case 'T':
+            return 0xFF6A3A10u;
+        case 'M':
+            return 0xFF5A6070u;
+        case 'N':
+            return 0xFF2C5C9Cu;
         case '.':
-        case ' ': return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
+        case ' ':
+            return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
         default:
             if (c >= 'a' && c <= 'd') return 0xFFE08030u;
             if (c >= 'A' && c <= 'D') return 0xFFC03020u;
@@ -470,10 +576,10 @@ void editor_draw(pax_buf_t* fb) {
 
     for (int z = 0; z < s_d.d; z++) {
         for (int x = 0; x < s_d.w; x++) {
-            char const c     = draft_get(&s_d, x, s_y, z);
-            char const below = draft_get(&s_d, x, s_y - 1, z);
-            bool const floor = s_y > 0 && below != '.' && below != ' ' && below != 'S' && below != 'C' &&
-                               !(below >= 'A' && below <= 'D');
+            char const  c     = draft_get(&s_d, x, s_y, z);
+            char const  below = draft_get(&s_d, x, s_y - 1, z);
+            bool const  floor = s_y > 0 && below != '.' && below != ' ' && below != 'S' && below != 'C' &&
+                                !(below >= 'A' && below <= 'D');
             float const px = (float)(x0 + x * cs), py = (float)(y0 + (s_d.d - 1 - z) * cs);
             pax_simple_rect(fb, cell_colour(c, floor), px, py, (float)cs - 1, (float)cs - 1);
             char label[2] = {0};
@@ -488,7 +594,8 @@ void editor_draw(pax_buf_t* fb) {
                              cy + s * r * 0.6f + co * r * 0.5f);
             }
             if (label[0] && cs >= 12)
-                pax_draw_text(fb, 0xFF000000u, pax_font_sky_mono, (float)cs * 0.7f, px + cs * 0.25f, py + cs * 0.1f, label);
+                pax_draw_text(fb, 0xFF000000u, pax_font_sky_mono, (float)cs * 0.7f, px + cs * 0.25f, py + cs * 0.1f,
+                              label);
         }
     }
     // The box being marked, and the cursor.
@@ -513,11 +620,10 @@ void editor_draw(pax_buf_t* fb) {
     pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 68, line);
 
     static struct {
-        char        key;
-        char        ch;
-    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', 'A'},
-                         {'8', 'C'}, {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}, {'M', 'M'},
-                         {'N', 'N'}};
+        char key;
+        char ch;
+    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', 'A'}, {'8', 'C'},
+                         {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}, {'M', 'M'}, {'N', 'N'}};
     int const n_palette = (int)(sizeof(palette) / sizeof(palette[0]));
     for (int i = 0; i < n_palette; i++) {
         char ch = palette[i].ch;
@@ -532,8 +638,8 @@ void editor_draw(pax_buf_t* fb) {
         pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y + 1, line);
     }
     static char const* const help[] = {
-        "arrows  move",  "Space   paint (hold)", "B       box, twice", "Bksp    erase",
-        "R       turn start", "P       play-test",     "F       save",        "Esc     menu",
+        "arrows  move",       "Space   paint (hold)", "B       box, twice", "Bksp    erase",
+        "R       turn start", "P       play-test",    "F       save",       "Esc     menu",
     };
     for (int i = 0; i < 8; i++)
         pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 334.0f + (float)i * 16.0f, help[i]);

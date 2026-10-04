@@ -8,7 +8,7 @@
 typedef enum {
     SND_SHOT_BLUE,
     SND_SHOT_ORANGE,
-    SND_SHOT_FAIL,   // the surface will not take a portal
+    SND_SHOT_FAIL,  // the surface will not take a portal
     SND_TELEPORT,
     SND_LAND,
     SND_PICKUP,

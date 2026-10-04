@@ -21,12 +21,12 @@ typedef struct {
     int             chamber;
 } menu_cmd_t;
 
-void menu_open(int current_chamber);
-bool menu_active(void);
+void       menu_open(int current_chamber);
+bool       menu_active(void);
 // Every input event while the menu is open; also Esc, to open it.
-void menu_event(bsp_input_event_t const* ev);
+void       menu_event(bsp_input_event_t const* ev);
 // True if `ev` is the key that opens the menu.
-bool menu_is_open_key(bsp_input_event_t const* ev);
+bool       menu_is_open_key(bsp_input_event_t const* ev);
 // Once a frame while open: act on the keys this frame brought.
 menu_cmd_t menu_update(void);
 void       menu_draw(pax_buf_t* fb);

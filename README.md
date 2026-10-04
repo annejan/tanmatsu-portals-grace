@@ -104,6 +104,26 @@ build.
 (`tests/host_shot.c`) into `build/shots/*.png`. Use it to look at the portal
 passes without a badge.
 
+## Device tests
+
+`main/testkit/` (from the template) runs the scripted demos on the badge.
+Each chamber's `solution` is one demo; `c1walk` and `c1loop` are two more.
+The tests can measure the frame rate, or save screenshots at exact moments
+and compare them:
+
+```sh
+make cycle TEST="perf scene=03-fling secs=10"
+make cycle TEST="shots scene=c1walk ms=1300,1500" TESTFLAGS=--fetch
+```
+
+The tests talk to the ESP32-P4's debug console. `tools/p4port.sh` finds the
+console by the P4's USB hub port. It never opens the ESP32-C6's serial port,
+because opening that port crashes the badge.
+
+**Known problem:** the console sends nothing yet, even while the game is
+running, so these tests cannot connect. Use `make check` and `make shots` on
+the PC instead.
+
 ## How the portals are drawn
 
 SynthEngine3D has no stencil buffer, and the game does not need one:
@@ -143,6 +163,7 @@ the camera basis and the clip planes all go through that one map
 | `main/menu.*` | the pause menu and its screens (se_ui) |
 | `main/settings.*` | settings kept in NVS |
 | `main/main.c` | the run loop, the HUD |
+| `main/testkit/` | device tests (from the template) |
 | `tests/` | host tests and host screenshots |
 | `tools/make_textures.py` | the textures in `textures/` |
 

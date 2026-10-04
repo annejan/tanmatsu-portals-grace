@@ -71,11 +71,16 @@ static bool held(action_t a) {
     uint16_t const sc = se_bindings_get(a);
     if (sc_held(sc)) return true;
     switch (sc) {
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP: return nav_held(BSP_INPUT_NAVIGATION_KEY_UP);
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN: return nav_held(BSP_INPUT_NAVIGATION_KEY_DOWN);
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT: return nav_held(BSP_INPUT_NAVIGATION_KEY_LEFT);
-        case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT: return nav_held(BSP_INPUT_NAVIGATION_KEY_RIGHT);
-        default: return false;
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP:
+            return nav_held(BSP_INPUT_NAVIGATION_KEY_UP);
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN:
+            return nav_held(BSP_INPUT_NAVIGATION_KEY_DOWN);
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT:
+            return nav_held(BSP_INPUT_NAVIGATION_KEY_LEFT);
+        case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT:
+            return nav_held(BSP_INPUT_NAVIGATION_KEY_RIGHT);
+        default:
+            return false;
     }
 }
 
@@ -96,9 +101,9 @@ static float axis(action_t neg, action_t pos) {
 #define GYRO_GAIN       1.0f
 // A resting gyroscope does not read zero. Readings this slow are taken
 // as the sensor's own offset and tracked, not turned into a slow spin.
-#define GYRO_REST_DPS  3.0f
-#define GYRO_BIAS_RATE 0.02f
-#define GYRO_MAX_STEP  0.6f
+#define GYRO_REST_DPS   3.0f
+#define GYRO_BIAS_RATE  0.02f
+#define GYRO_MAX_STEP   0.6f
 
 static bool  s_gyro_started;
 static float s_bias_x, s_bias_y;
@@ -128,9 +133,9 @@ static void gyro(float dt, float* dyaw, float* dpitch) {
     bool  ready = false;
     float gx = 0.0f, gy = 0.0f;
     if (bsp_orientation_get(&ready, NULL, &gx, &gy, NULL, NULL, NULL, NULL) != ESP_OK || !ready) return;
-    float const k = GYRO_GAIN * dt * (3.14159265f / 180.0f);
-    *dyaw += clampf(GYRO_YAW_SIGN * gyro_axis(gx, &s_bias_x) * k, -GYRO_MAX_STEP, GYRO_MAX_STEP);
-    *dpitch += clampf(GYRO_PITCH_SIGN * gyro_axis(gy, &s_bias_y) * k, -GYRO_MAX_STEP, GYRO_MAX_STEP);
+    float const k  = GYRO_GAIN * dt * (3.14159265f / 180.0f);
+    *dyaw         += clampf(GYRO_YAW_SIGN * gyro_axis(gx, &s_bias_x) * k, -GYRO_MAX_STEP, GYRO_MAX_STEP);
+    *dpitch       += clampf(GYRO_PITCH_SIGN * gyro_axis(gy, &s_bias_y) * k, -GYRO_MAX_STEP, GYRO_MAX_STEP);
 }
 
 // --- Polling ---------------------------------------------------------

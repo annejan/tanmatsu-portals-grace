@@ -50,7 +50,7 @@ static inline basis_t basis_from_angles(float yaw, float pitch, float roll) {
     float const cy = cosf(yaw), sy = sinf(yaw);
     float const cp = cosf(pitch), sp = sinf(pitch);
     float const cr = cosf(roll), sr = sinf(roll);
-    basis_t b;
+    basis_t     b;
     b.right = v3(cy * cr + sy * sp * sr, cp * sr, -sy * cr + cy * sp * sr);
     b.up    = v3(-cy * sr + sy * sp * cr, cp * cr, sy * sr + cy * sp * cr);
     b.fwd   = v3(sy * cp, -sp, cy * cp);

@@ -74,9 +74,12 @@ static bool facing_of(char const* v, float* yaw) {
 }
 
 static bool portal_of(char const* w, int* which) {
-    if (strcmp(w, "blue") == 0) *which = 0;
-    else if (strcmp(w, "orange") == 0) *which = 1;
-    else return false;
+    if (strcmp(w, "blue") == 0)
+        *which = 0;
+    else if (strcmp(w, "orange") == 0)
+        *which = 1;
+    else
+        return false;
     return true;
 }
 
@@ -132,20 +135,20 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (err_n) err[0] = '\0';
     memset(lv, 0, sizeof(*lv));
     snprintf(lv->name, sizeof(lv->name), "Untitled");
-    int  ns        = 0;
-    int  layer     = -1;  // the layer whose rows are being read
-    int  row       = 0;
-    bool in_sol    = false;
-    bool have_size = false;
-    int  spawns    = 0;
+    int         ns        = 0;
+    int         layer     = -1;  // the layer whose rows are being read
+    int         row       = 0;
+    bool        in_sol    = false;
+    bool        have_size = false;
+    int         spawns    = 0;
     // Faith plates and their targets, paired in the order they are read.
-    jump_t plates[LV_MAX_JUMPS];
-    vec3_t targets[LV_MAX_JUMPS];
-    int    n_plates = 0, n_targets = 0;
+    jump_t      plates[LV_MAX_JUMPS];
+    vec3_t      targets[LV_MAX_JUMPS];
+    int         n_plates = 0, n_targets = 0;
     // The moving platform: the box its M cells span, and the N cell.
-    int  m_box[6] = {0}, n_cell[3] = {0}, n_m = 0;
-    bool have_m = false, have_n = false;
-    char buf[128];
+    int         m_box[6] = {0}, n_cell[3] = {0}, n_m = 0;
+    bool        have_m = false, have_n = false;
+    char        buf[128];
     char const* p = text;
 
     while (next_line(&p, buf, sizeof(buf))) {
@@ -158,11 +161,21 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                 char const ch = x < (int)strlen(buf) ? buf[x] : '#';
                 uint8_t    m  = MAT_AIR;
                 switch (ch) {
-                    case '#': m = MAT_METAL; break;
-                    case 'W': m = MAT_WHITE; break;
-                    case '~': m = MAT_GOO; break;
-                    case 'G': m = MAT_GLASS; break;
-                    case 'F': m = MAT_FIZZ; break;
+                    case '#':
+                        m = MAT_METAL;
+                        break;
+                    case 'W':
+                        m = MAT_WHITE;
+                        break;
+                    case '~':
+                        m = MAT_GOO;
+                        break;
+                    case 'G':
+                        m = MAT_GLASS;
+                        break;
+                    case 'F':
+                        m = MAT_FIZZ;
+                        break;
                     case 'J':
                         if (n_plates >= LV_MAX_JUMPS) return fail(&c, "more than %d faith plates", LV_MAX_JUMPS);
                         m                  = MAT_JUMP;
@@ -171,7 +184,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     case 'M':
                         if (!have_m) {
                             m_box[0] = m_box[3] = x, m_box[1] = m_box[4] = layer, m_box[2] = m_box[5] = z;
-                            have_m   = true;
+                            have_m = true;
                         }
                         if (x < m_box[0]) m_box[0] = x;
                         if (layer < m_box[1]) m_box[1] = layer;
@@ -184,15 +197,18 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     case 'N':
                         if (have_n) return fail(&c, "more than one N");
                         n_cell[0] = x, n_cell[1] = layer, n_cell[2] = z;
-                        have_n    = true;
+                        have_n = true;
                         break;
                     case 'T':
                         if (n_targets >= LV_MAX_JUMPS) return fail(&c, "more than %d targets", LV_MAX_JUMPS);
                         targets[n_targets++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
-                    case 'E': m = MAT_EXIT; break;
+                    case 'E':
+                        m = MAT_EXIT;
+                        break;
                     case '.':
-                    case ' ': break;
+                    case ' ':
+                        break;
                     case 'S':
                         lv->spawn = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         spawns++;
@@ -205,7 +221,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         if (ch >= 'a' && ch < 'a' + LV_MAX_DOORS) {
                             m = MAT_DOOR;
                         } else if (ch >= 'A' && ch < 'A' + LV_MAX_DOORS) {
-                            if (lv->n_buttons >= LV_MAX_BUTTONS) return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
+                            if (lv->n_buttons >= LV_MAX_BUTTONS)
+                                return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
                             if (layer == 0) return fail(&c, "a button needs a cell under it");
                             lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, ch - 'A', false};
                         } else {
@@ -342,15 +359,16 @@ static void put(sink_t* o, char const* fmt, ...) {
 
 char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_buttons; i++)
-        if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z) return (char)('A' + lv->buttons[i].link);
+        if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z)
+            return (char)('A' + lv->buttons[i].link);
     for (int i = 0; i < lv->n_cubes; i++)
         if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
             return 'C';
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z) return 'S';
     if (lv->n_platforms) {
         platform_t const* p = &lv->platform;
-        if ((float)x >= p->lo.x && (float)x < p->hi.x && (float)y >= p->lo.y && (float)y < p->hi.y && (float)z >= p->lo.z &&
-            (float)z < p->hi.z)
+        if ((float)x >= p->lo.x && (float)x < p->hi.x && (float)y >= p->lo.y && (float)y < p->hi.y &&
+            (float)z >= p->lo.z && (float)z < p->hi.z)
             return 'M';
         if (x == (int)(p->lo.x + p->travel.x) && y == (int)(p->lo.y + p->travel.y) && z == (int)(p->lo.z + p->travel.z))
             return 'N';
@@ -360,18 +378,26 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
             (int)floorf(lv->jumps[i].target.z) == z)
             return 'T';
     switch (level_get(lv, x, y, z)) {
-        case MAT_GLASS: return 'G';
-        case MAT_FIZZ: return 'F';
-        case MAT_JUMP: return 'J';
-        case MAT_AIR: return '.';
-        case MAT_WHITE: return 'W';
-        case MAT_GOO: return '~';
-        case MAT_EXIT: return 'E';
+        case MAT_GLASS:
+            return 'G';
+        case MAT_FIZZ:
+            return 'F';
+        case MAT_JUMP:
+            return 'J';
+        case MAT_AIR:
+            return '.';
+        case MAT_WHITE:
+            return 'W';
+        case MAT_GOO:
+            return '~';
+        case MAT_EXIT:
+            return 'E';
         case MAT_DOOR: {
             int const d = level_door_at(lv, x, y, z);
             return (char)('a' + (d >= 0 ? lv->doors[d].link : 0));
         }
-        default: return '#';
+        default:
+            return '#';
     }
 }
 
@@ -388,8 +414,10 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
     if (lv->hint[0]) put(&o, "hint: %s\n", lv->hint);
     put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
     char const* f = facing_name(lv->spawn_yaw);
-    if (f) put(&o, "facing: %s\n", f);
-    else put(&o, "facing: %g\n", (double)(lv->spawn_yaw / DEG));
+    if (f)
+        put(&o, "facing: %s\n", f);
+    else
+        put(&o, "facing: %g\n", (double)(lv->spawn_yaw / DEG));
     for (int y = 0; y < lv->h; y++) {
         bool all_metal = true;
         for (int z = 0; z < lv->d && all_metal; z++)
@@ -411,16 +439,35 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
         for (int i = 0; i < n_steps; i++) {
             step_t const* s = &steps[i];
             switch (s->op) {
-                case OP_SHOOT: put(&o, "shoot %s %g %g %g\n", colour[s->which & 1], (double)s->a, (double)s->b, (double)s->c); break;
-                case OP_SHOOT_VIEW: put(&o, "shoot_view %s\n", colour[s->which & 1]); break;
-                case OP_FACE: put(&o, "face %g %g\n", (double)(s->a / DEG), (double)(s->b / DEG)); break;
-                case OP_FACE_POINT: put(&o, "look %g %g %g\n", (double)s->a, (double)s->b, (double)s->c); break;
-                case OP_WALK: put(&o, "walk %g\n", (double)s->a); break;
-                case OP_WALK_TO: put(&o, "walk_to %g %g %g\n", (double)s->a, (double)s->c, (double)s->b); break;
-                case OP_STEP_OFF: put(&o, "step_off %g\n", (double)s->a); break;
-                case OP_WAIT: put(&o, "wait %g\n", (double)s->a); break;
-                case OP_USE: put(&o, "use\n"); break;
-                default: break;
+                case OP_SHOOT:
+                    put(&o, "shoot %s %g %g %g\n", colour[s->which & 1], (double)s->a, (double)s->b, (double)s->c);
+                    break;
+                case OP_SHOOT_VIEW:
+                    put(&o, "shoot_view %s\n", colour[s->which & 1]);
+                    break;
+                case OP_FACE:
+                    put(&o, "face %g %g\n", (double)(s->a / DEG), (double)(s->b / DEG));
+                    break;
+                case OP_FACE_POINT:
+                    put(&o, "look %g %g %g\n", (double)s->a, (double)s->b, (double)s->c);
+                    break;
+                case OP_WALK:
+                    put(&o, "walk %g\n", (double)s->a);
+                    break;
+                case OP_WALK_TO:
+                    put(&o, "walk_to %g %g %g\n", (double)s->a, (double)s->c, (double)s->b);
+                    break;
+                case OP_STEP_OFF:
+                    put(&o, "step_off %g\n", (double)s->a);
+                    break;
+                case OP_WAIT:
+                    put(&o, "wait %g\n", (double)s->a);
+                    break;
+                case OP_USE:
+                    put(&o, "use\n");
+                    break;
+                default:
+                    break;
             }
         }
     }
@@ -494,18 +541,28 @@ static char s_found[CHAMBER_MAX][64];  // file names in the directory
 // engine's se_mp3.c do, for the same reason).
 static int list_dir(char const* dir) {
     char const* rel = dir;
-    if (strncmp(dir, "/sd", 3) == 0) rel = dir + 3;
-    else if (strncmp(dir, "/int", 4) == 0) rel = dir + 4;
+    if (strncmp(dir, "/sd", 3) == 0)
+        rel = dir + 3;
+    else if (strncmp(dir, "/int", 4) == 0)
+        rel = dir + 4;
     static FF_DIR  d;
     static FILINFO info;
     char           cand[160];
     bool           open = false;
     for (int i = 0; i < 4 && !open; i++) {
         switch (i) {
-            case 0: snprintf(cand, sizeof(cand), "%s", rel); break;
-            case 1: snprintf(cand, sizeof(cand), "0:%s", rel); break;
-            case 2: snprintf(cand, sizeof(cand), "1:%s", rel); break;
-            default: snprintf(cand, sizeof(cand), "%s", dir); break;
+            case 0:
+                snprintf(cand, sizeof(cand), "%s", rel);
+                break;
+            case 1:
+                snprintf(cand, sizeof(cand), "0:%s", rel);
+                break;
+            case 2:
+                snprintf(cand, sizeof(cand), "1:%s", rel);
+                break;
+            default:
+                snprintf(cand, sizeof(cand), "%s", dir);
+                break;
         }
         open = f_opendir(&d, cand) == FR_OK;
     }

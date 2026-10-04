@@ -1,8 +1,8 @@
 #include "demo.h"
-#include "chamber.h"
-#include "script.h"
 #include <math.h>
 #include <string.h>
+#include "chamber.h"
+#include "script.h"
 
 #define STEP_DT (1.0f / 50.0f)
 #define HALF_PI 1.5707963f
@@ -17,16 +17,20 @@ typedef struct {
 // Shot at eye height, as a player does: two portals side by side on the
 // left wall, then straight into the first.
 static step_t const s_c1walk[] = {
-    {OP_FACE, 0, -HALF_PI, 0.0f, 0},  {OP_SHOOT_VIEW, PORTAL_BLUE, 0, 0, 0}, {OP_FACE, 0, -1.2f, 0.0f, 0},
-    {OP_SHOOT_VIEW, PORTAL_ORANGE, 0, 0, 0}, {OP_FACE, 0, -HALF_PI, 0.0f, 0}, {OP_WAIT, 0, 0.5f, 0, 0},
-    {OP_WALK, 0, 4.0f, 0, 0},         {OP_END, 0, 0, 0, 0},
+    {OP_FACE, 0, -HALF_PI, 0.0f, 0}, {OP_SHOOT_VIEW, PORTAL_BLUE, 0, 0, 0},
+    {OP_FACE, 0, -1.2f, 0.0f, 0},    {OP_SHOOT_VIEW, PORTAL_ORANGE, 0, 0, 0},
+    {OP_FACE, 0, -HALF_PI, 0.0f, 0}, {OP_WAIT, 0, 0.5f, 0, 0},
+    {OP_WALK, 0, 4.0f, 0, 0},        {OP_END, 0, 0, 0, 0},
 };
 
 // Facing each other across the room: walking on goes round and round.
 static step_t const s_c1loop[] = {
-    {OP_SHOOT, PORTAL_BLUE, 1.0f, 1.9f, 3.5f}, {OP_SHOOT, PORTAL_ORANGE, 9.0f, 1.9f, 3.5f},
-    {OP_WALK_TO, 0, 5.0f, 1.0f, 3.5f},         {OP_FACE, 0, -HALF_PI, 0.0f, 0},
-    {OP_WALK, 0, 6.0f, 0, 0},                  {OP_END, 0, 0, 0, 0},
+    {OP_SHOOT, PORTAL_BLUE, 1.0f, 1.9f, 3.5f},
+    {OP_SHOOT, PORTAL_ORANGE, 9.0f, 1.9f, 3.5f},
+    {OP_WALK_TO, 0, 5.0f, 1.0f, 3.5f},
+    {OP_FACE, 0, -HALF_PI, 0.0f, 0},
+    {OP_WALK, 0, 6.0f, 0, 0},
+    {OP_END, 0, 0, 0, 0},
 };
 
 // The hand-written demos; after them, one per chamber with a solution
@@ -36,7 +40,7 @@ static demo_t const s_demos[] = {
     {"c1loop", 0, 9.0f, s_c1loop},
 };
 
-#define N_FIXED ((int)(sizeof(s_demos) / sizeof(s_demos[0])))
+#define N_FIXED    ((int)(sizeof(s_demos) / sizeof(s_demos[0])))
 #define SOLUTION_S 30.0f  // a solution demo runs this long; it stands still once done
 
 int demo_count(void) {
@@ -65,9 +69,9 @@ int demo_chamber(int i) {
 
 bool demo_has_solution(int i) {
     if (i < N_FIXED) return true;
-    static step_t steps[SCRIPT_MAX_STEPS];
+    static step_t  steps[SCRIPT_MAX_STEPS];
     static level_t lv;
-    int n = 0;
+    int            n = 0;
     return chamber_build(i - N_FIXED, &lv, steps, &n) && n > 0;
 }
 
@@ -92,9 +96,9 @@ void demo_eval(int i, float t, demo_state_t* s) {
         if (!chamber_build(i - N_FIXED, &lv, parsed, &n)) parsed[0] = (step_t){0};
     }
 
-    int   k       = 0;     // the step running
-    float in_step = 0.0f;  // seconds into it
-    bool  left    = false; // OP_STEP_OFF: off the edge
+    int   k       = 0;      // the step running
+    float in_step = 0.0f;   // seconds into it
+    bool  left    = false;  // OP_STEP_OFF: off the edge
     for (float now = 0.0f; now + STEP_DT * 0.5f < t; now += STEP_DT) {
         game_input_t in = {0};
         // Instant steps take no time: run them all before this tick.
@@ -140,11 +144,14 @@ void demo_eval(int i, float t, demo_state_t* s) {
                     done = true;
                 }
                 break;
-            case OP_WAIT: done = in_step >= st->a; break;
-            default: break;  // OP_END: stand still
+            case OP_WAIT:
+                done = in_step >= st->a;
+                break;
+            default:
+                break;  // OP_END: stand still
         }
-        int const ev = game_step(g, &in, STEP_DT);
-        s->events |= ev;
+        int const ev  = game_step(g, &in, STEP_DT);
+        s->events    |= ev;
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
         in_step += STEP_DT;
         if (done) {

@@ -18,7 +18,7 @@ char const* demo_name(int i);
 float       demo_duration(int i);
 // The chamber a demo plays in; whether it has a script (a chamber file's
 // solution may be missing).
-int  demo_chamber(int i);
-bool demo_has_solution(int i);
+int         demo_chamber(int i);
+bool        demo_has_solution(int i);
 // The state `t` seconds into demo `i`.
-void demo_eval(int i, float t, demo_state_t* out);
+void        demo_eval(int i, float t, demo_state_t* out);

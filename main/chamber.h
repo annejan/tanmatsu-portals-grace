@@ -29,7 +29,7 @@
 #define CHAMBER_MAX 40
 
 typedef struct {
-    char const* id;    // file name without .txt, e.g. "01-gap"
+    char const* id;  // file name without .txt, e.g. "01-gap"
     char const* text;
 } chamber_builtin_t;
 
@@ -56,8 +56,8 @@ char const* chamber_text(int i);  // the file as it was read
 bool        chamber_build(int i, level_t* lv, step_t* steps, int* n_steps);
 // Add every *.txt in `dir` that parses, in name order. Returns how many;
 // a file that does not parse is skipped, and logged.
-int chamber_load_dir(char const* dir);
+int         chamber_load_dir(char const* dir);
 // Forget the chambers chamber_load_dir() added, and read `dir` again.
-int chamber_reload_dir(char const* dir);
+int         chamber_reload_dir(char const* dir);
 // How many of the list are built in.
-int chamber_builtin_n(void);
+int         chamber_builtin_n(void);

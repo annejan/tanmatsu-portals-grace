@@ -36,9 +36,11 @@ void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
             for (int x = 0; x < w; x++) {
                 bool const edge  = x == 0 || z == 0 || x == w - 1 || z == dep - 1;
                 bool const floor = y == 0, roof = y == h - 1;
-                char       c     = '#';
-                if (!edge && !floor && !roof) c = '.';
-                else if (floor && !edge) c = 'W';
+                char       c = '#';
+                if (!edge && !floor && !roof)
+                    c = '.';
+                else if (floor && !edge)
+                    c = 'W';
                 else if (edge && !floor && !roof && !(x == 0 && z == 0) && !(x == 0 && z == dep - 1) &&
                          !(x == w - 1 && z == 0) && !(x == w - 1 && z == dep - 1))
                     c = 'W';  // the walls, not the corner columns
@@ -70,22 +72,27 @@ bool draft_from_text(draft_t* d, char const* id, char const* text) {
 
 int draft_text(draft_t const* d, char* out, size_t n) {
     size_t len = 0;
-#define PUT(...)                                                                              \
-    do {                                                                                      \
-        int const k_ = snprintf(out + len, len < n ? n - len : 0, __VA_ARGS__);              \
-        if (k_ < 0 || len + (size_t)k_ >= n) return -1;                                       \
-        len += (size_t)k_;                                                                    \
+#define PUT(...)                                                                \
+    do {                                                                        \
+        int const k_ = snprintf(out + len, len < n ? n - len : 0, __VA_ARGS__); \
+        if (k_ < 0 || len + (size_t)k_ >= n) return -1;                         \
+        len += (size_t)k_;                                                      \
     } while (0)
     PUT("name: %s\n", d->name);
     if (d->hint[0]) PUT("hint: %s\n", d->hint);
     PUT("size: %d %d %d\n", d->w, d->h, d->d);
     int deg = (int)lroundf(d->yaw / DEG);
     deg     = ((deg % 360) + 360) % 360;
-    if (deg == 0) PUT("facing: north\n");
-    else if (deg == 90) PUT("facing: east\n");
-    else if (deg == 180) PUT("facing: south\n");
-    else if (deg == 270) PUT("facing: west\n");
-    else PUT("facing: %d\n", deg);
+    if (deg == 0)
+        PUT("facing: north\n");
+    else if (deg == 90)
+        PUT("facing: east\n");
+    else if (deg == 180)
+        PUT("facing: south\n");
+    else if (deg == 270)
+        PUT("facing: west\n");
+    else
+        PUT("facing: %d\n", deg);
     for (int y = 0; y < d->h; y++) {
         bool metal = true;
         for (int z = 0; z < d->d && metal; z++)

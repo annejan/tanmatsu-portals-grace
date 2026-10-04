@@ -6,12 +6,12 @@
 #include <stdio.h>
 #include <string.h>
 #include "bsp/device.h"
-#include "esp_log.h"
-#include "esp_timer.h"
-#include "graceloader.h"
 #include "chamber.h"
 #include "demo.h"
 #include "editor.h"
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "graceloader.h"
 #include "input.h"
 #include "level.h"
 #include "menu.h"
@@ -41,19 +41,23 @@ static float s_msg_t;
 static int   s_pending_chamber = -1;  // load this once the message is read
 
 // Playing the chambers, editing one, or play-testing the one being edited.
-typedef enum { MODE_PLAY, MODE_EDIT, MODE_TEST } app_mode_t;
+typedef enum {
+    MODE_PLAY,
+    MODE_EDIT,
+    MODE_TEST
+} app_mode_t;
 static app_mode_t s_mode;
-static int    s_play_chamber;  // where play goes back to after the editor
-static bool   s_test_back;     // Esc in a play-test: back to the editor
-static float  s_test_done;     // the play-test reached the exit: back after a moment
-static float s_fps;
-static int   s_frames;
-static float s_period_t, s_period_ms;
+static int        s_play_chamber;  // where play goes back to after the editor
+static bool       s_test_back;     // Esc in a play-test: back to the editor
+static float      s_test_done;     // the play-test reached the exit: back after a moment
+static float      s_fps;
+static int        s_frames;
+static float      s_period_t, s_period_ms;
 
 // A scripted demo (main/demo.c) playing instead of the player: what the
 // device tests select. A pure function of show time.
-static int    s_demo = -1;
-static double s_demo_t0;
+static int     s_demo = -1;
+static double  s_demo_t0;
 static int64_t s_render_us;
 
 static void message(char const* text) {
@@ -102,7 +106,9 @@ static devtest_content_t const TEST_CONTENT = {
     .shot_name = test_shot_name,
 };
 static devtest_config_t const TEST = {
-    .app = "com.annejan.portals", .shot_dir = "/sd/portals/test", .content = &TEST_CONTENT,
+    .app      = "com.annejan.portals",
+    .shot_dir = "/sd/portals/test",
+    .content  = &TEST_CONTENT,
 };
 
 // The demo's state at this show time, in place of the player's.
@@ -111,7 +117,7 @@ static void demo_frame(void) {
     demo_eval(s_demo, (float)(showtime_now() - s_demo_t0), &st);
     bool const remesh = st.g.chamber != s_game.chamber || !same_portal(&st.g.portals[0], &s_game.portals[0]) ||
                         !same_portal(&st.g.portals[1], &s_game.portals[1]);
-    s_game = st.g;
+    s_game            = st.g;
     if (remesh) render_set_level(&s_game.lv, s_game.portals);
 }
 
@@ -198,8 +204,11 @@ static void menu_frame(void) {
             editor_open(s_game.chamber, CHAMBER_DIR);
             s_mode = MODE_EDIT;
             break;
-        case MENU_CMD_QUIT: bsp_device_restart_to_launcher(); break;
-        default: break;
+        case MENU_CMD_QUIT:
+            bsp_device_restart_to_launcher();
+            break;
+        default:
+            break;
     }
     // Keys still held from the menu do not fire on the way out.
     if (!menu_active()) input_resync();

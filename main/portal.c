@@ -63,7 +63,7 @@ bool portal_place(level_t const* lv, vec3_t eye, vec3_t look, portal_t const* ot
     }
 
     vec3_t const down = v3_scale(up, -1.0f);
-    int const    dx   = (int)down.x, dy = (int)down.y, dz = (int)down.z;
+    int const    dx = (int)down.x, dy = (int)down.y, dz = (int)down.z;
 
     // On a wall: the lower of the two pairs that hold the cell hit, so a
     // shot at eye height leaves the portal standing on the floor, where
@@ -141,8 +141,7 @@ static plane_t plane_through(vec3_t a, vec3_t b, vec3_t c, vec3_t inside) {
     return p;
 }
 
-void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in,
-                         clipset_t* out) {
+void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in, clipset_t* out) {
     static clipset_t cs;  // static: three of these deep is a lot of stack
     cs.n = 0;
     if (in != NULL) cs = *in;
@@ -181,7 +180,7 @@ int clip_polygon(clipset_t const* cs, cvert_t const* in, int n, cvert_t* out) {
                 dst[m++]      = (cvert_t){v3_lerp(a->p, b->p, t), a->u + (b->u - a->u) * t, a->v + (b->v - a->v) * t};
             }
         }
-        n = m;
+        n    = m;
         cur ^= 1;
     }
     memcpy(out, buf[cur], (size_t)n * sizeof(cvert_t));

@@ -8,13 +8,13 @@
 #include "level.h"
 
 typedef struct {
-    char  id[32];    // file name without .txt
+    char  id[32];  // file name without .txt
     char  name[32];
     char  hint[80];
     int   w, h, d;
-    float yaw;       // the start's facing, radians
+    float yaw;                                 // the start's facing, radians
     char  grid[LV_MAX_H][LV_MAX_D][LV_MAX_W];  // [y][z][x]
-    char  solution[2048];  // the file's solution section, kept as it was
+    char  solution[2048];                      // the file's solution section, kept as it was
 } draft_t;
 
 // A box of metal with white walls, a white floor and air inside, the

@@ -1,6 +1,6 @@
 #include "level.h"
-#include "chamber.h"
 #include <string.h>
+#include "chamber.h"
 
 // --- Building -----------------------------------------------------------
 
@@ -47,7 +47,7 @@ bool level_load(level_t* lv, int index) {
 // --- Raycast (Amanatides & Woo) ----------------------------------------
 
 ray_hit_t level_raycast(level_t const* lv, vec3_t from, vec3_t dir, float max_dist) {
-    ray_hit_t r = {0};
+    ray_hit_t r       = {0};
     int       c[3]    = {(int)floorf(from.x), (int)floorf(from.y), (int)floorf(from.z)};
     float     o[3]    = {from.x, from.y, from.z};
     float     d[3]    = {dir.x, dir.y, dir.z};
@@ -72,8 +72,8 @@ ray_hit_t level_raycast(level_t const* lv, vec3_t from, vec3_t dir, float max_di
         int a = 0;
         if (tmax[1] < tmax[a]) a = 1;
         if (tmax[2] < tmax[a]) a = 2;
-        t = tmax[a];
-        c[a] += step[a];
+        t        = tmax[a];
+        c[a]    += step[a];
         tmax[a] += tdelta[a];
         if (t > max_dist) break;
         if (level_solid(lv, c[0], c[1], c[2])) {
@@ -114,20 +114,20 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
             for (int j = 0; j < nv; j++) {
                 for (int i = 0; i < nu; i++) {
                     int c[3];
-                    c[a]  = s;
-                    c[ua] = i;
-                    c[va] = j;
-                    uint8_t const m = level_get(lv, c[0], c[1], c[2]);
-                    int           e[3] = {c[0], c[1], c[2]};
-                    e[a] += sign;
+                    c[a]                = s;
+                    c[ua]               = i;
+                    c[va]               = j;
+                    uint8_t const m     = level_get(lv, c[0], c[1], c[2]);
+                    int           e[3]  = {c[0], c[1], c[2]};
+                    e[a]               += sign;
                     // Doors, glass and fizzlers are drawn by the game, not the
                     // mesh: their cells are open space here, so what is
                     // round and behind them shows.
-                    uint8_t const n    = level_get(lv, e[0], e[1], e[2]);
-                    bool const    vis  = m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ &&
-                                     (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ) &&
-                                     !is_hole(holes, n_holes, c[0], c[1], c[2], face);
-                    mask[j * nu + i] = vis ? m : MAT_AIR;
+                    uint8_t const n     = level_get(lv, e[0], e[1], e[2]);
+                    bool const    vis   = m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ &&
+                                          (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ) &&
+                                          !is_hole(holes, n_holes, c[0], c[1], c[2], face);
+                    mask[j * nu + i]    = vis ? m : MAT_AIR;
                 }
             }
             for (int j = 0; j < nv; j++) {

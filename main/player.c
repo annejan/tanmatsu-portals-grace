@@ -56,11 +56,11 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
     } else {
         // A little steering in the air, but never enough to add speed
         // past walking pace -- a fling keeps all it had.
-        float const before = sqrtf(p->vel.x * p->vel.x + p->vel.z * p->vel.z);
-        p->vel.x += wish.x * AIR_ACCEL * dt;
-        p->vel.z += wish.z * AIR_ACCEL * dt;
-        float const after = sqrtf(p->vel.x * p->vel.x + p->vel.z * p->vel.z);
-        float const cap   = fmaxf(before, WALK_SPEED);
+        float const before  = sqrtf(p->vel.x * p->vel.x + p->vel.z * p->vel.z);
+        p->vel.x           += wish.x * AIR_ACCEL * dt;
+        p->vel.z           += wish.z * AIR_ACCEL * dt;
+        float const after   = sqrtf(p->vel.x * p->vel.x + p->vel.z * p->vel.z);
+        float const cap     = fmaxf(before, WALK_SPEED);
         if (after > cap) {
             p->vel.x *= cap / after;
             p->vel.z *= cap / after;
@@ -68,27 +68,28 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
     }
     p->vel.y = fmaxf(p->vel.y - PHYS_GRAVITY * dt, -PHYS_MAX_FALL);
 
-    body_t b   = as_body(p);
-    int    via = -1;
-    float  impact;
+    body_t    b   = as_body(p);
+    int       via = -1;
+    float     impact;
     int const pev = body_move(&b, w, dt, &via, &impact);
-    p->pos       = b.pos;
-    p->vel       = b.vel;
-    p->on_ground = b.on_ground;
+    p->pos        = b.pos;
+    p->vel        = b.vel;
+    p->on_ground  = b.on_ground;
     if (pev & PHYS_TELEPORT) {
         // The view goes through too, upright again at once: the roll is dropped.
         basis_t const view = player_view(p);
         basis_t const m    = portal_map_basis(&w->portals[via], &w->portals[via ^ 1], &view);
         float         yaw, pitch, roll;
         basis_to_angles(&m, &yaw, &pitch, &roll);
-        p->yaw   = yaw;
-        p->pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, pitch));
-        ev |= PL_EV_TELEPORT;
+        p->yaw    = yaw;
+        p->pitch  = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, pitch));
+        ev       |= PL_EV_TELEPORT;
         if (through) *through = via;
     }
     if ((pev & PHYS_LANDED) && impact > 3.0f) ev |= PL_EV_LANDED;
     if (p->on_ground) {
-        uint8_t const under = level_get(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z));
+        uint8_t const under =
+            level_get(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z));
         if (under == MAT_GOO) ev |= PL_EV_DIED;
         if (under == MAT_EXIT) ev |= PL_EV_EXIT;
     }

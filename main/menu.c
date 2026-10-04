@@ -1,10 +1,10 @@
 #include "menu.h"
 #include <stdint.h>
 #include <stdio.h>
+#include "chamber.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "input.h"
-#include "chamber.h"
 #include "level.h"
 #include "settings.h"
 #include "sound.h"
@@ -12,7 +12,14 @@
 
 static char const TAG[] = "menu";
 
-typedef enum { SCR_NONE = 0, SCR_PAUSE, SCR_SETTINGS, SCR_CONTROLS, SCR_CHAMBERS, SCR_COUNT } screen_t;
+typedef enum {
+    SCR_NONE = 0,
+    SCR_PAUSE,
+    SCR_SETTINGS,
+    SCR_CONTROLS,
+    SCR_CHAMBERS,
+    SCR_COUNT
+} screen_t;
 
 static screen_t s_scr;
 static int      s_cursor[SCR_COUNT];
@@ -23,7 +30,14 @@ static int64_t  s_opened_us;
 #define CHAMBERS_MAX CHAMBER_MAX
 static char s_names[CHAMBERS_MAX][32];  // chamber names, read once when the list opens
 
-enum { A_UP = 1, A_DOWN = 2, A_LEFT = 4, A_RIGHT = 8, A_OK = 16, A_BACK = 32 };
+enum {
+    A_UP    = 1,
+    A_DOWN  = 2,
+    A_LEFT  = 4,
+    A_RIGHT = 8,
+    A_OK    = 16,
+    A_BACK  = 32
+};
 
 static void go(screen_t s) {
     s_scr = s;
@@ -39,10 +53,10 @@ static void go(screen_t s) {
 }
 
 void menu_open(int current_chamber) {
-    s_chamber            = current_chamber;
-    s_act                = 0;
-    s_opened_us          = esp_timer_get_time();
-    s_cursor[SCR_PAUSE]  = 0;
+    s_chamber           = current_chamber;
+    s_act               = 0;
+    s_opened_us         = esp_timer_get_time();
+    s_cursor[SCR_PAUSE] = 0;
     go(SCR_PAUSE);
 }
 
@@ -70,30 +84,56 @@ void menu_event(bsp_input_event_t const* ev) {
         if ((sc & BSP_INPUT_SCANCODE_RELEASE_MODIFIER) != 0) return;
         switch (sc) {
             case BSP_INPUT_SCANCODE_ESC:
-            case BSP_INPUT_SCANCODE_BACKSPACE: s_act |= A_BACK; break;
+            case BSP_INPUT_SCANCODE_BACKSPACE:
+                s_act |= A_BACK;
+                break;
             case BSP_INPUT_SCANCODE_ENTER:
             case BSP_INPUT_SCANCODE_SPACE:
-            case BSP_INPUT_SCANCODE_ESCAPED_KPENTER: s_act |= A_OK; break;
+            case BSP_INPUT_SCANCODE_ESCAPED_KPENTER:
+                s_act |= A_OK;
+                break;
             case BSP_INPUT_SCANCODE_W:
-            case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP: s_act |= A_UP; break;
+            case BSP_INPUT_SCANCODE_ESCAPED_GREY_UP:
+                s_act |= A_UP;
+                break;
             case BSP_INPUT_SCANCODE_S:
-            case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN: s_act |= A_DOWN; break;
+            case BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN:
+                s_act |= A_DOWN;
+                break;
             case BSP_INPUT_SCANCODE_A:
-            case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT: s_act |= A_LEFT; break;
+            case BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT:
+                s_act |= A_LEFT;
+                break;
             case BSP_INPUT_SCANCODE_D:
-            case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT: s_act |= A_RIGHT; break;
-            default: break;
+            case BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT:
+                s_act |= A_RIGHT;
+                break;
+            default:
+                break;
         }
     } else if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state) {
         switch (ev->args_navigation.key) {
             case BSP_INPUT_NAVIGATION_KEY_ESC:
-            case BSP_INPUT_NAVIGATION_KEY_BACKSPACE: s_act |= A_BACK; break;
-            case BSP_INPUT_NAVIGATION_KEY_RETURN: s_act |= A_OK; break;
-            case BSP_INPUT_NAVIGATION_KEY_UP: s_act |= A_UP; break;
-            case BSP_INPUT_NAVIGATION_KEY_DOWN: s_act |= A_DOWN; break;
-            case BSP_INPUT_NAVIGATION_KEY_LEFT: s_act |= A_LEFT; break;
-            case BSP_INPUT_NAVIGATION_KEY_RIGHT: s_act |= A_RIGHT; break;
-            default: break;
+            case BSP_INPUT_NAVIGATION_KEY_BACKSPACE:
+                s_act |= A_BACK;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_RETURN:
+                s_act |= A_OK;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_UP:
+                s_act |= A_UP;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_DOWN:
+                s_act |= A_DOWN;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_LEFT:
+                s_act |= A_LEFT;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_RIGHT:
+                s_act |= A_RIGHT;
+                break;
+            default:
+                break;
         }
     }
 }
@@ -102,12 +142,22 @@ void menu_event(bsp_input_event_t const* ev) {
 
 #define PAUSE_ROWS 7
 static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
-    {.label = "Resume"},         {.label = "Restart chamber"}, {.label = "Chamber select"},
-    {.label = "Chamber editor"}, {.label = "Settings"},        {.label = "Controls"},
-    {.label = "Quit to launcher"},
+    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"},   {.label = "Chamber editor"},
+    {.label = "Settings"}, {.label = "Controls"},        {.label = "Quit to launcher"},
 };
 
-enum { SET_GYRO, SET_HALF, SET_DEPTH, SET_MUSIC, SET_SFX, SET_VOLUME, SET_SCREEN, SET_KEYS, SET_BACK, SET_ROWS };
+enum {
+    SET_GYRO,
+    SET_HALF,
+    SET_DEPTH,
+    SET_MUSIC,
+    SET_SFX,
+    SET_VOLUME,
+    SET_SCREEN,
+    SET_KEYS,
+    SET_BACK,
+    SET_ROWS
+};
 #define CONTROLS_ROWS (ACT_COUNT + 2)  // every action, reset, back
 
 static se_menu_row_t s_set_rows[SET_ROWS];
@@ -124,11 +174,11 @@ static void draw_key(pax_buf_t* fb, float x, float y, float h, pax_col_t col, vo
 // screen high, 44 px rows) hold four and a half rows; these hold nine,
 // and a longer list scrolls (row text height: SE_UI_ROW_TEXT_H in
 // CMakeLists.txt).
-#define MENU_PANEL_W 0.70f
-#define MENU_PANEL_H 0.92f
-#define MENU_TITLE_H 28.0f
-#define MENU_ROW_H   30.0f
-#define MENU_ROWS    9
+#define MENU_PANEL_W  0.70f
+#define MENU_PANEL_H  0.92f
+#define MENU_TITLE_H  28.0f
+#define MENU_ROW_H    30.0f
+#define MENU_ROWS     9
 // Labels to values: the longest label ("Quarter resolution") is about
 // 220 px at 20 px text, and a slider and its "NN%" still end inside the
 // 560 px panel. At 0 the values were drawn on top of their labels.
@@ -159,27 +209,27 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             return PAUSE_ROWS;
         case SCR_SETTINGS:
             snprintf(s_depth_text, sizeof(s_depth_text), "%d", settings_portal_depth());
-            s_set_rows[SET_GYRO]   = (se_menu_row_t){.label = "Gyroscope look", .kind = SE_MENU_VAL_CHECK,
-                                                     .checked = settings_gyro()};
-            s_set_rows[SET_HALF]   = (se_menu_row_t){.label = "Quarter resolution", .kind = SE_MENU_VAL_CHECK,
-                                                     .checked = settings_half_res()};
-            s_set_rows[SET_DEPTH]  = (se_menu_row_t){.label = "Portal depth", .kind = SE_MENU_VAL_TEXT,
-                                                     .value = s_depth_text};
-            s_set_rows[SET_MUSIC]  = (se_menu_row_t){.label = "Music", .kind = SE_MENU_VAL_CHECK,
-                                                     .checked = settings_music()};
-            s_set_rows[SET_SFX]    = (se_menu_row_t){.label = "Sound effects", .kind = SE_MENU_VAL_CHECK,
-                                                     .checked = settings_effects()};
-            s_set_rows[SET_VOLUME] = (se_menu_row_t){.label = "Volume", .kind = SE_MENU_VAL_RANGE,
-                                                     .range_pct = se_hw_get_volume()};
-            s_set_rows[SET_SCREEN] = (se_menu_row_t){.label = "Screen brightness", .kind = SE_MENU_VAL_RANGE,
-                                                     .range_pct = se_hw_get_display_brightness()};
-            s_set_rows[SET_KEYS]   = (se_menu_row_t){.label = "Keyboard light", .kind = SE_MENU_VAL_RANGE,
-                                                     .range_pct = se_hw_get_keyboard_brightness()};
-            s_set_rows[SET_BACK]   = (se_menu_row_t){.label = "Back"};
-            def->title             = "SETTINGS";
-            def->rows              = s_set_rows;
-            def->row_count         = SET_ROWS;
-            def->hint              = "Enter: toggle   Left / Right: adjust";
+            s_set_rows[SET_GYRO] =
+                (se_menu_row_t){.label = "Gyroscope look", .kind = SE_MENU_VAL_CHECK, .checked = settings_gyro()};
+            s_set_rows[SET_HALF] = (se_menu_row_t){
+                .label = "Quarter resolution", .kind = SE_MENU_VAL_CHECK, .checked = settings_half_res()};
+            s_set_rows[SET_DEPTH] =
+                (se_menu_row_t){.label = "Portal depth", .kind = SE_MENU_VAL_TEXT, .value = s_depth_text};
+            s_set_rows[SET_MUSIC] =
+                (se_menu_row_t){.label = "Music", .kind = SE_MENU_VAL_CHECK, .checked = settings_music()};
+            s_set_rows[SET_SFX] =
+                (se_menu_row_t){.label = "Sound effects", .kind = SE_MENU_VAL_CHECK, .checked = settings_effects()};
+            s_set_rows[SET_VOLUME] =
+                (se_menu_row_t){.label = "Volume", .kind = SE_MENU_VAL_RANGE, .range_pct = se_hw_get_volume()};
+            s_set_rows[SET_SCREEN] = (se_menu_row_t){
+                .label = "Screen brightness", .kind = SE_MENU_VAL_RANGE, .range_pct = se_hw_get_display_brightness()};
+            s_set_rows[SET_KEYS] = (se_menu_row_t){
+                .label = "Keyboard light", .kind = SE_MENU_VAL_RANGE, .range_pct = se_hw_get_keyboard_brightness()};
+            s_set_rows[SET_BACK] = (se_menu_row_t){.label = "Back"};
+            def->title           = "SETTINGS";
+            def->rows            = s_set_rows;
+            def->row_count       = SET_ROWS;
+            def->hint            = "Enter: toggle   Left / Right: adjust";
             return SET_ROWS;
         case SCR_CONTROLS:
             for (int i = 0; i < ACT_COUNT; i++)
@@ -198,14 +248,16 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             int n = level_count();
             if (n > CHAMBERS_MAX) n = CHAMBERS_MAX;
             for (int i = 0; i < n; i++)
-                s_ch_rows[i] = (se_menu_row_t){.label = s_names[i], .kind = SE_MENU_VAL_RADIO, .checked = i == s_chamber};
+                s_ch_rows[i] =
+                    (se_menu_row_t){.label = s_names[i], .kind = SE_MENU_VAL_RADIO, .checked = i == s_chamber};
             s_ch_rows[n]   = (se_menu_row_t){.label = "Back"};
             def->title     = "CHAMBERS";
             def->rows      = s_ch_rows;
             def->row_count = n + 1;
             return n + 1;
         }
-        default: return 0;
+        default:
+            return 0;
     }
 }
 
@@ -222,7 +274,7 @@ menu_cmd_t menu_update(void) {
 
     se_menu_def_t def;
     build(s_scr, &def);
-    se_menu_t m = {.def = &def, .cursor = s_cursor[s_scr]};
+    se_menu_t        m = {.def = &def, .cursor = s_cursor[s_scr]};
     se_menu_result_t r = SE_MENU_RESULT_NONE;
     if (act & A_UP) se_menu_input(&m, SE_MENU_ACT_UP);
     if (act & A_DOWN) se_menu_input(&m, SE_MENU_ACT_DOWN);
@@ -230,9 +282,9 @@ menu_cmd_t menu_update(void) {
     if (act & A_RIGHT) r = se_menu_input(&m, SE_MENU_ACT_RIGHT);
     if (act & A_OK) r = se_menu_input(&m, SE_MENU_ACT_ACTIVATE);
     if (act & A_BACK) r = se_menu_input(&m, SE_MENU_ACT_BACK);
-    int const cur      = m.cursor;
+    int const cur = m.cursor;
     if (cur != s_cursor[s_scr] || r == SE_MENU_RESULT_ACTIVATED) sound_play(SND_MENU);
-    s_cursor[s_scr]    = cur;
+    s_cursor[s_scr] = cur;
 
     switch (s_scr) {
         case SCR_PAUSE:
@@ -241,13 +293,30 @@ menu_cmd_t menu_update(void) {
                 cmd.kind = MENU_CMD_RESUME;
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
                 switch (cur) {
-                    case 0: s_scr = SCR_NONE; cmd.kind = MENU_CMD_RESUME; break;
-                    case 1: s_scr = SCR_NONE; cmd.kind = MENU_CMD_RESTART; break;
-                    case 2: go(SCR_CHAMBERS); break;
-                    case 3: s_scr = SCR_NONE; cmd.kind = MENU_CMD_EDITOR; break;
-                    case 4: go(SCR_SETTINGS); break;
-                    case 5: go(SCR_CONTROLS); break;
-                    case 6: cmd.kind = MENU_CMD_QUIT; break;
+                    case 0:
+                        s_scr    = SCR_NONE;
+                        cmd.kind = MENU_CMD_RESUME;
+                        break;
+                    case 1:
+                        s_scr    = SCR_NONE;
+                        cmd.kind = MENU_CMD_RESTART;
+                        break;
+                    case 2:
+                        go(SCR_CHAMBERS);
+                        break;
+                    case 3:
+                        s_scr    = SCR_NONE;
+                        cmd.kind = MENU_CMD_EDITOR;
+                        break;
+                    case 4:
+                        go(SCR_SETTINGS);
+                        break;
+                    case 5:
+                        go(SCR_CONTROLS);
+                        break;
+                    case 6:
+                        cmd.kind = MENU_CMD_QUIT;
+                        break;
                 }
             }
             break;
@@ -312,7 +381,8 @@ menu_cmd_t menu_update(void) {
             }
             break;
 
-        default: break;
+        default:
+            break;
     }
     return cmd;
 }

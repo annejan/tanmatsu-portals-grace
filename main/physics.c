@@ -74,7 +74,7 @@ static bool move_axis(body_t* b, step_t const* s, int a, float delta) {
     if (delta == 0.0f) return false;
     int b0[3], b1[3];
     box_cells(b, b0, b1);
-    aabb_t const before = body_aabb(b);
+    aabb_t const before   = body_aabb(b);
     *axis_of(&b->pos, a) += delta;
     int c0[3], c1[3];
     box_cells(b, c0, c1);

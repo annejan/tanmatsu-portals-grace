@@ -28,10 +28,10 @@ typedef struct {
     float dyaw, dpitch;  // radians to turn this frame: keys plus gyro
     bool  jump;          // held
     // Pressed this frame:
-    bool fire[2];
-    bool use;
-    bool restart;
-    bool gyro;
+    bool  fire[2];
+    bool  use;
+    bool  restart;
+    bool  gyro;
 } input_frame_t;
 
 void input_init(void);  // after the engine is up: loads the bindings

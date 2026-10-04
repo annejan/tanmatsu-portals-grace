@@ -80,13 +80,15 @@ static void build_clear(level_t const* lv) {
                         if (face % 2 == 0) o[a] += 1.0f;
                         du[ua] = 1.0f;
                         dv[va] = 1.0f;
-                        add_clear(v3(o[0], o[1], o[2]), v3(du[0], du[1], du[2]), v3(dv[0], dv[1], dv[2]), dir_vec(face), m);
+                        add_clear(v3(o[0], o[1], o[2]), v3(du[0], du[1], du[2]), v3(dv[0], dv[1], dv[2]), dir_vec(face),
+                                  m);
                     }
                 } else if (m == MAT_FIZZ) {
                     // A sheet through the middle of the cell, across the
                     // way the fizzler runs, seen from both sides.
-                    bool const along_x = level_get(lv, x - 1, y, z) == MAT_FIZZ || level_get(lv, x + 1, y, z) == MAT_FIZZ ||
-                                         !(level_get(lv, x, y, z - 1) == MAT_FIZZ || level_get(lv, x, y, z + 1) == MAT_FIZZ);
+                    bool const along_x =
+                        level_get(lv, x - 1, y, z) == MAT_FIZZ || level_get(lv, x + 1, y, z) == MAT_FIZZ ||
+                        !(level_get(lv, x, y, z - 1) == MAT_FIZZ || level_get(lv, x, y, z + 1) == MAT_FIZZ);
                     if (along_x) {
                         vec3_t const o = v3((float)x, (float)y, (float)z + 0.5f);
                         add_clear(o, v3(1, 0, 0), v3(0, 1, 0), v3(0, 0, -1), m);
@@ -106,7 +108,8 @@ void render_set_level(level_t const* lv, portal_t const portals[2]) {
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
         for (int c = 0; c < 2; c++)
-            holes[nh++] = (hole_t){portals[i].cell[c][0], portals[i].cell[c][1], portals[i].cell[c][2], portals[i].face};
+            holes[nh++] =
+                (hole_t){portals[i].cell[c][0], portals[i].cell[c][1], portals[i].cell[c][2], portals[i].face};
     }
     s_nquads = level_mesh(lv, holes, nh, s_quads, LV_MAX_QUADS);
     build_clear(lv);
@@ -150,23 +153,23 @@ static void emit_poly(cvert_t const* v, int n, material_info_t const* m, uint32_
 }
 
 // A quad, if it faces the eye, clipped to `cs` when there is one.
-static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_t const* cs,
-                        material_info_t const* m, uint32_t argb, uint32_t flags) {
+static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
+                        uint32_t argb, uint32_t flags) {
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
     if (cs == NULL) {
         emit_poly(q, 4, m, argb, flags);
         return;
     }
-    cvert_t out[CLIP_MAX_VERTS];
+    cvert_t   out[CLIP_MAX_VERTS];
     int const k = clip_polygon(cs, q, 4, out);
     if (k >= 3) emit_poly(out, k, m, argb, flags);
 }
 
 static void submit_level(cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < s_nquads; i++) {
-        mquad_t const*         q = &s_quads[i];
-        material_info_t const* m = &s_mat[q->mat];
-        cvert_t const v[4] = {
+        mquad_t const*         q    = &s_quads[i];
+        material_info_t const* m    = &s_mat[q->mat];
+        cvert_t const          v[4] = {
             {q->origin, 0, 0},
             {v3_add(q->origin, q->du), q->su, 0},
             {v3_add(v3_add(q->origin, q->du), q->dv), q->su, q->sv},
@@ -179,12 +182,12 @@ static void submit_level(cam_t const* cam, clipset_t const* cs) {
 // A triangle on a portal's plane, `lift` off the wall.
 static void portal_tri(portal_t const* p, vec3_t a, vec3_t b, vec3_t c, float lift, cam_t const* cam,
                        clipset_t const* cs, material_info_t const* m, uint32_t argb, uint32_t flags) {
-    vec3_t const  off = v3_scale(p->n, lift);
-    cvert_t       v[4];
-    vec3_t const  w[3] = {v3_add(a, off), v3_add(b, off), v3_add(c, off)};
+    vec3_t const off = v3_scale(p->n, lift);
+    cvert_t      v[4];
+    vec3_t const w[3] = {v3_add(a, off), v3_add(b, off), v3_add(c, off)};
     // Texture coordinates from the world position along the face's two
     // in-plane axes: the same grid the level mesh tiles its panels on.
-    int const a_ = p->face / 2, ua = (a_ + 1) % 3, va = (a_ + 2) % 3;
+    int const    a_ = p->face / 2, ua = (a_ + 1) % 3, va = (a_ + 2) % 3;
     for (int i = 0; i < 3; i++) {
         float const k[3] = {w[i].x, w[i].y, w[i].z};
         v[i]             = (cvert_t){w[i], k[ua], k[va]};
@@ -194,7 +197,7 @@ static void portal_tri(portal_t const* p, vec3_t a, vec3_t b, vec3_t c, float li
         emit_poly(v, 3, m, argb, flags);
         return;
     }
-    cvert_t out[CLIP_MAX_VERTS];
+    cvert_t   out[CLIP_MAX_VERTS];
     int const k = clip_polygon(cs, v, 3, out);
     if (k >= 3) emit_poly(out, k, m, argb, flags);
 }
@@ -207,12 +210,13 @@ static void portal_frame(portal_t const* p, cam_t const* cam, clipset_t const* c
     portal_oval(p, 1.0f, o);
     int const q = PORTAL_OVAL_N / 4;
     for (int k = 0; k < 4; k++) {
-        float const  sr     = (k == 0 || k == 3) ? 1.0f : -1.0f;
-        float const  su     = (k < 2) ? 1.0f : -1.0f;
-        vec3_t const corner = v3_add(p->center, v3_add(v3_scale(p->right, sr * PORTAL_HALF_W),
-                                                       v3_scale(p->up, su * PORTAL_HALF_H)));
+        float const  sr = (k == 0 || k == 3) ? 1.0f : -1.0f;
+        float const  su = (k < 2) ? 1.0f : -1.0f;
+        vec3_t const corner =
+            v3_add(p->center, v3_add(v3_scale(p->right, sr * PORTAL_HALF_W), v3_scale(p->up, su * PORTAL_HALF_H)));
         for (int i = 0; i < q; i++)
-            portal_tri(p, corner, o[k * q + i], o[(k * q + i + 1) % PORTAL_OVAL_N], 0.0f, cam, cs, m, m->argb, m->flags);
+            portal_tri(p, corner, o[k * q + i], o[(k * q + i + 1) % PORTAL_OVAL_N], 0.0f, cam, cs, m, m->argb,
+                       m->flags);
     }
 }
 
@@ -244,17 +248,18 @@ static void portal_rim(portal_t const* p, int which, cam_t const* cam, clipset_t
 static void submit_box(vec3_t lo, vec3_t hi, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
                        uint32_t argb, uint32_t flags) {
     for (int face = 0; face < 6; face++) {
-        int const    a  = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
-        float const  l[3] = {lo.x, lo.y, lo.z}, h[3] = {hi.x, hi.y, hi.z};
-        float        o[3] = {l[0], l[1], l[2]};
-        o[a]               = face % 2 == 0 ? h[a] : l[a];
+        int const   a = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
+        float const l[3] = {lo.x, lo.y, lo.z}, h[3] = {hi.x, hi.y, hi.z};
+        float       o[3] = {l[0], l[1], l[2]};
+        o[a]             = face % 2 == 0 ? h[a] : l[a];
         float du[3] = {0}, dv[3] = {0};
         du[ua]             = h[ua] - l[ua];
         dv[va]             = h[va] - l[va];
-        vec3_t const p0    = v3(o[0], o[1], o[2]);
-        vec3_t const u     = v3(du[0], du[1], du[2]);
-        vec3_t const v     = v3(dv[0], dv[1], dv[2]);
-        cvert_t const q[4] = {{p0, 0, 0}, {v3_add(p0, u), 1, 0}, {v3_add(v3_add(p0, u), v), 1, 1}, {v3_add(p0, v), 0, 1}};
+        vec3_t const  p0   = v3(o[0], o[1], o[2]);
+        vec3_t const  u    = v3(du[0], du[1], du[2]);
+        vec3_t const  v    = v3(dv[0], dv[1], dv[2]);
+        cvert_t const q[4] = {
+            {p0, 0, 0}, {v3_add(p0, u), 1, 0}, {v3_add(v3_add(p0, u), v), 1, 1}, {v3_add(p0, v), 0, 1}};
         submit_quad(q, dir_vec(face), cam, cs, m, argb, flags);
     }
 }
@@ -280,8 +285,8 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
                    SE_TRI_EMISSIVE);
     }
     for (int i = 0; i < g->lv.n_buttons; i++) {
-        button_t const* bt  = &g->lv.buttons[i];
-        float const     x   = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
+        button_t const* bt = &g->lv.buttons[i];
+        float const     x = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
         submit_box(v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.04f, z + 0.95f), cam, cs, NULL, 0xFF5C6066u, 0);
         float const h = bt->pressed ? 0.06f : 0.12f;
         submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL,
@@ -291,12 +296,12 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
     // slide apart into the frame as the door opens, and a light across
     // the top, orange while shut and blue while open.
     for (int i = 0; i < g->lv.n_doors; i++) {
-        door_t const* d     = &g->lv.doors[i];
+        door_t const* d       = &g->lv.doors[i];
         bool const    along_x = (d->z1 - d->z0) == 1;  // thin in z: the panels slide along x
         float const   a0 = along_x ? (float)d->x0 : (float)d->z0, a1 = along_x ? (float)d->x1 : (float)d->z1;
         float const   t0 = along_x ? (float)d->z0 + 0.4f : (float)d->x0 + 0.4f, t1 = t0 + 0.2f;
         float const   y0 = (float)d->y0, y1 = (float)d->y1;
-        float const   half = (a1 - a0) * 0.5f * (1.0f - d->open);
+        float const   half       = (a1 - a0) * 0.5f * (1.0f - d->open);
         float const   ends[2][2] = {{a0, a0 + half}, {a1 - half, a1}};
         for (int k = 0; k < 2; k++) {
             if (half < 0.01f) break;
@@ -321,8 +326,8 @@ static void set_camera(cam_t const* cam) {
 // bit is in `fill` gets a flat face instead of its opening.
 static game_t const* s_game;  // the frame being drawn
 
-static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, portal_t const portals[2],
-                      int fill, uint32_t const fill_argb[2]) {
+static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, portal_t const portals[2], int fill,
+                      uint32_t const fill_argb[2]) {
     scene_begin(target);
     set_camera(cam);
     se_light_set(&(se_light_t){.x = s_light.x, .y = s_light.y, .z = s_light.z, .brightness = 0.55f});
@@ -359,17 +364,17 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
 // plane: an eye a hair from an opening it is stepping through must
 // still count it as in view, or the frame shows what was there before.
 static void view_frustum(cam_t const* cam, clipset_t* out) {
-    float const l = RENDER_HALF_W / RENDER_FOCAL_LEN;
-    float const r = ((float)DISPLAY_LOG_W - RENDER_HALF_W) / RENDER_FOCAL_LEN;
-    float const t = RENDER_HORIZON_Y / RENDER_FOCAL_LEN;
-    float const b = ((float)DISPLAY_LOG_H - RENDER_HORIZON_Y) / RENDER_FOCAL_LEN;
+    float const  l = RENDER_HALF_W / RENDER_FOCAL_LEN;
+    float const  r = ((float)DISPLAY_LOG_W - RENDER_HALF_W) / RENDER_FOCAL_LEN;
+    float const  t = RENDER_HORIZON_Y / RENDER_FOCAL_LEN;
+    float const  b = ((float)DISPLAY_LOG_H - RENDER_HORIZON_Y) / RENDER_FOCAL_LEN;
     vec3_t const f = cam->b.fwd, x = cam->b.right, y = cam->b.up;
     // Each normal points into the view.
     vec3_t const n[4] = {
-        v3_norm(v3_add(f, v3_scale(x, 1.0f / l))),   // left edge
-        v3_norm(v3_sub(f, v3_scale(x, 1.0f / r))),   // right
-        v3_norm(v3_sub(f, v3_scale(y, 1.0f / t))),   // top
-        v3_norm(v3_add(f, v3_scale(y, 1.0f / b))),   // bottom
+        v3_norm(v3_add(f, v3_scale(x, 1.0f / l))),  // left edge
+        v3_norm(v3_sub(f, v3_scale(x, 1.0f / r))),  // right
+        v3_norm(v3_sub(f, v3_scale(y, 1.0f / t))),  // top
+        v3_norm(v3_add(f, v3_scale(y, 1.0f / b))),  // bottom
     };
     out->n = 4;
     for (int i = 0; i < 4; i++) out->p[i] = (plane_t){n[i], -v3_dot(n[i], cam->pos)};
@@ -392,8 +397,8 @@ static bool portal_visible(portal_t const* p, cam_t const* cam, clipset_t const*
 // Everything seen through portal `which` by `cam`, deepest view first.
 static void draw_through(pax_buf_t* target, portal_t const portals[2], int which, cam_t const* cam,
                          clipset_t const* cs_in, int depth) {
-    portal_t const* in  = &portals[which];
-    portal_t const* out = &portals[which ^ 1];
+    portal_t const*  in  = &portals[which];
+    portal_t const*  out = &portals[which ^ 1];
     // One clip set per depth, static: three of these deep is a lot of stack.
     static clipset_t sets[RENDER_PORTAL_DEPTH_MAX + 1];
     clipset_t* const cs = &sets[depth];
@@ -411,7 +416,7 @@ void render_frame(pax_buf_t* target, game_t const* g) {
     s_game                  = g;
     s_stat_passes           = 0;
     s_stat_tris             = 0;
-    cam_t const cam = {player_eye(&g->pl), player_view(&g->pl)};
+    cam_t const cam         = {player_eye(&g->pl), player_view(&g->pl)};
 
     int fill = 0;
     if (portals[0].open && portals[1].open) {

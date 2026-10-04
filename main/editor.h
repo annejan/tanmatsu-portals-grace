@@ -16,13 +16,11 @@ typedef enum {
 
 // Edit chamber `index` from the list, or a new empty one for -1. A
 // built-in chamber is saved as a copy, my-<its id>.txt.
-void editor_open(int index, char const* chamber_dir);
-bool editor_active(void);
-void editor_close(void);
-void editor_event(bsp_input_event_t const* ev);
-editor_cmd_t editor_update(float dt);
-void         editor_draw(pax_buf_t* fb);
+void           editor_open(int index, char const* chamber_dir);
+void           editor_event(bsp_input_event_t const* ev);
+editor_cmd_t   editor_update(float dt);
+void           editor_draw(pax_buf_t* fb);
 // The chamber as it stands, parsed: what a play-test plays.
 level_t const* editor_level(void);
 // Back from a play-test.
-void editor_resume(void);
+void           editor_resume(void);

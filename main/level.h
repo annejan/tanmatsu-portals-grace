@@ -84,22 +84,22 @@ typedef struct {
 } jump_t;
 
 typedef struct {
-    char        name[32];
-    char        hint[80];
-    int         w, h, d;
-    uint8_t     cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
-    vec3_t      spawn;  // feet
-    float       spawn_yaw;
-    door_t      doors[LV_MAX_DOORS];
-    int         n_doors;
-    button_t    buttons[LV_MAX_BUTTONS];
-    int         n_buttons;
-    vec3_t      cubes[LV_MAX_CUBES];  // where each cube starts, its base
-    int         n_cubes;
-    jump_t      jumps[LV_MAX_JUMPS];
-    int         n_jumps;
-    platform_t  platform;  // M cells and the N cell; none when n_platforms is 0
-    int         n_platforms;
+    char       name[32];
+    char       hint[80];
+    int        w, h, d;
+    uint8_t    cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
+    vec3_t     spawn;  // feet
+    float      spawn_yaw;
+    door_t     doors[LV_MAX_DOORS];
+    int        n_doors;
+    button_t   buttons[LV_MAX_BUTTONS];
+    int        n_buttons;
+    vec3_t     cubes[LV_MAX_CUBES];  // where each cube starts, its base
+    int        n_cubes;
+    jump_t     jumps[LV_MAX_JUMPS];
+    int        n_jumps;
+    platform_t platform;  // M cells and the N cell; none when n_platforms is 0
+    int        n_platforms;
 } level_t;
 
 // The chambers (chamber.h): the built-in ones, then any from the SD card.
@@ -111,9 +111,9 @@ bool level_load(level_t* lv, int index);
 uint8_t level_get(level_t const* lv, int x, int y, int z);
 void    level_set(level_t* lv, int x, int y, int z, uint8_t m);
 // Solid to bodies and shots: anything but air and an open door.
-bool level_solid(level_t const* lv, int x, int y, int z);
+bool    level_solid(level_t const* lv, int x, int y, int z);
 // The door whose cells hold (x, y, z), or -1.
-int level_door_at(level_t const* lv, int x, int y, int z);
+int     level_door_at(level_t const* lv, int x, int y, int z);
 // A door counts as open, to walk or shoot through, from this far open.
 #define DOOR_PASSABLE 0.9f
 
