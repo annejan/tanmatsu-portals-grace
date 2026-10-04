@@ -46,7 +46,33 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
 // NULL). Returns the length, or -1 if `out` was too small.
 int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n);
 
-// The character a cell is written as ('#', 'W', 'S', 'a', ...).
+// The map's characters, one meaning each (the host tests check that no
+// two share one). Doors are a-h, and the buttons that open them the
+// digits 1-8: button 1 opens door a, 2 opens b, and so on; a door opens
+// while ALL its buttons are down. Older files wrote buttons A, B, D;
+// those still read, as 1, 2 and 4 (C was never possible: it is a cube).
+typedef struct {
+    char        ch;
+    char const* what;
+} chamber_glyph_t;
+
+extern chamber_glyph_t const chamber_legend[];
+extern int const             chamber_legend_n;
+
+static inline bool chamber_is_door(char c) {
+    return c >= 'a' && c < 'a' + LV_MAX_DOORS;
+}
+static inline bool chamber_is_button(char c) {
+    return c >= '1' && c < '1' + LV_MAX_BUTTONS;
+}
+static inline char chamber_door_char(int link) {
+    return (char)('a' + link);
+}
+static inline char chamber_button_char(int link) {
+    return (char)('1' + link);
+}
+
+// The character a cell is written as ('#', 'W', 'S', 'a', '1', ...).
 char chamber_cell_char(level_t const* lv, int x, int y, int z);
 
 // The list: built-ins first, then what chamber_load_dir() added.

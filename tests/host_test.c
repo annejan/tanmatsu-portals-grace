@@ -517,7 +517,60 @@ static void test_glass(void) {
     CHECK(g.pl.pos.z < 5.71f, "walking into the glass stops at it (z %.2f)", g.pl.pos.z);
 }
 
+// The map's characters: one meaning each; every one of them reads, and
+// nothing else does.
+static void test_legend(void) {
+    for (int i = 0; i < chamber_legend_n; i++)
+        for (int j = i + 1; j < chamber_legend_n; j++)
+            CHECK(chamber_legend[i].ch != chamber_legend[j].ch, "'%c' means both \"%s\" and \"%s\"",
+                  chamber_legend[i].ch, chamber_legend[i].what, chamber_legend[j].what);
+    static level_t lv;
+    char           err[96], text[256];
+    for (int c = 33; c < 127; c++) {
+        bool known = false;
+        for (int i = 0; i < chamber_legend_n; i++) known = known || chamber_legend[i].ch == (char)c;
+        // A 4 x 3 x 4 box with the character in the middle of layer 1,
+        // over a metal floor; the start beside it.
+        snprintf(text, sizeof(text), "size: 4 3 4\nlayer 1\n####\n#%c.#\n#S.#\n####\n", c);
+        bool const ok      = chamber_parse(text, &lv, NULL, NULL, err, sizeof(err));
+        bool const unknown = !ok && strstr(err, "unknown cell") != NULL;
+        CHECK(known ? !unknown : unknown, "'%c' %s: %s", c, known ? "is in the legend but does not read" : "reads but is not in the legend", err);
+    }
+    // Eight doors, each with its button, all in one chamber.
+    snprintf(text, sizeof(text), "size: 10 4 4\nlayer 1\n##########\n#abcdefgh#\n#12345678#\n####S#####\n");
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && lv.n_doors == 8 && lv.n_buttons == 8,
+          "eight doors and eight buttons: %s", err);
+    CHECK(!chamber_parse("size: 4 3 4\nlayer 1\n####\n#2.#\n#S.#\n####\n", &lv, NULL, NULL, err, sizeof(err)) &&
+              strstr(err, "no door 'b'") != NULL,
+          "a button without its door is reported: %s", err);
+    // The old letters still read.
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#aB.#\n#S..#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) == false &&
+              strstr(err, "no door 'b'") != NULL,
+          "old button B is button 2: %s", err);
+}
+
+// A door with two buttons opens only while both are down.
+static void test_two_buttons(void) {
+    static game_t g;
+    int const     i = demo_chamber(demo_find("10-two-buttons"));
+    game_load(&g, i);
+    CHECK(g.lv.n_buttons == 2 && g.lv.buttons[0].link == g.lv.buttons[1].link, "chamber 10: two buttons for one door");
+    game_input_t const idle = {0};
+    button_t*          b0 = &g.lv.buttons[0];
+    button_t*          b1 = &g.lv.buttons[1];
+    // The player on one button: not enough.
+    g.pl.pos = v3((float)b0->x + 0.5f, (float)b0->y + 1.0f, (float)b0->z + 0.5f);
+    for (int k = 0; k < 60; k++) game_step(&g, &idle, 0.02f);
+    CHECK(b0->pressed && !b1->pressed && g.lv.doors[0].open == 0.0f, "one button of two: the door stays shut");
+    // A cube on the other as well: open.
+    g.cubes[0].body.pos = v3((float)b1->x + 0.5f, (float)b1->y + 1.0f, (float)b1->z + 0.5f);
+    for (int k = 0; k < 60; k++) game_step(&g, &idle, 0.02f);
+    CHECK(b0->pressed && b1->pressed && g.lv.doors[0].open > 0.99f, "both: it opens (%.2f)", g.lv.doors[0].open);
+}
+
 int main(void) {
+    test_legend();
+    test_two_buttons();
     test_glass();
     test_things();
     test_frame_rates();

@@ -9,7 +9,7 @@ writes the line number to the log.
 ## An example
 
 ```
-name: 06  Two rooms
+name: 11  Two rooms
 hint: The button opens the door.
 size: 8 5 9
 facing: north
@@ -32,7 +32,7 @@ layer 1
 #......#
 ###aa###
 #......#
-#.A..C.#
+#.1..C.#
 #...S..#
 ########
 
@@ -101,8 +101,8 @@ cells are metal.
 | `.` or space | air |
 | `~` | goo: a floor that kills |
 | `E` | exit: a floor that ends the chamber |
-| `a` `b` `c` `d` | door cells. Each letter makes one door. The door must be a box that is one cell thick. |
-| `A` `B` `C`… | a button. Put the button letter in the air cell above the solid cell it sits on. Button `A` opens door `a`. |
+| `a` – `h` | door cells. Each letter makes one door, so a chamber can have up to 8. The door must be a box that is one cell thick. |
+| `1` – `8` | a button. Put it in the air cell above the solid cell it sits on. Button `1` opens door `a`, `2` opens `b`, and so on. A door can have several buttons, and it opens only while **all** of them are pressed. |
 | `C` | a cube. Put it in the air cell where the cube starts. |
 | `S` | the player's start. Use exactly one `S`. |
 | `G` | glass: solid and see-through. A portal shot stops at it, and no portal sticks to it. |
@@ -112,8 +112,9 @@ cells are metal.
 | `M` | a moving platform: a box of `M` cells where it starts. It is solid, and what stands on it rides along. |
 | `N` | where the platform goes: the cell its lowest corner travels to. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 
-(`C` is the cube, not button C. The game supports buttons and doors `a`–`d`,
-but chambers usually use only `A` and `B`.)
+Every character has exactly one meaning; `make check` tests this. Older
+chamber files wrote buttons as `A`, `B` and `D`; they still load, as
+buttons `1`, `2` and `4`.
 
 A portal needs two white cells next to each other, with air in front of both.
 On a wall the two cells are one above the other. On a floor or a ceiling, they

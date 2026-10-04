@@ -48,8 +48,8 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
     *dz            = (int)v.z;
 }
 
-#define LV_MAX_DOORS   4
-#define LV_MAX_BUTTONS 4
+#define LV_MAX_DOORS   8
+#define LV_MAX_BUTTONS 8
 #define LV_MAX_CUBES   4
 #define LV_MAX_JUMPS   4
 

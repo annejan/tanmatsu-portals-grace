@@ -343,13 +343,19 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         bt->pressed = down;
     }
 
-    // Doors: open while any of their buttons is down; they do not shut on
+    // Doors: open while all of their buttons are down; they do not shut on
     // anything standing in them.
     for (int d = 0; d < g->lv.n_doors; d++) {
+        // Open while ALL its buttons are down; a door with none stays shut.
         door_t* dr   = &g->lv.doors[d];
-        bool    want = false;
-        for (int b = 0; b < g->lv.n_buttons; b++)
-            if (g->lv.buttons[b].link == dr->link && g->lv.buttons[b].pressed) want = true;
+        int     n    = 0;
+        bool    want = true;
+        for (int b = 0; b < g->lv.n_buttons; b++) {
+            if (g->lv.buttons[b].link != dr->link) continue;
+            n++;
+            if (!g->lv.buttons[b].pressed) want = false;
+        }
+        want = want && n > 0;
         float const was = dr->open;
         if (want) {
             dr->open = fminf(1.0f, dr->open + DOOR_SPEED * dt);

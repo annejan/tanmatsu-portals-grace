@@ -23,7 +23,7 @@ static draft_t  s_d;
 static char     s_dir[96];
 static int      s_x, s_z, s_y = 1;  // the cursor, and the layer shown
 static char     s_brush = 'W';
-static char     s_door = 'a', s_button = 'A';
+static char     s_door = 'a', s_button = '1';
 static bool     s_painting;    // Space held: paint as the cursor moves
 static bool     s_anchor_set;  // B pressed once: a box from here
 static int      s_ax, s_az;
@@ -153,7 +153,7 @@ static char const* brush_name(char c) {
         case 'N':
             return "platform goes to";
         default:
-            return c >= 'a' && c <= 'd' ? "door" : c >= 'A' && c <= 'D' ? "button" : "?";
+            return chamber_is_door(c) ? "door" : chamber_is_button(c) ? "button for" : "?";
     }
 }
 
@@ -308,11 +308,11 @@ void editor_event(bsp_input_event_t const* ev) {
             s_brush = 'E';
             break;
         case BSP_INPUT_SCANCODE_6:
-            if (s_brush >= 'a' && s_brush <= 'd') s_door = (char)('a' + (s_brush - 'a' + 1) % LV_MAX_DOORS);
+            if (chamber_is_door(s_brush)) s_door = chamber_door_char((s_brush - 'a' + 1) % LV_MAX_DOORS);
             s_brush = s_door;
             break;
         case BSP_INPUT_SCANCODE_7:
-            if (s_brush >= 'A' && s_brush <= 'D') s_button = (char)('A' + (s_brush - 'A' + 1) % LV_MAX_BUTTONS);
+            if (chamber_is_button(s_brush)) s_button = chamber_button_char((s_brush - '1' + 1) % LV_MAX_BUTTONS);
             s_brush = s_button;
             break;
         case BSP_INPUT_SCANCODE_8:
@@ -561,8 +561,8 @@ static uint32_t cell_colour(char c, bool floor_below) {
         case ' ':
             return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
         default:
-            if (c >= 'a' && c <= 'd') return 0xFFE08030u;
-            if (c >= 'A' && c <= 'D') return 0xFFC03020u;
+            if (chamber_is_door(c)) return 0xFFE08030u;
+            if (chamber_is_button(c)) return 0xFFC03020u;
             return 0xFFFF00FFu;
     }
 }
@@ -579,11 +579,11 @@ void editor_draw(pax_buf_t* fb) {
             char const  c     = draft_get(&s_d, x, s_y, z);
             char const  below = draft_get(&s_d, x, s_y - 1, z);
             bool const  floor = s_y > 0 && below != '.' && below != ' ' && below != 'S' && below != 'C' &&
-                                !(below >= 'A' && below <= 'D');
+                                !chamber_is_button(below) && below != 'T' && below != 'M' && below != 'N';
             float const px = (float)(x0 + x * cs), py = (float)(y0 + (s_d.d - 1 - z) * cs);
             pax_simple_rect(fb, cell_colour(c, floor), px, py, (float)cs - 1, (float)cs - 1);
             char label[2] = {0};
-            if ((c >= 'a' && c <= 'd') || (c >= 'A' && c <= 'D')) label[0] = c;
+            if (chamber_is_door(c) || chamber_is_button(c)) label[0] = c;
             if (c == 'C') pax_simple_circle(fb, 0xFF6EB4E6u, px + cs * 0.5f, py + cs * 0.5f, cs * 0.18f);
             if (c == 'S') {
                 // The start, pointing the way it faces.
@@ -622,19 +622,19 @@ void editor_draw(pax_buf_t* fb) {
     static struct {
         char key;
         char ch;
-    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', 'A'}, {'8', 'C'},
+    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', '1'}, {'8', 'C'},
                          {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}, {'M', 'M'}, {'N', 'N'}};
     int const n_palette = (int)(sizeof(palette) / sizeof(palette[0]));
     for (int i = 0; i < n_palette; i++) {
         char ch = palette[i].ch;
         if (ch == 'a') ch = s_door;
-        if (ch == 'A') ch = s_button;
+        if (ch == '1') ch = s_button;
         float const y   = 86.0f + (float)i * 16.0f;
         bool const  sel = s_brush == ch;
         pax_simple_rect(fb, cell_colour(ch, true), tx, y, 14, 14);
         snprintf(line, sizeof(line), "%c %s%s%c", palette[i].key, brush_name(ch),
-                 (ch >= 'a' && ch <= 'd') || (ch >= 'A' && ch <= 'D') ? " " : "",
-                 (ch >= 'a' && ch <= 'd') || (ch >= 'A' && ch <= 'D') ? ch : ' ');
+                 chamber_is_door(ch) || chamber_is_button(ch) ? " " : "",
+                 chamber_is_door(ch) ? ch : chamber_is_button(ch) ? chamber_door_char(ch - '1') : ' ');
         pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y + 1, line);
     }
     static char const* const help[] = {

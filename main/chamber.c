@@ -18,6 +18,21 @@
 
 #define DEG (3.14159265f / 180.0f)
 
+// --- The legend -----------------------------------------------------------
+
+chamber_glyph_t const chamber_legend[] = {
+    {'#', "metal"},         {'W', "white panel"},  {'.', "air"},           {' ', "air"},
+    {'~', "goo"},           {'E', "exit"},         {'G', "glass"},         {'F', "fizzler"},
+    {'J', "faith plate"},   {'T', "plate target"}, {'M', "platform"},      {'N', "platform end"},
+    {'S', "start"},         {'C', "cube"},         {'a', "door a"},        {'b', "door b"},
+    {'c', "door c"},        {'d', "door d"},       {'e', "door e"},        {'f', "door f"},
+    {'g', "door g"},        {'h', "door h"},       {'1', "button for a"},  {'2', "button for b"},
+    {'3', "button for c"},  {'4', "button for d"}, {'5', "button for e"},  {'6', "button for f"},
+    {'7', "button for g"},  {'8', "button for h"}, {'A', "old button 1"},  {'B', "old button 2"},
+    {'D', "old button 4"},
+};
+int const chamber_legend_n = (int)(sizeof(chamber_legend) / sizeof(chamber_legend[0]));
+
 // --- Parsing --------------------------------------------------------------
 
 typedef struct {
@@ -218,13 +233,20 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         lv->cubes[lv->n_cubes++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
                     default:
-                        if (ch >= 'a' && ch < 'a' + LV_MAX_DOORS) {
+                        // Buttons are digits; A, B and D are how older files
+                        // wrote buttons 1, 2 and 4.
+                        int const button = chamber_is_button(ch) ? ch - '1'
+                                           : ch == 'A'           ? 0
+                                           : ch == 'B'           ? 1
+                                           : ch == 'D'           ? 3
+                                                                 : -1;
+                        if (chamber_is_door(ch)) {
                             m = MAT_DOOR;
-                        } else if (ch >= 'A' && ch < 'A' + LV_MAX_DOORS) {
+                        } else if (button >= 0) {
                             if (lv->n_buttons >= LV_MAX_BUTTONS)
                                 return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
                             if (layer == 0) return fail(&c, "a button needs a cell under it");
-                            lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, ch - 'A', false};
+                            lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, button, false};
                         } else {
                             return fail(&c, "unknown cell '%c' at column %d", ch, x + 1);
                         }
@@ -328,7 +350,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     for (int i = 0; i < lv->n_buttons; i++) {
         button_t const* b = &lv->buttons[i];
         uint8_t const   m = level_get(lv, b->x, b->y, b->z);
-        if (m == MAT_AIR || m == MAT_DOOR) return fail(&c, "button '%c' has nothing under it", 'A' + b->link);
+        if (m == MAT_AIR || m == MAT_DOOR)
+            return fail(&c, "button '%c' has nothing under it", chamber_button_char(b->link));
+        if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
+            return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
     if (steps != NULL) {
         steps[ns] = (step_t){0};
@@ -360,7 +385,7 @@ static void put(sink_t* o, char const* fmt, ...) {
 char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_buttons; i++)
         if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z)
-            return (char)('A' + lv->buttons[i].link);
+            return chamber_button_char(lv->buttons[i].link);
     for (int i = 0; i < lv->n_cubes; i++)
         if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
             return 'C';
@@ -394,7 +419,7 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
             return 'E';
         case MAT_DOOR: {
             int const d = level_door_at(lv, x, y, z);
-            return (char)('a' + (d >= 0 ? lv->doors[d].link : 0));
+            return chamber_door_char(d >= 0 ? lv->doors[d].link : 0);
         }
         default:
             return '#';
