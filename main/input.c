@@ -18,6 +18,7 @@ static se_binding_def_t const s_defs[ACT_COUNT] = {
     {ACT_JUMP, "Jump", "k_jump", BSP_INPUT_SCANCODE_SPACE},
     {ACT_BLUE, "Blue portal", "k_blue", BSP_INPUT_SCANCODE_Q},
     {ACT_ORANGE, "Orange portal", "k_orange", BSP_INPUT_SCANCODE_E},
+    {ACT_USE, "Pick up / put down", "k_use", BSP_INPUT_SCANCODE_F},
     {ACT_LOOK_UP, "Look up", "k_lup", BSP_INPUT_SCANCODE_ESCAPED_GREY_UP},
     {ACT_LOOK_DOWN, "Look down", "k_ldown", BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN},
     {ACT_LOOK_LEFT, "Look left", "k_lleft", BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT},
@@ -152,6 +153,7 @@ void input_poll(input_frame_t* out, float dt, bool gyro_on) {
 
     out->fire[0] = pressed(ACT_BLUE);
     out->fire[1] = pressed(ACT_ORANGE);
+    out->use     = pressed(ACT_USE);
     out->restart = pressed(ACT_RESTART);
     out->gyro    = pressed(ACT_GYRO);
 

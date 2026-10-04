@@ -4,15 +4,11 @@
 // in fixed steps -- so the badge (device tests, main/testkit) and the
 // host (tests/host_*.c) see the same instant the same way.
 
-#include "level.h"
-#include "player.h"
-#include "portal.h"
+#include "game.h"
 
 typedef struct {
-    level_t  lv;
-    player_t pl;
-    portal_t portals[2];
-    int      events;  // player_event_t, all of them so far
+    game_t g;
+    int    events;  // PL_EV_* | GAME_EV_*, all of them so far
 } demo_state_t;
 
 int         demo_count(void);

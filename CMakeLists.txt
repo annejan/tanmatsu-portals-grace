@@ -12,9 +12,11 @@ set(APP_SOURCES
     main/main.c
     main/crt0.c
     main/demo.c
+    main/game.c
     main/input.c
     main/level.c
     main/menu.c
+    main/physics.c
     main/player.c
     main/portal.c
     main/render.c

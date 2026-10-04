@@ -1,20 +1,11 @@
 #include "player.h"
 #include <math.h>
+#include <stddef.h>
 
-#define GRAVITY      15.0f
 #define JUMP_SPEED   5.0f
 #define WALK_SPEED   4.5f
 #define GROUND_ACCEL 40.0f
 #define AIR_ACCEL    8.0f
-#define MAX_FALL     30.0f
-#define SUBSTEP      0.2f   // longest move between collision checks, metres
-#define FIT_TOL      0.02f  // slack when asking whether the box fits a hole
-#define EPS          0.001f
-
-// Leaving a portal in a floor, slower than this would drop you straight
-// back in; leaving any other, you at least clear its plane.
-#define EXIT_MIN_UP    6.5f
-#define EXIT_MIN_OTHER 1.0f
 
 void player_spawn(player_t* p, level_t const* lv) {
     *p     = (player_t){0};
@@ -30,134 +21,17 @@ basis_t player_view(player_t const* p) {
     return basis_from_angles(p->yaw, p->pitch, 0.0f);
 }
 
-static vec3_t box_center(player_t const* p) {
-    return v3(p->pos.x, p->pos.y + PL_HEIGHT * 0.5f, p->pos.z);
-}
-
-// The box's half extent along a unit axis-aligned direction.
-static float half_along(vec3_t a) {
-    return fabsf(a.x) * PL_HALF_W + fabsf(a.y) * (PL_HEIGHT * 0.5f) + fabsf(a.z) * PL_HALF_W;
-}
-
-static bool linked(portal_t const portals[2]) {
-    return portals[0].open && portals[1].open;
-}
-
-// Whether the box fits through portal `pt`'s hole. Asked ONCE per
-// substep, before it moves (see player_update): asked again mid-move it
-// flickered -- gravity's first push into the floor made a box standing
-// in the hole stop fitting, the wall behind the portal turned solid
-// round a box already inside it, and the box was thrown up the wall.
-static bool fits(player_t const* p, portal_t const* pt) {
-    vec3_t const b = portal_local(pt, box_center(p));
-    return fabsf(b.x) + half_along(pt->right) <= PORTAL_HALF_W + FIT_TOL &&
-           fabsf(b.y) + half_along(pt->up) <= PORTAL_HALF_H + FIT_TOL && b.z < 2.0f;
-}
-
-// Behind an open portal is a tunnel two cells deep the player may stand
-// in, while the box fits through the hole.
-static bool in_tunnel(portal_t const* pt, int x, int y, int z) {
-    vec3_t const c = portal_local(pt, v3((float)x + 0.5f, (float)y + 0.5f, (float)z + 0.5f));
-    return fabsf(c.x) < PORTAL_HALF_W && fabsf(c.y) < PORTAL_HALF_H && c.z < 0.0f && c.z > -2.5f;
-}
-
-typedef struct {
-    level_t const*  lv;
-    portal_t const* portals;
-    bool            open[2];  // this substep: the box fits portal i, and the pair is linked
-} world_t;
-
-static bool blocks(world_t const* w, int x, int y, int z) {
-    if (!level_solid(w->lv, x, y, z)) return false;
-    for (int i = 0; i < 2; i++)
-        if (w->open[i] && in_tunnel(&w->portals[i], x, y, z)) return false;
-    return true;
-}
-
-static float* axis_of(vec3_t* v, int a) {
-    return a == 0 ? &v->x : a == 1 ? &v->y : &v->z;
-}
-
-static void box_cells(player_t const* p, int c0[3], int c1[3]) {
-    float const lo[3] = {p->pos.x - PL_HALF_W, p->pos.y, p->pos.z - PL_HALF_W};
-    float const hi[3] = {p->pos.x + PL_HALF_W, p->pos.y + PL_HEIGHT, p->pos.z + PL_HALF_W};
-    for (int i = 0; i < 3; i++) {
-        c0[i] = (int)floorf(lo[i] + EPS);
-        c1[i] = (int)floorf(hi[i] - EPS);
-    }
-}
-
-// Move along one axis and push back out of whatever it ran into.
-// True if it hit something. A cell the box was already in before the
-// move does not push it: being shoved along this axis out of something
-// it got into some other way is how a box ends up on top of a wall.
-static bool move_axis(player_t* p, world_t const* w, int a, float delta) {
-    if (delta == 0.0f) return false;
-    int b0[3], b1[3];
-    box_cells(p, b0, b1);
-    *axis_of(&p->pos, a) += delta;
-    int c0[3], c1[3];
-    box_cells(p, c0, c1);
-    float const below = (a == 1) ? 0.0f : PL_HALF_W;           // pos to the box's low side
-    float const above = (a == 1) ? PL_HEIGHT : PL_HALF_W;      // pos to the box's high side
-    bool        hit   = false;
-    float       best  = *axis_of(&p->pos, a);
-    for (int y = c0[1]; y <= c1[1]; y++)
-        for (int z = c0[2]; z <= c1[2]; z++)
-            for (int x = c0[0]; x <= c1[0]; x++) {
-                if (!blocks(w, x, y, z)) continue;
-                bool const was_in = x >= b0[0] && x <= b1[0] && y >= b0[1] && y <= b1[1] && z >= b0[2] && z <= b1[2];
-                if (was_in) continue;
-                int const   cell = a == 0 ? x : a == 1 ? y : z;
-                float const fix  = delta > 0 ? (float)cell - above - EPS : (float)(cell + 1) + below + EPS;
-                if (!hit || (delta > 0 ? fix < best : fix > best)) best = fix;
-                hit = true;
-            }
-    if (hit) *axis_of(&p->pos, a) = best;
-    return hit;
-}
-
-// Ease the box sideways into a hole it is heading for, so a player who
-// is nearly lined up goes through rather than catching on the rim.
-static void funnel(player_t* p, portal_t const* pt, float dt) {
-    vec3_t const l = portal_local(pt, box_center(p));
-    if (v3_dot(p->vel, pt->n) > -0.5f || l.z < 0.0f || l.z > 2.5f) return;
-    float const k = fminf(1.0f, 10.0f * dt);
-    for (int i = 0; i < 2; i++) {
-        vec3_t const ax   = i == 0 ? pt->right : pt->up;
-        if (ax.y != 0.0f) continue;  // gravity does the vertical
-        float const  off  = i == 0 ? l.x : l.y;
-        float const  half = i == 0 ? PORTAL_HALF_W : PORTAL_HALF_H;
-        float const  room = half - half_along(ax) - 0.01f;
-        if (fabsf(off) <= room || fabsf(off) > half + half_along(ax)) continue;
-        float const want = off > 0 ? room : -room;
-        p->pos           = v3_mad(p->pos, ax, (want - off) * k);
-    }
-}
-
-static void teleport(player_t* p, portal_t const* a, portal_t const* b) {
-    vec3_t const  c    = portal_map_point(a, b, box_center(p));
-    basis_t const view = player_view(p);
-    basis_t const m    = portal_map_basis(a, b, &view);
-    float         yaw, pitch, roll;
-    basis_to_angles(&m, &yaw, &pitch, &roll);
-    // Upright again at once; the roll is dropped.
-    p->yaw   = yaw;
-    p->pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, pitch));
-    p->vel   = portal_map_dir(a, b, p->vel);
-    p->pos   = v3(c.x, c.y - PL_HEIGHT * 0.5f, c.z);
-
-    float const vn   = v3_dot(p->vel, b->n);
-    float const vmin = b->n.y > 0.5f ? EXIT_MIN_UP : EXIT_MIN_OTHER;
-    if (vn < vmin) p->vel = v3_mad(p->vel, b->n, vmin - vn);
-
-    // Out of a ceiling the eye would start above the hole; drop it in.
-    float const e = portal_local(b, player_eye(p)).z;
-    if (e < 0.05f) p->pos = v3_mad(p->pos, b->n, 0.05f - e);
-    p->on_ground = false;
+// The player as a physics body, and back.
+static body_t as_body(player_t const* p) {
+    return (body_t){p->pos, p->vel, PL_HALF_W, PL_HEIGHT, PL_EYE, p->on_ground};
 }
 
 int player_update(player_t* p, level_t const* lv, portal_t const portals[2], player_input_t const* in, float dt) {
+    phys_world_t const w = {lv, portals, NULL, 0};
+    return player_update_in(p, &w, in, dt, NULL);
+}
+
+int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* in, float dt, int* through) {
     int ev = 0;
     if (dt <= 0.0f) return 0;
     if (dt > 0.1f) dt = 0.1f;
@@ -192,49 +66,29 @@ int player_update(player_t* p, level_t const* lv, portal_t const portals[2], pla
             p->vel.z *= cap / after;
         }
     }
-    p->vel.y = fmaxf(p->vel.y - GRAVITY * dt, -MAX_FALL);
+    p->vel.y = fmaxf(p->vel.y - PHYS_GRAVITY * dt, -PHYS_MAX_FALL);
 
-    if (linked(portals)) {
-        funnel(p, &portals[0], dt);
-        funnel(p, &portals[1], dt);
+    body_t b   = as_body(p);
+    int    via = -1;
+    float  impact;
+    int const pev = body_move(&b, w, dt, &via, &impact);
+    p->pos       = b.pos;
+    p->vel       = b.vel;
+    p->on_ground = b.on_ground;
+    if (pev & PHYS_TELEPORT) {
+        // The view goes through too, upright again at once: the roll is dropped.
+        basis_t const view = player_view(p);
+        basis_t const m    = portal_map_basis(&w->portals[via], &w->portals[via ^ 1], &view);
+        float         yaw, pitch, roll;
+        basis_to_angles(&m, &yaw, &pitch, &roll);
+        p->yaw   = yaw;
+        p->pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, pitch));
+        ev |= PL_EV_TELEPORT;
+        if (through) *through = via;
     }
-
-    bool const was_ground = p->on_ground;
-    float const fall_speed = -p->vel.y;
-    p->on_ground          = false;
-    int n                 = (int)ceilf(v3_len(p->vel) * dt / SUBSTEP);
-    if (n < 1) n = 1;
-    if (n > 32) n = 32;
-    float const sdt = dt / (float)n;
-    for (int s = 0; s < n; s++) {
-        vec3_t const eye0 = player_eye(p);
-        world_t      w    = {lv, portals, {false, false}};
-        if (linked(portals))
-            for (int i = 0; i < 2; i++) w.open[i] = fits(p, &portals[i]);
-        if (move_axis(p, &w, 1, p->vel.y * sdt)) {
-            if (p->vel.y < 0.0f) p->on_ground = true;
-            p->vel.y = 0.0f;
-        }
-        if (move_axis(p, &w, 0, p->vel.x * sdt)) p->vel.x = 0.0f;
-        if (move_axis(p, &w, 2, p->vel.z * sdt)) p->vel.z = 0.0f;
-
-        if (linked(portals)) {
-            vec3_t const eye1 = player_eye(p);
-            for (int i = 0; i < 2; i++) {
-                vec3_t const a = portal_local(&portals[i], eye0);
-                vec3_t const b = portal_local(&portals[i], eye1);
-                if (a.z >= 0.0f && b.z < 0.0f && fabsf(b.x) < PORTAL_HALF_W && fabsf(b.y) < PORTAL_HALF_H) {
-                    teleport(p, &portals[i], &portals[i ^ 1]);
-                    ev |= PL_EV_TELEPORT;
-                    break;
-                }
-            }
-        }
-    }
-
-    if (p->on_ground && !was_ground && fall_speed > 3.0f) ev |= PL_EV_LANDED;
+    if ((pev & PHYS_LANDED) && impact > 3.0f) ev |= PL_EV_LANDED;
     if (p->on_ground) {
-        uint8_t const under = level_get(lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z));
+        uint8_t const under = level_get(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z));
         if (under == MAT_GOO) ev |= PL_EV_DIED;
         if (under == MAT_EXIT) ev |= PL_EV_EXIT;
     }

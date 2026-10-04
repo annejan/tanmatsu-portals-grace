@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "demo.h"
+#include "game.h"
 #include "level.h"
 #include "player.h"
 #include "portal.h"
@@ -284,14 +285,16 @@ static void test_demos(void) {
         demo_eval(i, demo_duration(i), &st);
         char const* n = demo_name(i);
         CHECK(!(st.events & PL_EV_DIED), "demo %s: nobody dies", n);
-        CHECK(st.events & PL_EV_TELEPORT, "demo %s: goes through a portal", n);
-        if (strcmp(n, "c2ledge") == 0 || strcmp(n, "c3fling") == 0) CHECK(st.events & PL_EV_EXIT, "demo %s: exits", n);
+        if (strcmp(n, "c4button") != 0) CHECK(st.events & PL_EV_TELEPORT, "demo %s: goes through a portal", n);
+        bool const solves = strcmp(n, "c1walk") != 0 && strcmp(n, "c1loop") != 0;
+        if (solves) CHECK(st.events & PL_EV_EXIT, "demo %s: exits (at %.2f %.2f %.2f)", n, st.g.pl.pos.x, st.g.pl.pos.y,
+                          st.g.pl.pos.z);
     }
     // A pure function of time: the same instant twice is the same state.
     demo_state_t a, b;
     demo_eval(demo_find("c1walk"), 2.37f, &a);
     demo_eval(demo_find("c1walk"), 2.37f, &b);
-    CHECK(memcmp(&a.pl, &b.pl, sizeof(a.pl)) == 0, "demo replay is deterministic");
+    CHECK(memcmp(&a.g.pl, &b.g.pl, sizeof(a.g.pl)) == 0, "demo replay is deterministic");
     // c1loop goes round more than once.
     int loops = 0;
     for (float t = 0.02f; t < demo_duration(demo_find("c1loop")); t += 0.02f) {
@@ -335,7 +338,45 @@ static void test_frame_rates(void) {
     }
 }
 
+// Cubes lost in the goo come back where they started; a door does not
+// shut on the player standing in it; a cube dropped through a floor
+// portal comes out of the other one.
+static void test_things(void) {
+    static game_t g;
+    game_input_t const idle = {0};
+
+    game_load(&g, 0);
+    g.lv.cubes[0] = v3(2.5f, 1.0f, 2.5f);
+    g.n_cubes     = 1;
+    g.cubes[0].body = (body_t){v3(5.0f, 2.0f, 7.0f), v3(0, 0, 0), CUBE_HALF, 2 * CUBE_HALF, CUBE_HALF, false};
+    for (int i = 0; i < 100; i++) game_step(&g, &idle, 0.02f);
+    CHECK(fabsf(g.cubes[0].body.pos.x - 2.5f) < 0.01f && fabsf(g.cubes[0].body.pos.z - 2.5f) < 0.01f,
+          "a cube in the goo comes back at its spawn, at %.2f %.2f", g.cubes[0].body.pos.x, g.cubes[0].body.pos.z);
+
+    game_load(&g, 3);
+    g.lv.doors[0].open = 1.0f;
+    g.pl.pos           = v3(6.0f, 1.0f, 8.5f);  // in the doorway, button up
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.lv.doors[0].open > 0.99f, "a door stays open on a player in it (%.2f)", g.lv.doors[0].open);
+    g.pl.pos = v3(6.0f, 1.0f, 5.0f);
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.lv.doors[0].open < 0.01f, "and shuts once they step out (%.2f)", g.lv.doors[0].open);
+    CHECK(level_solid(&g.lv, 5, 1, 8), "a shut door is solid");
+
+    game_load(&g, 0);
+    CHECK(portal_place_at(&g.lv, 2, 0, 2, DIR_PY, v3(0, 0, 1), NULL, &g.portals[0]), "floor portal");
+    CHECK(portal_place_at(&g.lv, 0, 1, 12, DIR_PX, v3(0, 1, 0), &g.portals[0], &g.portals[1]), "wall portal");
+    g.n_cubes       = 1;
+    g.lv.cubes[0]   = v3(7.0f, 1.0f, 2.0f);
+    g.cubes[0].body = (body_t){v3(2.5f, 3.0f, 3.0f), v3(0, 0, 0), CUBE_HALF, 2 * CUBE_HALF, CUBE_HALF, false};
+    for (int i = 0; i < 100; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.cubes[0].body.pos.z > 10.0f && g.cubes[0].body.pos.x > 1.0f,
+          "a cube dropped into a floor portal comes out of the wall one, at %.2f %.2f %.2f", g.cubes[0].body.pos.x,
+          g.cubes[0].body.pos.y, g.cubes[0].body.pos.z);
+}
+
 int main(void) {
+    test_things();
     test_frame_rates();
     test_demos();
     test_basis();

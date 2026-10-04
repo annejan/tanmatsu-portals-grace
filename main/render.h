@@ -10,6 +10,7 @@
 // portals' faces cut out of its mesh: it paints everything except the
 // openings, so the views show through them.
 
+#include "game.h"
 #include "level.h"
 #include "pax_gfx.h"
 #include "player.h"
@@ -22,8 +23,10 @@ void render_init(char const* texture_dir);
 // Re-mesh the chamber; on loading it and whenever a portal moves.
 void render_set_level(level_t const* lv, portal_t const portals[2]);
 
-// Draw the frame into `target` (the framebuffer, or the half-size layer).
-void render_frame(pax_buf_t* target, level_t const* lv, player_t const* pl, portal_t const portals[2]);
+// Draw the frame into `target` (the framebuffer, or the half-size layer):
+// the chamber, its cubes, buttons and doors, and the views through the
+// portals, seen by the player.
+void render_frame(pax_buf_t* target, game_t const* g);
 
 void render_set_portal_depth(int depth);  // 1 .. RENDER_PORTAL_DEPTH_MAX
 int  render_portal_depth(void);

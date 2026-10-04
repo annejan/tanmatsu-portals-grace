@@ -19,6 +19,7 @@ typedef enum {
     MAT_METAL,  // takes no portal
     MAT_GOO,    // a floor that kills
     MAT_EXIT,   // a floor that ends the chamber
+    MAT_DOOR,   // a door's cells: solid while it is shut (see door_t)
     MAT_COUNT,
 } material_t;
 
@@ -44,6 +45,26 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
     *dz            = (int)v.z;
 }
 
+#define LV_MAX_DOORS   4
+#define LV_MAX_BUTTONS 4
+#define LV_MAX_CUBES   4
+
+// A door fills the cells [x0, x1) x [y0, y1) x [z0, z1), one cell thick
+// along x or z. It opens while any button with its `link` is pressed.
+typedef struct {
+    int   x0, y0, z0, x1, y1, z1;
+    int   link;
+    float open;  // 0 shut .. 1 open: state, animated by the game
+} door_t;
+
+// A floor button on top of the solid cell (x, y, z): pressed while the
+// player or a cube stands on it.
+typedef struct {
+    int  x, y, z;
+    int  link;
+    bool pressed;  // state, set by the game
+} button_t;
+
 typedef struct {
     char const* name;
     char const* hint;
@@ -51,6 +72,12 @@ typedef struct {
     uint8_t     cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
     vec3_t      spawn;  // feet
     float       spawn_yaw;
+    door_t      doors[LV_MAX_DOORS];
+    int         n_doors;
+    button_t    buttons[LV_MAX_BUTTONS];
+    int         n_buttons;
+    vec3_t      cubes[LV_MAX_CUBES];  // where each cube starts, its base
+    int         n_cubes;
 } level_t;
 
 int  level_count(void);
@@ -59,9 +86,12 @@ bool level_load(level_t* lv, int index);
 
 uint8_t level_get(level_t const* lv, int x, int y, int z);
 void    level_set(level_t* lv, int x, int y, int z, uint8_t m);
-static inline bool level_solid(level_t const* lv, int x, int y, int z) {
-    return level_get(lv, x, y, z) != MAT_AIR;
-}
+// Solid to bodies and shots: anything but air and an open door.
+bool level_solid(level_t const* lv, int x, int y, int z);
+// The door whose cells hold (x, y, z), or -1.
+int level_door_at(level_t const* lv, int x, int y, int z);
+// A door counts as open, to walk or shoot through, from this far open.
+#define DOOR_PASSABLE 0.9f
 
 // --- Raycast ------------------------------------------------------------
 typedef struct {

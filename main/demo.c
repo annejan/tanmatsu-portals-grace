@@ -14,6 +14,8 @@ typedef enum {
     OP_WALK_TO,     // to (a, c) at pace b, until there, through a portal, or 6 s
     OP_STEP_OFF,    // forward at pace a until off the ground, then let go
     OP_WAIT,        // a seconds
+    OP_USE,         // pick up / put down
+    OP_FACE_POINT,  // look at (a, b, c), at once
 } op_t;
 
 typedef struct {
@@ -57,11 +59,38 @@ static step_t const s_c3fling[] = {
     {OP_WALK_TO, 0, 20.0f, 1.0f, 4.5f},        {OP_END, 0, 0, 0, 0},
 };
 
+// Fetch the cube, put it on the button, through the door.
+static step_t const s_c4button[] = {
+    {OP_WALK_TO, 0, 7.3f, 1.0f, 3.5f},         {OP_FACE_POINT, 0, 8.5f, 1.3f, 3.5f},
+    {OP_USE, 0, 0, 0, 0},                       {OP_WAIT, 0, 0.5f, 0, 0},
+    {OP_WALK_TO, 0, 3.5f, 1.0f, 3.2f},         {OP_FACE_POINT, 0, 3.5f, 1.3f, 4.5f},
+    {OP_WAIT, 0, 0.6f, 0, 0},                   {OP_USE, 0, 0, 0, 0},
+    {OP_WAIT, 0, 1.0f, 0, 0},                   {OP_WALK_TO, 0, 6.0f, 1.0f, 7.0f},
+    {OP_WALK_TO, 0, 6.0f, 1.0f, 11.0f},        {OP_END, 0, 0, 0, 0},
+};
+
+// Up to the ledge by portal, and back down the same way carrying the cube.
+static step_t const s_c5delivery[] = {
+    {OP_SHOOT, PORTAL_BLUE, 11.0f, 1.9f, 4.5f}, {OP_SHOOT, PORTAL_ORANGE, 3.5f, 6.9f, 13.0f},
+    {OP_WALK_TO, 0, 12.0f, 1.0f, 4.5f},         {OP_WAIT, 0, 0.3f, 0, 0},
+    {OP_WALK_TO, 0, 3.0f, 1.0f, 12.4f},         {OP_FACE_POINT, 0, 3.0f, 5.3f, 11.0f},
+    {OP_USE, 0, 0, 0, 0},                        {OP_WAIT, 0, 0.4f, 0, 0},
+    {OP_FACE_POINT, 0, 3.5f, 6.4f, 14.0f},      {OP_WAIT, 0, 0.6f, 0, 0},
+    {OP_WALK_TO, 0, 3.5f, 1.0f, 14.0f},         {OP_WAIT, 0, 0.3f, 0, 0},
+    {OP_WALK_TO, 0, 8.5f, 1.0f, 4.2f},          {OP_FACE_POINT, 0, 8.5f, 1.3f, 5.5f},
+    {OP_WAIT, 0, 0.6f, 0, 0},                    {OP_USE, 0, 0, 0, 0},
+    {OP_WAIT, 0, 1.0f, 0, 0},                    {OP_WALK_TO, 0, 9.8f, 1.0f, 4.5f},
+    {OP_WALK_TO, 0, 9.0f, 1.0f, 7.0f},          {OP_WALK_TO, 0, 9.0f, 1.0f, 11.5f},
+    {OP_END, 0, 0, 0, 0},
+};
+
 static demo_t const s_demos[] = {
     {"c1walk", 0, 6.0f, s_c1walk},
     {"c1loop", 0, 9.0f, s_c1loop},
     {"c2ledge", 1, 7.0f, s_c2ledge},
     {"c3fling", 2, 9.0f, s_c3fling},
+    {"c4button", 3, 16.0f, s_c4button},
+    {"c5delivery", 4, 26.0f, s_c5delivery},
 };
 
 #define N_DEMOS ((int)(sizeof(s_demos) / sizeof(s_demos[0])))
@@ -90,35 +119,33 @@ static void face_point(player_t* p, vec3_t target) {
     p->pitch       = -atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
 }
 
-static void shoot(demo_state_t* s, int which) {
-    portal_t p;
-    if (portal_place(&s->lv, player_eye(&s->pl), player_view(&s->pl).fwd, &s->portals[which ^ 1], &p))
-        s->portals[which] = p;
-}
-
 void demo_eval(int i, float t, demo_state_t* s) {
     memset(s, 0, sizeof(*s));
     if (i < 0 || i >= N_DEMOS) return;
     demo_t const* d = &s_demos[i];
-    level_load(&s->lv, d->chamber);
-    player_spawn(&s->pl, &s->lv);
+    game_t*       g = &s->g;
+    game_load(g, d->chamber);
 
     int   k       = 0;     // the step running
     float in_step = 0.0f;  // seconds into it
     bool  left    = false; // OP_STEP_OFF: off the edge
     for (float now = 0.0f; now + STEP_DT * 0.5f < t; now += STEP_DT) {
-        player_input_t in = {0};
+        game_input_t in = {0};
         // Instant steps take no time: run them all before this tick.
         for (;;) {
             step_t const* st = &d->steps[k];
             if (st->op == OP_FACE) {
-                s->pl.yaw   = st->a;
-                s->pl.pitch = st->b;
+                g->pl.yaw   = st->a;
+                g->pl.pitch = st->b;
+            } else if (st->op == OP_FACE_POINT) {
+                face_point(&g->pl, v3(st->a, st->b, st->c));
             } else if (st->op == OP_SHOOT) {
-                face_point(&s->pl, v3(st->a, st->b, st->c));
-                shoot(s, st->which);
+                face_point(&g->pl, v3(st->a, st->b, st->c));
+                if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
             } else if (st->op == OP_SHOOT_VIEW) {
-                shoot(s, st->which);
+                if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
+            } else if (st->op == OP_USE) {
+                s->events |= game_use(g);
             } else {
                 break;
             }
@@ -132,15 +159,15 @@ void demo_eval(int i, float t, demo_state_t* s) {
                 done   = in_step >= st->a;
                 break;
             case OP_WALK_TO: {
-                float const dx = st->a - s->pl.pos.x, dz = st->c - s->pl.pos.z;
+                float const dx = st->a - g->pl.pos.x, dz = st->c - g->pl.pos.z;
                 float const dist = sqrtf(dx * dx + dz * dz);
-                s->pl.yaw        = atan2f(dx, dz);
+                g->pl.yaw        = atan2f(dx, dz);
                 in.fwd           = fminf(st->b, dist * 2.0f);
-                done             = (dist < 0.2f && s->pl.on_ground) || in_step > 6.0f;
+                done             = (dist < 0.2f && g->pl.on_ground) || in_step > 6.0f;
                 break;
             }
             case OP_STEP_OFF:
-                if (s->pl.on_ground && !left) {
+                if (g->pl.on_ground && !left) {
                     in.fwd = st->a;
                 } else {
                     left = true;
@@ -150,7 +177,7 @@ void demo_eval(int i, float t, demo_state_t* s) {
             case OP_WAIT: done = in_step >= st->a; break;
             default: break;  // OP_END: stand still
         }
-        int const ev = player_update(&s->pl, &s->lv, s->portals, &in, STEP_DT);
+        int const ev = game_step(g, &in, STEP_DT);
         s->events |= ev;
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
         in_step += STEP_DT;

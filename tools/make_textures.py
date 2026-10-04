@@ -80,6 +80,24 @@ def exit_pad(rng):
     return img
 
 
+def cube(rng):
+    """Weighted storage cube face: grey plate, dark rim, a ring in the middle."""
+    img = panel((150, 154, 160), (60, 62, 68), 3, rng)
+    px = img.load()
+    c = (N - 1) / 2
+    for y in range(N):
+        for x in range(N):
+            d = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
+            if 7 <= d <= 10:
+                px[x, y] = (205, 210, 215)
+            elif d < 5:
+                px[x, y] = (110, 180, 230)
+            # dark corner plates
+            if (x < 7 or x > N - 8) and (y < 7 or y > N - 8) and min(x, y, N - 1 - x, N - 1 - y) > 0:
+                px[x, y] = (80, 82, 88)
+    return img
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     rng = random.Random(0x9047A1)
@@ -88,6 +106,7 @@ def main():
         "metal.png": metal(rng),
         "goo.png": goo(rng),
         "exit.png": exit_pad(rng),
+        "cube.png": cube(rng),
     }
     for name, img in textures.items():
         img.save(os.path.join(OUT, name), optimize=True)

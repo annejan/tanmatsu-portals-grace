@@ -24,6 +24,8 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_EXIT]  = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
 };
 
+static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
+
 static uint32_t const s_rim[2]  = {0xFF2C8CFFu, 0xFFFF8A1Cu};
 static uint32_t const s_shut[2] = {0xFF0C2850u, 0xFF502808u};  // one portal, nothing through it
 static uint32_t const s_deep[2] = {0xFF184070u, 0xFF704018u};  // past the deepest view drawn
@@ -42,6 +44,8 @@ void render_init(char const* texture_dir) {
         s_mat[m].tex = se_texture_load(path, SE_TEXTURE_INTERNAL);
         if (s_mat[m].tex == NULL) ESP_LOGW(TAG, "no texture %s: flat colour instead", path);
     }
+    snprintf(path, sizeof(path), "%s/%s", texture_dir, s_cube.file);
+    s_cube.tex = se_texture_load(path, SE_TEXTURE_INTERNAL);
     scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = false});
 }
 
@@ -182,6 +186,64 @@ static void portal_rim(portal_t const* p, int which, cam_t const* cam, clipset_t
     }
 }
 
+// --- Things in the chamber ------------------------------------------------
+
+// An axis-aligned box: the faces that face the eye, each textured 0..1.
+static void submit_box(vec3_t lo, vec3_t hi, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
+                       uint32_t argb, uint32_t flags) {
+    for (int face = 0; face < 6; face++) {
+        int const    a  = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
+        float const  l[3] = {lo.x, lo.y, lo.z}, h[3] = {hi.x, hi.y, hi.z};
+        float        o[3] = {l[0], l[1], l[2]};
+        o[a]               = face % 2 == 0 ? h[a] : l[a];
+        float du[3] = {0}, dv[3] = {0};
+        du[ua]             = h[ua] - l[ua];
+        dv[va]             = h[va] - l[va];
+        vec3_t const p0    = v3(o[0], o[1], o[2]);
+        vec3_t const u     = v3(du[0], du[1], du[2]);
+        vec3_t const v     = v3(dv[0], dv[1], dv[2]);
+        cvert_t const q[4] = {{p0, 0, 0}, {v3_add(p0, u), 1, 0}, {v3_add(v3_add(p0, u), v), 1, 1}, {v3_add(p0, v), 0, 1}};
+        submit_quad(q, dir_vec(face), cam, cs, m, argb, flags);
+    }
+}
+
+static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
+    for (int i = 0; i < g->n_cubes; i++) {
+        aabb_t const b = cube_aabb(&g->cubes[i]);
+        submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
+    }
+    for (int i = 0; i < g->lv.n_buttons; i++) {
+        button_t const* bt  = &g->lv.buttons[i];
+        float const     x   = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
+        submit_box(v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.04f, z + 0.95f), cam, cs, NULL, 0xFF5C6066u, 0);
+        float const h = bt->pressed ? 0.06f : 0.12f;
+        submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL,
+                   bt->pressed ? 0xFFFF6040u : 0xFFB02818u, bt->pressed ? SE_TRI_EMISSIVE : 0);
+    }
+    // Doors: two panels, 0.2 thick in the middle of their cells, that
+    // slide apart into the frame as the door opens, and a light across
+    // the top, orange while shut and blue while open.
+    for (int i = 0; i < g->lv.n_doors; i++) {
+        door_t const* d     = &g->lv.doors[i];
+        bool const    along_x = (d->z1 - d->z0) == 1;  // thin in z: the panels slide along x
+        float const   a0 = along_x ? (float)d->x0 : (float)d->z0, a1 = along_x ? (float)d->x1 : (float)d->z1;
+        float const   t0 = along_x ? (float)d->z0 + 0.4f : (float)d->x0 + 0.4f, t1 = t0 + 0.2f;
+        float const   y0 = (float)d->y0, y1 = (float)d->y1;
+        float const   half = (a1 - a0) * 0.5f * (1.0f - d->open);
+        float const   ends[2][2] = {{a0, a0 + half}, {a1 - half, a1}};
+        for (int k = 0; k < 2; k++) {
+            if (half < 0.01f) break;
+            vec3_t const lo = along_x ? v3(ends[k][0], y0, t0) : v3(t0, y0, ends[k][0]);
+            vec3_t const hi = along_x ? v3(ends[k][1], y1, t1) : v3(t1, y1, ends[k][1]);
+            submit_box(lo, hi, cam, cs, NULL, 0xFF7A7E86u, 0);
+        }
+        uint32_t const light = d->open > 0.5f ? 0xFF2C8CFFu : 0xFFFF8A1Cu;
+        vec3_t const   llo   = along_x ? v3(a0, y1 - 0.08f, t0 - 0.01f) : v3(t0 - 0.01f, y1 - 0.08f, a0);
+        vec3_t const   lhi   = along_x ? v3(a1, y1, t1 + 0.01f) : v3(t1 + 0.01f, y1, a1);
+        submit_box(llo, lhi, cam, cs, NULL, light, SE_TRI_EMISSIVE);
+    }
+}
+
 static void set_camera(cam_t const* cam) {
     float yaw, pitch, roll;
     basis_to_angles(&cam->b, &yaw, &pitch, &roll);
@@ -190,12 +252,15 @@ static void set_camera(cam_t const* cam) {
 
 // One pass: the chamber seen by `cam`, limited to `cs`. A portal whose
 // bit is in `fill` gets a flat face instead of its opening.
+static game_t const* s_game;  // the frame being drawn
+
 static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, portal_t const portals[2],
                       int fill, uint32_t const fill_argb[2]) {
     scene_begin(target);
     set_camera(cam);
     se_light_set(&(se_light_t){.x = s_light.x, .y = s_light.y, .z = s_light.z, .brightness = 0.55f});
     submit_level(cam, cs);
+    submit_things(s_game, cam, cs);
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
         portal_frame(&portals[i], cam, cs);
@@ -259,11 +324,12 @@ static void draw_through(pax_buf_t* target, portal_t const portals[2], int which
     draw_pass(target, &v, cs, portals, deeper ? 0 : 1 << which, s_deep);
 }
 
-void render_frame(pax_buf_t* target, level_t const* lv, player_t const* pl, portal_t const portals[2]) {
-    (void)lv;
-    s_stat_passes = 0;
-    s_stat_tris   = 0;
-    cam_t const cam = {player_eye(pl), player_view(pl)};
+void render_frame(pax_buf_t* target, game_t const* g) {
+    portal_t const* portals = g->portals;
+    s_game                  = g;
+    s_stat_passes           = 0;
+    s_stat_tris             = 0;
+    cam_t const cam = {player_eye(&g->pl), player_view(&g->pl)};
 
     int fill = 0;
     if (portals[0].open && portals[1].open) {

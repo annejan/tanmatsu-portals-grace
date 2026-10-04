@@ -62,6 +62,7 @@ se_texture_t* se_texture_load(char const* path, uint32_t flags) {
     t->mean_argb = strstr(path, "white")  ? 0xFFD8D8D0u
                    : strstr(path, "metal") ? 0xFF50545Au
                    : strstr(path, "goo")   ? 0xFF6A5A18u
+                   : strstr(path, "cube")  ? 0xFF969AA0u
                                            : 0xFF30D060u;
     return t;
 }
@@ -186,9 +187,15 @@ static void save(char const* name) {
 
 static void shot(char const* name, level_t const* lv, portal_t const portals[2], vec3_t feet, float yaw, float pitch) {
     for (int i = 0; i < W * H; i++) s_px[i] = 0xFFFF00FFu;  // magenta: never drawn
-    player_t pl = {.pos = feet, .yaw = yaw, .pitch = pitch};
+    static game_t g;
+    memset(&g, 0, sizeof(g));
+    g.lv         = *lv;
+    g.pl         = (player_t){.pos = feet, .yaw = yaw, .pitch = pitch};
+    g.portals[0] = portals[0];
+    g.portals[1] = portals[1];
+    g.held       = -1;
     render_set_level(lv, portals);
-    render_frame(NULL, lv, &pl, portals);
+    render_frame(NULL, &g);
     save(name);
 }
 
@@ -211,11 +218,11 @@ static int demo_shots(int argc, char** argv) {
         char name[64];
         snprintf(name, sizeof(name), "%s_%05d", argv[2], (int)(t * 1000.0f + 0.5f));
         for (int p = 0; p < W * H; p++) s_px[p] = 0xFFFF00FFu;
-        render_set_level(&st.lv, st.portals);
-        render_frame(NULL, &st.lv, &st.pl, st.portals);
+        render_set_level(&st.g.lv, st.g.portals);
+        render_frame(NULL, &st.g);
         save(name);
-        printf("   eye %.2f %.2f %.2f yaw %.2f pitch %.2f\n", player_eye(&st.pl).x, player_eye(&st.pl).y,
-               player_eye(&st.pl).z, st.pl.yaw, st.pl.pitch);
+        printf("   eye %.2f %.2f %.2f yaw %.2f pitch %.2f\n", player_eye(&st.g.pl).x, player_eye(&st.g.pl).y,
+               player_eye(&st.g.pl).z, st.g.pl.yaw, st.g.pl.pitch);
     }
     return 0;
 }
@@ -243,9 +250,16 @@ static int magenta(void) {
 }
 
 static void draw(level_t const* lv, player_t const* pl, portal_t const pt[2]) {
+    static game_t g;
+    memset(&g, 0, sizeof(g));
+    g.lv         = *lv;
+    g.pl         = *pl;
+    g.portals[0] = pt[0];
+    g.portals[1] = pt[1];
+    g.held       = -1;
     for (int i = 0; i < W * H; i++) s_px[i] = 0xFFFF00FFu;
     render_set_level(lv, pt);
-    render_frame(NULL, lv, pl, pt);
+    render_frame(NULL, &g);
 }
 
 static int fuzz(int n) {

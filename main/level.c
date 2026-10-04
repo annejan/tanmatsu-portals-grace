@@ -12,6 +12,24 @@ uint8_t level_get(level_t const* lv, int x, int y, int z) {
     return lv->cells[idx(lv, x, y, z)];
 }
 
+int level_door_at(level_t const* lv, int x, int y, int z) {
+    for (int i = 0; i < lv->n_doors; i++) {
+        door_t const* d = &lv->doors[i];
+        if (x >= d->x0 && x < d->x1 && y >= d->y0 && y < d->y1 && z >= d->z0 && z < d->z1) return i;
+    }
+    return -1;
+}
+
+bool level_solid(level_t const* lv, int x, int y, int z) {
+    uint8_t const m = level_get(lv, x, y, z);
+    if (m == MAT_AIR) return false;
+    if (m == MAT_DOOR) {
+        int const d = level_door_at(lv, x, y, z);
+        return d < 0 || lv->doors[d].open < DOOR_PASSABLE;
+    }
+    return true;
+}
+
 void level_set(level_t* lv, int x, int y, int z, uint8_t m) {
     if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return;
     lv->cells[idx(lv, x, y, z)] = m;
@@ -77,8 +95,55 @@ static void chamber_fling(level_t* lv) {
     lv->spawn_yaw = -1.5707963f;  // facing west
 }
 
+static void door(level_t* lv, int x0, int y0, int z0, int x1, int y1, int z1, int link) {
+    box(lv, x0, y0, z0, x1, y1, z1, MAT_DOOR);
+    lv->doors[lv->n_doors++] = (door_t){x0, y0, z0, x1, y1, z1, link, 0.0f};
+}
+
+static void button(level_t* lv, int x, int y, int z, int link) {
+    lv->buttons[lv->n_buttons++] = (button_t){x, y, z, link, false};
+}
+
+static void cube(level_t* lv, float x, float y, float z) {
+    lv->cubes[lv->n_cubes++] = v3(x, y, z);
+}
+
+// 4. A cube, a button, a door.
+static void chamber_button(level_t* lv) {
+    begin(lv, 12, 6, 14);
+    lv->name = "04  The button";
+    lv->hint = "Pick up a cube. Buttons hold doors open.";
+    box(lv, 1, 1, 1, 11, 5, 13, MAT_AIR);
+    box(lv, 1, 1, 8, 11, 5, 9, MAT_METAL);  // the wall across the room
+    door(lv, 5, 1, 8, 7, 3, 9, 0);
+    box(lv, 5, 0, 10, 7, 1, 12, MAT_EXIT);
+    button(lv, 3, 0, 4, 0);
+    cube(lv, 8.5f, 1.0f, 3.5f);
+    lv->spawn     = v3(6.0f, 1.0f, 2.0f);
+    lv->spawn_yaw = 0.0f;
+}
+
+// 5. The cube is up on a ledge; the button is down here.
+static void chamber_delivery(level_t* lv) {
+    begin(lv, 12, 9, 14);
+    lv->name = "05  Delivery";
+    lv->hint = "Carry the cube through a portal.";
+    box(lv, 1, 1, 1, 11, 8, 13, MAT_AIR);
+    box(lv, 1, 1, 9, 5, 5, 13, MAT_METAL);    // the ledge, 4 m up
+    box(lv, 1, 5, 13, 5, 8, 14, MAT_WHITE);   // the wall above it
+    box(lv, 11, 1, 2, 12, 4, 7, MAT_WHITE);   // low on the east wall
+    box(lv, 6, 1, 9, 7, 5, 13, MAT_METAL);    // the exit alcove's walls
+    box(lv, 7, 1, 8, 11, 5, 9, MAT_METAL);
+    door(lv, 8, 1, 8, 10, 3, 9, 0);
+    box(lv, 8, 0, 11, 10, 1, 12, MAT_EXIT);
+    button(lv, 8, 0, 5, 0);
+    cube(lv, 3.0f, 5.0f, 11.0f);
+    lv->spawn     = v3(6.0f, 1.0f, 2.0f);
+    lv->spawn_yaw = 0.0f;
+}
+
 typedef void (*builder_t)(level_t*);
-static builder_t const s_chambers[] = {chamber_gap, chamber_ledge, chamber_fling};
+static builder_t const s_chambers[] = {chamber_gap, chamber_ledge, chamber_fling, chamber_button, chamber_delivery};
 
 int level_count(void) {
     return (int)(sizeof(s_chambers) / sizeof(s_chambers[0]));
@@ -166,7 +231,10 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
                     uint8_t const m = level_get(lv, c[0], c[1], c[2]);
                     int           e[3] = {c[0], c[1], c[2]};
                     e[a] += sign;
-                    bool const vis = m != MAT_AIR && !level_solid(lv, e[0], e[1], e[2]) &&
+                    // A door is drawn by the game, not the mesh: its cells
+                    // are open space here, so the frame round it shows.
+                    uint8_t const n    = level_get(lv, e[0], e[1], e[2]);
+                    bool const    vis  = m != MAT_AIR && m != MAT_DOOR && (n == MAT_AIR || n == MAT_DOOR) &&
                                      !is_hole(holes, n_holes, c[0], c[1], c[2], face);
                     mask[j * nu + i] = vis ? m : MAT_AIR;
                 }

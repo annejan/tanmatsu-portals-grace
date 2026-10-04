@@ -28,10 +28,7 @@ static char const TAG[] = "portal";
 
 #define MESSAGE_S 2.5f
 
-static level_t        s_lv;
-static player_t       s_pl;
-static portal_t       s_portals[2];
-static int            s_chamber;
+static game_t         s_game;  // the chamber in play: level, player, portals, cubes
 static bool           s_half_ok;
 static se_ppa_layer_t s_layer;
 
@@ -54,21 +51,9 @@ static void message(char const* text) {
 }
 
 static void load_chamber(int index) {
-    s_chamber = index;
-    level_load(&s_lv, index);
-    player_spawn(&s_pl, &s_lv);
-    s_portals[0].open = s_portals[1].open = false;
-    render_set_level(&s_lv, s_portals);
-    ESP_LOGI(TAG, "chamber %d: %s", index, s_lv.name);
-}
-
-static void fire(int which) {
-    vec3_t const  eye  = player_eye(&s_pl);
-    basis_t const view = player_view(&s_pl);
-    portal_t      p;
-    if (!portal_place(&s_lv, eye, view.fwd, &s_portals[which ^ 1], &p)) return;
-    s_portals[which] = p;
-    render_set_level(&s_lv, s_portals);
+    game_load(&s_game, index);
+    render_set_level(&s_game.lv, s_game.portals);
+    ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
 }
 
 static bool same_portal(portal_t const* a, portal_t const* b) {
@@ -113,13 +98,10 @@ static devtest_config_t const TEST = {
 static void demo_frame(void) {
     static demo_state_t st;
     demo_eval(s_demo, (float)(showtime_now() - s_demo_t0), &st);
-    bool const remesh = st.lv.name != s_lv.name || !same_portal(&st.portals[0], &s_portals[0]) ||
-                        !same_portal(&st.portals[1], &s_portals[1]);
-    s_lv         = st.lv;
-    s_pl         = st.pl;
-    s_portals[0] = st.portals[0];
-    s_portals[1] = st.portals[1];
-    if (remesh) render_set_level(&s_lv, s_portals);
+    bool const remesh = st.g.lv.name != s_game.lv.name || !same_portal(&st.g.portals[0], &s_game.portals[0]) ||
+                        !same_portal(&st.g.portals[1], &s_game.portals[1]);
+    s_game = st.g;
+    if (remesh) render_set_level(&s_game.lv, s_game.portals);
 }
 
 // --- Engine callbacks ---------------------------------------------------
@@ -144,7 +126,7 @@ static void on_init(void* user) {
 
     se_splash_ex("PORTALS", "for Tanmatsu", 1.0f);
     load_chamber(0);
-    message(s_lv.name);
+    message(s_game.lv.name);
     devtest_start(&TEST);
 }
 
@@ -154,7 +136,7 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
     if (menu_active()) {
         menu_event(ev);
     } else if (menu_is_open_key(ev)) {
-        menu_open(s_chamber);
+        menu_open(s_game.chamber);
     }
 }
 
@@ -163,13 +145,13 @@ static void menu_frame(void) {
     menu_cmd_t const cmd = menu_update();
     switch (cmd.kind) {
         case MENU_CMD_RESTART:
-            load_chamber(s_chamber);
-            message(s_lv.name);
+            load_chamber(s_game.chamber);
+            message(s_game.lv.name);
             break;
         case MENU_CMD_CHAMBER:
             s_pending_chamber = -1;
             load_chamber(cmd.chamber);
-            message(s_lv.name);
+            message(s_game.lv.name);
             break;
         case MENU_CMD_QUIT: bsp_device_restart_to_launcher(); break;
         default: break;
@@ -200,31 +182,35 @@ static void on_update(float dt, void* user) {
         message(settings_gyro() ? "Gyroscope on" : "Gyroscope off");
     }
     if (in.restart) {
-        load_chamber(s_chamber);
-        message(s_lv.name);
+        load_chamber(s_game.chamber);
+        message(s_game.lv.name);
     }
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
     if (s_pending_chamber >= 0 && s_msg_t <= 0.0f) {
         load_chamber(s_pending_chamber);
         s_pending_chamber = -1;
-        message(s_lv.name);
+        message(s_game.lv.name);
         return;
     }
     if (s_pending_chamber >= 0) return;  // the chamber is done; wait out the message
 
-    s_pl.yaw += in.dyaw;
-    s_pl.pitch = fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, s_pl.pitch + in.dpitch));
-    if (in.fire[0]) fire(PORTAL_BLUE);
-    if (in.fire[1]) fire(PORTAL_ORANGE);
-
-    player_input_t const pin = {.fwd = in.fwd, .strafe = in.strafe, .jump = in.jump};
-    int const            ev  = player_update(&s_pl, &s_lv, s_portals, &pin, dt);
+    game_input_t const gin = {
+        .fwd    = in.fwd,
+        .strafe = in.strafe,
+        .dyaw   = in.dyaw,
+        .dpitch = in.dpitch,
+        .jump   = in.jump,
+        .fire   = {in.fire[0], in.fire[1]},
+        .use    = in.use,
+    };
+    int const ev = game_step(&s_game, &gin, dt);
+    if (ev & GAME_EV_PORTAL) render_set_level(&s_game.lv, s_game.portals);
     if (ev & PL_EV_DIED) {
-        load_chamber(s_chamber);
+        load_chamber(s_game.chamber);
         message("Test subject lost. Again.");
     } else if (ev & PL_EV_EXIT) {
-        int const next = s_chamber + 1;
+        int const next = s_game.chamber + 1;
         message(next < level_count() ? "Chamber complete" : "All chambers complete. Cake later.");
         s_pending_chamber = next % level_count();
     }
@@ -241,7 +227,7 @@ static void hud(pax_buf_t* fb) {
     for (int i = 0; i < 2; i++) {
         uint32_t const col = i == 0 ? 0xFF2C8CFFu : 0xFFFF8A1Cu;
         float const    x   = i == 0 ? cx - 12 : cx + 6;
-        if (s_portals[i].open) {
+        if (s_game.portals[i].open) {
             pax_simple_rect(fb, col, x, cy - 8, 6, 16);
         } else {
             pax_outline_rect(fb, col, x, cy - 8, 6, 16);
@@ -249,13 +235,15 @@ static void hud(pax_buf_t* fb) {
     }
     pax_simple_rect(fb, 0xFFFFFFFFu, cx - 1, cy - 1, 2, 2);
 
-    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_lv.name);
-    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_lv.hint);
+    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_game.lv.name);
+    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_game.lv.hint);
 
     // The keys as they are bound now, not as they shipped.
-    char blue[16], orange[16], help[96];
-    snprintf(help, sizeof(help), "%s blue   %s orange   Esc menu", input_key_name(input_key(ACT_BLUE), blue, sizeof(blue)),
-             input_key_name(input_key(ACT_ORANGE), orange, sizeof(orange)));
+    char blue[16], orange[16], use[16], help[112];
+    snprintf(help, sizeof(help), "%s blue   %s orange   %s use   Esc menu",
+             input_key_name(input_key(ACT_BLUE), blue, sizeof(blue)),
+             input_key_name(input_key(ACT_ORANGE), orange, sizeof(orange)),
+             input_key_name(input_key(ACT_USE), use, sizeof(use)));
     pax_vec2f const hs = pax_text_size(pax_font_sky_mono, 12, help);
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - hs.x, 6, help);
 
@@ -280,7 +268,7 @@ static void on_render(pax_buf_t* fb, void* user) {
     scene_set_render_scale(half ? 2 : 1);
 
     int64_t const t0 = esp_timer_get_time();
-    render_frame(target, &s_lv, &s_pl, s_portals);
+    render_frame(target, &s_game);
     if (half) {
         // The CPU's pixels to PSRAM before the PPA's DMA reads them.
         se_ppa_layer_sync(&s_layer);

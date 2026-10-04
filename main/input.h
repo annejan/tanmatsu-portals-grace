@@ -13,6 +13,7 @@ typedef enum {
     ACT_JUMP,
     ACT_BLUE,
     ACT_ORANGE,
+    ACT_USE,
     ACT_LOOK_UP,
     ACT_LOOK_DOWN,
     ACT_LOOK_LEFT,
@@ -28,6 +29,7 @@ typedef struct {
     bool  jump;          // held
     // Pressed this frame:
     bool fire[2];
+    bool use;
     bool restart;
     bool gyro;
 } input_frame_t;

@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include "level.h"
+#include "physics.h"
 #include "portal.h"
 #include "vec.h"
 
@@ -36,6 +37,9 @@ void player_spawn(player_t* p, level_t const* lv);
 // One step. `portals` is the pair; they connect only while both are open.
 // Returns a mask of player_event_t.
 int player_update(player_t* p, level_t const* lv, portal_t const portals[2], player_input_t const* in, float dt);
+// The same among other solid boxes (cubes). On PL_EV_TELEPORT, `*through`
+// (may be NULL) is the portal it went in by.
+int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* in, float dt, int* through);
 
 vec3_t  player_eye(player_t const* p);
 basis_t player_view(player_t const* p);

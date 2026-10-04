@@ -5,11 +5,19 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Three chambers are included:
+out of the other, keeping your momentum. Five chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
 3. **The fling**: fall 10 m into a floor portal and fly out of a wall.
+4. **The button**: put a cube on a button to hold a door open.
+5. **Delivery**: the cube is up on a ledge and the button is down below.
+   Carry the cube through a portal.
+
+Cubes can be picked up, stood on and carried through portals. A cube
+that falls in the goo comes back where it started. A door stays open while
+any of its buttons is pressed, and does not shut on anything standing in
+it.
 
 ## Controls
 
@@ -22,6 +30,7 @@ the new keys are kept in NVS.
 | Cursor keys | look |
 | Space | jump |
 | Q / E | fire the blue / orange portal |
+| F | pick up or put down a cube |
 | G | gyroscope on or off: look round by turning the badge |
 | R | restart the chamber |
 | Esc | the menu (not rebindable) |
@@ -86,7 +95,10 @@ the camera basis and the clip planes all go through that one map
 |---|---|
 | `main/level.*` | the cell grid, the chambers, raycast, greedy meshing |
 | `main/portal.*` | placement, the A→B map, clip planes, polygon clipping |
-| `main/player.*` | box physics, the tunnel behind a portal, teleporting |
+| `main/physics.*` | box physics for the player and the cubes, the tunnel behind a portal, teleporting |
+| `main/player.*` | walking, jumping, the view |
+| `main/game.*` | one chamber in play: cubes, carrying, buttons, doors |
+| `main/demo.*` | scripted runs that solve each chamber, for tests on the PC and the badge |
 | `main/render.*` | the portal passes |
 | `main/input.*` | bindings (se_bindings), keyboard, gyroscope |
 | `main/menu.*` | the pause menu and its screens (se_ui) |
