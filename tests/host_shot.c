@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "chamber.h"
 #include "demo.h"
 #include "level.h"
 #include "player.h"
@@ -343,6 +344,9 @@ static int fuzz(int n) {
 
 int main(int argc, char** argv) {
     render_init("textures");
+    // More chambers, as the badge reads them from the SD card.
+    char const* extra = getenv("PORTALS_CHAMBERS");
+    if (extra != NULL) chamber_load_dir(extra);
     if (argc > 2 && strcmp(argv[1], "fuzz") == 0) return fuzz(atoi(argv[2]));
     if (argc > 2 && strcmp(argv[1], "demo") == 0) return demo_shots(argc, argv);
     level_t  lv;
