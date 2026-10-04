@@ -11,6 +11,7 @@ project(app C)
 set(APP_SOURCES
     main/main.c
     main/crt0.c
+    main/demo.c
     main/input.c
     main/level.c
     main/menu.c
@@ -20,24 +21,46 @@ set(APP_SOURCES
     main/settings.c
 )
 
-# Automated device tests (main/testkit/, README "Automated device tests").
-# Opt-in: uncomment to build them in, and set where shots go. An app
-# without SynthEngine3D adds TESTKIT_NO_ENGINE to the definitions.
-# list(APPEND APP_SOURCES
-#     main/testkit/debugcon.c
-#     main/testkit/devtest.c
-#     main/testkit/profile.c
-#     main/testkit/report.c
-#     main/testkit/screenshot.c
-#     main/testkit/showtime.c
-# )
-# add_compile_definitions(SCREENSHOT_DIR="/sd/myapp")
+# Automated device tests (main/testkit/, README "Device tests"): perf and
+# shots of the scripted demos in main/demo.c, driven over the debug console.
+list(APPEND APP_SOURCES
+    main/testkit/debugcon.c
+    main/testkit/devtest.c
+    main/testkit/profile.c
+    main/testkit/report.c
+    main/testkit/screenshot.c
+    main/testkit/showtime.c
+)
+add_compile_definitions(SCREENSHOT_DIR="/sd/portals/test")
+
+# Build identity for the debug console's READY records: the git commit
+# (marked -dirty when there are uncommitted changes) and the build time.
+# `make build` re-runs cmake, so it is fresh on every build. Without it the
+# app reports "unknown" and tools/testrun.py refuses to believe a result.
+execute_process(
+    COMMAND git describe --always --dirty --abbrev=10
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE APP_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT APP_GIT_HASH)
+    set(APP_GIT_HASH "unknown")
+endif()
+string(TIMESTAMP APP_BUILD_TIME "%Y-%m-%dT%H:%M:%SZ" UTC)
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/metadata/metadata.json APP_METADATA_JSON)
+string(JSON APP_VERSION ERROR_VARIABLE APP_VERSION_ERR GET "${APP_METADATA_JSON}" version)
+if(APP_VERSION_ERR OR NOT APP_VERSION)
+    set(APP_VERSION "")
+endif()
+configure_file(main/app_version.h.in ${CMAKE_CURRENT_BINARY_DIR}/generated/app_version.h @ONLY)
 
 # Include directories — add paths to your headers here
 set(APP_INCLUDES
     main
     include
     include/esp_additions/include
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
 
 # Compile app sources as a relocatable object library

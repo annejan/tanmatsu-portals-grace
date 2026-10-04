@@ -4,6 +4,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include "demo.h"
 #include "level.h"
 #include "player.h"
 #include "portal.h"
@@ -275,7 +277,33 @@ static void test_loop(void) {
           s.pl.pos.z);
 }
 
+// Every scripted demo does what it is there to show.
+static void test_demos(void) {
+    demo_state_t st;
+    for (int i = 0; i < demo_count(); i++) {
+        demo_eval(i, demo_duration(i), &st);
+        char const* n = demo_name(i);
+        CHECK(!(st.events & PL_EV_DIED), "demo %s: nobody dies", n);
+        CHECK(st.events & PL_EV_TELEPORT, "demo %s: goes through a portal", n);
+        if (strcmp(n, "c2ledge") == 0 || strcmp(n, "c3fling") == 0) CHECK(st.events & PL_EV_EXIT, "demo %s: exits", n);
+    }
+    // A pure function of time: the same instant twice is the same state.
+    demo_state_t a, b;
+    demo_eval(demo_find("c1walk"), 2.37f, &a);
+    demo_eval(demo_find("c1walk"), 2.37f, &b);
+    CHECK(memcmp(&a.pl, &b.pl, sizeof(a.pl)) == 0, "demo replay is deterministic");
+    // c1loop goes round more than once.
+    int loops = 0;
+    for (float t = 0.02f; t < demo_duration(demo_find("c1loop")); t += 0.02f) {
+        demo_eval(demo_find("c1loop"), t, &a);
+        demo_eval(demo_find("c1loop"), t - 0.02f, &b);
+        if ((a.events & PL_EV_TELEPORT) && !(b.events & PL_EV_TELEPORT)) loops++;
+    }
+    CHECK(loops == 1, "first teleport found once (%d)", loops);
+}
+
 int main(void) {
+    test_demos();
     test_basis();
     test_map();
     test_clip();

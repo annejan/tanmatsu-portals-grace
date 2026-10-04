@@ -1,4 +1,10 @@
-PORT ?= /dev/ttyACM0
+# The P4's debug console. Empty: tools/p4port.sh finds it by the P4's USB
+# hub port, so the C6's tty (also an Espressif USB-serial/JTAG unit) is
+# never opened by mistake. Set it only to override that.
+PORT ?=
+CONSOLE = $(or $(PORT),$(shell tools/p4port.sh))
+# pyserial, from the badgelink checkout's virtualenv.
+PY := badgelink/tools/.venv/bin/python
 # Empty: badgelink talks to the P4 over USB directly (16d0:0f9a). On a
 # Tanmatsu /dev/ttyACM* is the ESP32-C6 radio coprocessor, and opening
 # it resets the radio and crashes the running badge -- so install / run
@@ -60,7 +66,7 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/player.c
+HOST_SRCS   := main/level.c main/portal.c main/player.c main/demo.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
@@ -95,29 +101,36 @@ engine:
 	git submodule update --init --recursive synthengine3D
 	@echo "=== SynthEngine3D added. Commit .gitmodules and synthengine3D, then #include \"synthengine3d.h\" ==="
 
-# Test automation (main/testkit/devtest.h, tools/testrun.py). Opt-in:
-# the app has to compile main/testkit/*.c and call devtest_start(). See
-# README, "Automated device tests".
+# Device tests (main/testkit/devtest.h, tools/testrun.py): the scripted
+# demos in main/demo.c (c1walk, c1loop, c2ledge, c3fling), on the badge.
 #
-#   make testrun TEST="perf scene=title secs=20"      the app must be running
-#   make cycle   TEST="shots scene=title ms=0,2500"   build, install, run, test
-#   make testrefs    TEST="shots ..."                 cycle, then store the shot hashes as references
-#   make testcompare TEST="shots ..."                 cycle, then compare against them
-#   make recover                                      after a crash or a hang
+#   make cycle   TEST="perf scene=c1walk secs=6"           build, install, run, test
+#   make cycle   TEST="shots scene=c1walk ms=1500,2900"    shots at exact instants
+#   make cycle   TEST="..." TESTFLAGS=--fetch               ... and download the PNGs (slow)
+#   make testrefs    TEST="shots ..."                       store the shot hashes as references
+#   make testcompare TEST="shots ..."                       compare against them
+#   make testrun TEST="..."                                 the app is already running, in debug mode
+#   make recover                                            after a crash or a hang
 #
-# The app runs the test and returns to the launcher by itself, so the
-# whole cycle is hands-free. Shot images stay on the SD card; the hashes
-# come back over the console, which is what a regression check compares.
-# TESTFLAGS=--fetch downloads the images too (slow).
+# install / run need BadgeLink mode; the console needs debug mode. `cycle`
+# switches between them: run, then `mode_debug`, then waits for the P4's
+# console to appear (tools/p4port.sh). The app runs the test and goes back
+# to the launcher by itself.
 TEST ?=
 TESTFLAGS ?=
 
-.PHONY: testrun cycle testrefs testcompare recover
+.PHONY: testrun cycle testrefs testcompare recover wait_console
+wait_console:
+	for i in $$(seq 1 30); do tools/p4port.sh >/dev/null 2>&1 && exit 0; sleep 1; done; \
+	echo "the P4's console did not appear"; exit 1
+
 testrun:
-	source "$(IDF_SOURCE)" >/dev/null && \
-	python3 -u tools/testrun.py --port "$(PORT)" --badgelink-conn "$(BADGELINK_CONN)" $(TESTFLAGS) -- $(TEST)
+	BADGELINKPORT="$(BADGELINKPORT)" $(PY) -u tools/testrun.py --port "$(CONSOLE)" $(TESTFLAGS) -- $(TEST)
 
 cycle: build install run
+	sleep 4
+	$(MAKE) mode_debug
+	$(MAKE) wait_console
 	$(MAKE) testrun
 
 testrefs:
@@ -127,7 +140,7 @@ testcompare:
 	$(MAKE) cycle TESTFLAGS="--compare"
 
 recover:
-	source "$(IDF_SOURCE)" >/dev/null && python3 tools/recover.py --port "$(PORT)"
+	$(PY) tools/recover.py --port "$(CONSOLE)"
 
 # Badgelink
 .PHONY: badgelink
@@ -185,8 +198,8 @@ run:
 # forwarded over the network.
 .PHONY: mode_badgelink
 mode_badgelink:
-	source "$(IDF_SOURCE)" >/dev/null && \
-	python3 -c "import serial, sys; s=serial.serial_for_url('$(PORT)', timeout=1); s.write(b'BADGELINK\n'); s.flush(); sys.stdout.write(s.read(128).decode(errors='replace')); s.close()"
+	test -n "$(CONSOLE)"
+	$(PY) -c "import serial, sys; s=serial.serial_for_url('$(CONSOLE)', timeout=1, do_not_open=True); s.open(); s.rts=False; s.dtr=False; s.write(b'BADGELINK\n'); s.flush(); sys.stdout.write(s.read(128).decode(errors='replace')); s.close()"
 
 # The other direction: ask the firmware (in BadgeLink mode) to switch its USB
 # back to flash/monitor mode, through BadgeLink's own `mode` command. Uses the
