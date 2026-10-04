@@ -43,7 +43,7 @@ walk into it.
 ## Building
 
 ```sh
-git clone --recursive <this repo>
+git clone --recursive https://github.com/annejan/tanmatsu-portals-grace.git
 make badgelink     # once: the file-transfer tool
 make build         # host checks, then app.so
 make install run   # onto the badge, then start it
