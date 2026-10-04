@@ -108,7 +108,34 @@ static void draw_key(pax_buf_t* fb, float x, float y, float h, pax_col_t col, vo
     rendertext_draw(fb, col, NULL, h, x, y, input_key_name(input_key((action_t)(uintptr_t)ctx), buf, sizeof(buf)));
 }
 
+// Every screen's layout. The engine's defaults (a panel 70% of the
+// screen high, 44 px rows) hold four and a half rows; these hold nine,
+// and a longer list scrolls (row text height: SE_UI_ROW_TEXT_H in
+// CMakeLists.txt).
+#define MENU_PANEL_W 0.70f
+#define MENU_PANEL_H 0.92f
+#define MENU_TITLE_H 28.0f
+#define MENU_ROW_H   30.0f
+#define MENU_ROWS    9
+// Labels to values: the longest label ("Quarter resolution") is about
+// 220 px at 20 px text, and a slider and its "NN%" still end inside the
+// 560 px panel. At 0 the values were drawn on top of their labels.
+#define MENU_VALUE_DX 270.0f
+
+static int build_rows(screen_t s, se_menu_def_t* def);
+
 static int build(screen_t s, se_menu_def_t* def) {
+    int const n       = build_rows(s, def);
+    def->panel_w      = MENU_PANEL_W;
+    def->panel_h      = MENU_PANEL_H;
+    def->title_h      = MENU_TITLE_H;
+    def->row_h        = MENU_ROW_H;
+    def->value_dx     = MENU_VALUE_DX;
+    def->visible_rows = n > MENU_ROWS ? MENU_ROWS : 0;
+    return n;
+}
+
+static int build_rows(screen_t s, se_menu_def_t* def) {
     *def = (se_menu_def_t){0};
     switch (s) {
         case SCR_PAUSE:
@@ -149,7 +176,6 @@ static int build(screen_t s, se_menu_def_t* def) {
             def->title                = "CONTROLS";
             def->rows                 = s_ctl_rows;
             def->row_count            = CONTROLS_ROWS;
-            def->visible_rows         = 9;
             def->hint                 = "Enter: press the new key   Esc: back";
             return CONTROLS_ROWS;
         case SCR_CHAMBERS: {

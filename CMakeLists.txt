@@ -118,6 +118,8 @@ add_compile_definitions(RENDER_HORIZON_Y=240.0f)
 add_compile_definitions(SE_SCENE_LINE_CAP=1024)
 add_compile_definitions(SE_SCENE_TEXTURED_TRI_CAP=2048)
 add_compile_definitions(SE_SCENE_DEPTH16_INTERNAL=1)
+# Menu row text, down from 28 px so nine rows fit (main/menu.c).
+add_compile_definitions(SE_UI_ROW_TEXT_H=20.0f)
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/synthengine3D/CMakeLists.txt)
     message(STATUS "SynthEngine3D: building synthengine3D/")
     add_subdirectory(synthengine3D)
