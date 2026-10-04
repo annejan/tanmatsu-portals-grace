@@ -138,6 +138,9 @@ static bool parse_step(ctx_t* c, char* line, step_t* st) {
     } else if (strcmp(verb, "use") == 0) {
         st->op = OP_USE;
         n      = 0;
+    } else if (strcmp(verb, "grab") == 0) {
+        st->op = OP_GRAB;
+        n      = 0;
     } else {
         return fail(c, "unknown step \"%s\"", verb);
     }
@@ -490,6 +493,9 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
                     break;
                 case OP_USE:
                     put(&o, "use\n");
+                    break;
+                case OP_GRAB:
+                    put(&o, "grab\n");
                     break;
                 default:
                     break;

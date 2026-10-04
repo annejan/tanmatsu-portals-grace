@@ -57,12 +57,24 @@ static void drop(game_t* g) {
     g->held_via                = -1;
 }
 
+static float ray_aabb(vec3_t o, vec3_t d, aabb_t const* b);
+
 bool game_fire(game_t* g, int which) {
+    vec3_t const eye = player_eye(&g->pl), fwd = player_view(&g->pl).fwd;
+    // The moving platform stops a shot, like a wall that takes no portal.
+    if (g->lv.n_platforms) {
+        aabb_t const    plat = platform_aabb(g);
+        float const     tp   = ray_aabb(eye, fwd, &plat);
+        ray_hit_t const wall = level_raycast(&g->lv, eye, fwd, 64.0f);
+        if (tp >= 0.0f && (!wall.hit || tp < wall.dist)) return false;
+    }
     portal_t p;
-    if (!portal_place(&g->lv, player_eye(&g->pl), player_view(&g->pl).fwd, &g->portals[which ^ 1], &p)) return false;
-    g->portals[which] = p;
-    // A cube carried through the old portal has lost its way back.
+    if (!portal_place(&g->lv, eye, fwd, &g->portals[which ^ 1], &p)) return false;
+    // A cube carried through the old portal has lost its way back: let go
+    // of it while that portal still stands, so its motion goes through
+    // the portal it really went through.
     if (g->held_via >= 0) drop(g);
+    g->portals[which] = p;
     return true;
 }
 
@@ -99,6 +111,12 @@ int game_use(game_t* g) {
     ray_hit_t const wall = level_raycast(&g->lv, eye, fwd, CUBE_REACH);
     float           best = wall.hit ? wall.dist : CUBE_REACH;
     int             pick = -1;
+    // Nor through the moving platform.
+    if (g->lv.n_platforms) {
+        aabb_t const plat = platform_aabb(g);
+        float const  tp   = ray_aabb(eye, fwd, &plat);
+        if (tp >= 0.0f && tp < best) best = tp;
+    }
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
         float const  t = ray_aabb(eye, fwd, &b);
@@ -145,11 +163,43 @@ static jump_t const* plate_under(level_t const* lv, vec3_t pos) {
 }
 
 // Whether a box reaches into any fizzler cell.
-static bool in_fizzler(level_t const* lv, aabb_t const* a) {
+// Whether a box reaches into any cell of material `m`.
+static bool box_touches(level_t const* lv, aabb_t const* a, uint8_t m) {
     for (int y = (int)floorf(a->lo.y); y <= (int)floorf(a->hi.y - 0.001f); y++)
         for (int z = (int)floorf(a->lo.z); z <= (int)floorf(a->hi.z - 0.001f); z++)
             for (int x = (int)floorf(a->lo.x); x <= (int)floorf(a->hi.x - 0.001f); x++)
-                if (level_get(lv, x, y, z) == MAT_FIZZ) return true;
+                if (level_get(lv, x, y, z) == m) return true;
+    return false;
+}
+
+static bool in_fizzler(level_t const* lv, aabb_t const* a) {
+    return box_touches(lv, a, MAT_FIZZ);
+}
+
+// Whether a box touched a fizzler anywhere on its way from `from` to `to`
+// this step. Testing only where it ended let anything faster than about
+// 18 m/s at 10 fps jump clean over a fizzler a cell thick. Not across a
+// teleport: there the path is not a line.
+static bool swept_fizzler(level_t const* lv, aabb_t const* from, aabb_t const* to, bool teleported) {
+    if (in_fizzler(lv, to)) return true;
+    if (teleported) return false;
+    vec3_t const d = v3_sub(to->lo, from->lo);
+    int          n = (int)ceilf(v3_len(d) / 0.25f);
+    if (n > 64) n = 64;
+    for (int k = 1; k < n; k++) {
+        vec3_t const off = v3_scale(d, (float)k / (float)n);
+        aabb_t const a   = {v3_add(from->lo, off), v3_add(from->hi, off)};
+        if (in_fizzler(lv, &a)) return true;
+    }
+    return false;
+}
+
+// Whether a box overlaps anything solid in the grid.
+static bool box_in_solid(level_t const* lv, aabb_t const* a) {
+    for (int y = (int)floorf(a->lo.y + 0.001f); y <= (int)floorf(a->hi.y - 0.001f); y++)
+        for (int z = (int)floorf(a->lo.z + 0.001f); z <= (int)floorf(a->hi.z - 0.001f); z++)
+            for (int x = (int)floorf(a->lo.x + 0.001f); x <= (int)floorf(a->hi.x - 0.001f); x++)
+                if (level_solid(lv, x, y, z)) return true;
     return false;
 }
 
@@ -169,7 +219,7 @@ static int step_cube(game_t* g, int i, float dt) {
         if (v3_len(pull) > CUBE_MAX_PULL) pull = v3_scale(v3_norm(pull), CUBE_MAX_PULL);
         b->vel = pull;
     } else {
-        b->vel.y = fmaxf(b->vel.y - PHYS_GRAVITY * dt, -PHYS_MAX_FALL);
+        b->vel.y = fall_half(b->vel.y, dt);
         if (b->on_ground) {
             float const k  = expf(-CUBE_FRICTION * dt);
             b->vel.x      *= k;
@@ -177,10 +227,13 @@ static int step_cube(game_t* g, int i, float dt) {
         }
     }
 
-    int via = -1;
-    if (body_move(b, &w, dt, &via, NULL) & PHYS_TELEPORT) {
+    int          via   = -1;
+    aabb_t const start = body_aabb(b);
+    int const    pev   = body_move(b, &w, dt, &via, NULL);
+    if (pev & PHYS_TELEPORT) {
         if (i == g->held) g->held_via = g->held_via < 0 ? via : -1;
     }
+    if (i != g->held && !b->on_ground) b->vel.y = fall_half(b->vel.y, dt);
 
     if (i == g->held) {
         vec3_t target = v3_mad(player_eye(&g->pl), player_view(&g->pl).fwd, CUBE_HOLD);
@@ -194,7 +247,7 @@ static int step_cube(game_t* g, int i, float dt) {
     uint8_t const under =
         level_get(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z));
     aabb_t const box  = body_aabb(b);
-    bool const   fizz = in_fizzler(&g->lv, &box);
+    bool const   fizz = swept_fizzler(&g->lv, &start, &box, pev & PHYS_TELEPORT);
     if (b->pos.y < -4.0f || (b->on_ground && under == MAT_GOO) || fizz) {
         if (i == g->held) drop(g);
         cube_spawn(g, i);
@@ -271,6 +324,16 @@ static void move_platform(game_t* g, float dt) {
     }
     if (!pl_ride && aabb_overlap(&next, &pa)) return;
 
+    // Nor carry a rider into a wall or a ceiling: wait instead.
+    aabb_t const pa1 = {v3_add(pa.lo, step), v3_add(pa.hi, step)};
+    if (pl_ride && box_in_solid(&g->lv, &pa1)) return;
+    for (int i = 0; i < g->n_cubes; i++) {
+        if (!cube_ride[i]) continue;
+        aabb_t const c  = cube_aabb(&g->cubes[i]);
+        aabb_t const c1 = {v3_add(c.lo, step), v3_add(c.hi, step)};
+        if (box_in_solid(&g->lv, &c1)) return;
+    }
+
     g->plat_t  = t1;
     g->plat_at = at1;
     if (pl_ride) g->pl.pos = v3_add(g->pl.pos, step);
@@ -302,13 +365,14 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     int const            n    = gather_boxes(g, -1, boxes);
     phys_world_t const   w    = {&g->lv, g->portals, boxes, n};
     player_input_t const pin  = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
-    int                  via  = -1;
-    ev                       |= player_update_in(&g->pl, &w, &pin, dt, &via);
+    int                  via   = -1;
+    aabb_t const         start = player_aabb(&g->pl);
+    ev                        |= player_update_in(&g->pl, &w, &pin, dt, &via);
     if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
 
     // A fizzler: the portals close, and a cube carried in goes.
     aabb_t const pbox = player_aabb(&g->pl);
-    if (in_fizzler(&g->lv, &pbox)) {
+    if (swept_fizzler(&g->lv, &start, &pbox, ev & PL_EV_TELEPORT)) {
         if (g->portals[0].open || g->portals[1].open) {
             g->portals[0].open = g->portals[1].open  = false;
             ev                                      |= GAME_EV_PORTAL | GAME_EV_FIZZLE;

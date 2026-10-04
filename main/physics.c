@@ -19,15 +19,24 @@ static bool linked(portal_t const portals[2]) {
     return portals[0].open && portals[1].open;
 }
 
+static vec3_t probe_point(body_t const* b) {
+    return v3(b->pos.x, b->pos.y + b->probe, b->pos.z);
+}
+
 // Whether the box fits through portal `pt`'s hole. Asked ONCE per
 // substep, before it moves (see body_move): asked again mid-move it
 // flickered -- gravity's first push into the floor made a box standing
 // in the hole stop fitting, the wall behind the portal turned solid
 // round a box already inside it, and the box was thrown up the wall.
+//
+// Only from the front: a box whose probe is behind the portal's plane is
+// on the far side of its wall, and through a wall one or two cells thick
+// the tunnel would let it walk in from the back.
 static bool fits(body_t const* b, portal_t const* pt) {
     vec3_t const l = portal_local(pt, body_center(b));
     return fabsf(l.x) + half_along(b, pt->right) <= PORTAL_HALF_W + FIT_TOL &&
-           fabsf(l.y) + half_along(b, pt->up) <= PORTAL_HALF_H + FIT_TOL && l.z < 2.0f;
+           fabsf(l.y) + half_along(b, pt->up) <= PORTAL_HALF_H + FIT_TOL && l.z < 2.0f &&
+           portal_local(pt, probe_point(b)).z >= -0.01f;
 }
 
 // Behind an open portal is a tunnel two cells deep a box may stand in,
@@ -107,9 +116,17 @@ static bool move_axis(body_t* b, step_t const* s, int a, float delta) {
 
 // Ease the box sideways into a hole it is heading for, so a box that is
 // nearly lined up goes through rather than catching on the rim.
+//
+// Only a box over the hole on both axes, and never one standing on the
+// ground at a floor or ceiling portal: on the ground, gravity's push
+// alone is past -0.5 m/s below 30 fps, and it pulled a player standing
+// across the room into a floor portal.
 static void funnel(body_t* b, portal_t const* pt, float dt) {
+    if (b->on_ground && fabsf(pt->n.y) > 0.5f) return;
     vec3_t const l = portal_local(pt, body_center(b));
     if (v3_dot(b->vel, pt->n) > -0.5f || l.z < 0.0f || l.z > 2.5f) return;
+    if (fabsf(l.x) > PORTAL_HALF_W + half_along(b, pt->right) || fabsf(l.y) > PORTAL_HALF_H + half_along(b, pt->up))
+        return;
     float const k = fminf(1.0f, 10.0f * dt);
     for (int i = 0; i < 2; i++) {
         vec3_t const ax = i == 0 ? pt->right : pt->up;
@@ -123,12 +140,20 @@ static void funnel(body_t* b, portal_t const* pt, float dt) {
     }
 }
 
-static vec3_t probe_point(body_t const* b) {
-    return v3(b->pos.x, b->pos.y + b->probe, b->pos.z);
+static float clampf(float v, float lo, float hi) {
+    return v < lo ? lo : v > hi ? hi : v;
 }
 
 static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
-    vec3_t const c = portal_map_point(a, o, body_center(b));
+    // Inside the exit's hole. Across the entry may be along the exit's
+    // height -- a floor portal into a wall one -- and a box half out of
+    // the hole came out with its feet inside the floor.
+    vec3_t      l  = portal_local(o, portal_map_point(a, o, body_center(b)));
+    float const mx = fmaxf(0.0f, PORTAL_HALF_W - half_along(b, o->right) - 0.002f);
+    float const my = fmaxf(0.0f, PORTAL_HALF_H - half_along(b, o->up) - 0.002f);
+    l.x            = clampf(l.x, -mx, mx);
+    l.y            = clampf(l.y, -my, my);
+    vec3_t const c = v3_add(o->center, v3_add(v3_add(v3_scale(o->right, l.x), v3_scale(o->up, l.y)), v3_scale(o->n, l.z)));
     b->vel         = portal_map_dir(a, o, b->vel);
     b->pos         = v3(c.x, c.y - b->h * 0.5f, c.z);
 
@@ -140,6 +165,58 @@ static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
     float const e = portal_local(o, probe_point(b)).z;
     if (e < 0.05f) b->pos = v3_mad(b->pos, o->n, 0.05f - e);
     b->on_ground = false;
+}
+
+// Whether the box overlaps anything that blocks it here.
+static bool embedded(body_t const* b, step_t const* s) {
+    int c0[3], c1[3];
+    box_cells(b, c0, c1);
+    for (int y = c0[1]; y <= c1[1]; y++)
+        for (int z = c0[2]; z <= c1[2]; z++)
+            for (int x = c0[0]; x <= c1[0]; x++)
+                if (blocks(s, x, y, z)) return true;
+    return false;
+}
+
+// Out of any solid the box is in, the shortest way out along one axis;
+// up wins a near tie, since sinking into a floor is the usual way in. A
+// box ends up inside a solid when the world changes round it -- a portal
+// moved or closed while it was in the tunnel behind it -- and move_axis,
+// which never pushes a box out of what it was already in, would otherwise
+// let it sink.
+static void unstick(body_t* b, phys_world_t const* w) {
+    step_t st = {w, {false, false}};
+    if (linked(w->portals))
+        for (int i = 0; i < 2; i++) st.open[i] = fits(b, &w->portals[i]);
+    if (!embedded(b, &st)) return;
+    float  best = 1e9f;
+    vec3_t to   = b->pos;
+    static int const dirs[6][2] = {{1, 1}, {0, 1}, {0, -1}, {2, 1}, {2, -1}, {1, -1}};  // axis, sign
+    for (int k = 0; k < 6; k++) {
+        int const   a    = dirs[k][0];
+        float const sign = (float)dirs[k][1];
+        float const cost = k == 0 ? 0.8f : 1.0f;  // up wins a near tie
+        for (float d = 0.05f; d <= 2.0f && d * cost < best; d += 0.05f) {
+            body_t t = *b;
+            *axis_of(&t.pos, a) += sign * d;
+            step_t ts = {w, {false, false}};
+            if (linked(w->portals))
+                for (int i = 0; i < 2; i++) ts.open[i] = fits(&t, &w->portals[i]);
+            if (embedded(&t, &ts)) continue;
+            // Up: onto the top of the cell it cleared, standing on it.
+            if (k == 0) t.pos.y = floorf(t.pos.y) + EPS;
+            best = d * cost;
+            to   = t.pos;
+            break;
+        }
+    }
+    if (best < 1e9f) {
+        if (to.y > b->pos.y + 0.01f) {
+            b->vel.y     = fmaxf(b->vel.y, 0.0f);
+            b->on_ground = true;
+        }
+        b->pos = to;
+    }
 }
 
 int body_move(body_t* b, phys_world_t const* w, float dt, int* through, float* impact) {
@@ -183,6 +260,7 @@ int body_move(body_t* b, phys_world_t const* w, float dt, int* through, float* i
             }
         }
     }
+    unstick(b, w);
     if (b->on_ground && !was_ground) {
         ev |= PHYS_LANDED;
         if (impact) *impact = fall_speed;

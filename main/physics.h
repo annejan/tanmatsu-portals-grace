@@ -36,6 +36,17 @@ enum {
     PHYS_LANDED   = 1 << 1
 };
 
+// Gravity half a step at a time: half before a move and half after it,
+// the second only while still in the air. That integrates a fall exactly
+// whatever dt is, so an arc -- a jump, a faith plate's throw -- comes out
+// the same at 15 fps as at 50. Applied all at once before the move, the
+// arcs flew lower the lower the frame rate: a faith plate fell half a
+// metre short at 15 fps.
+static inline float fall_half(float vy, float dt) {
+    float const v = vy - PHYS_GRAVITY * 0.5f * dt;
+    return v < -PHYS_MAX_FALL ? -PHYS_MAX_FALL : v;
+}
+
 // Move `b` by its velocity for `dt` seconds. Gravity and steering are the
 // caller's. Returns PHYS_* bits; on PHYS_TELEPORT, `*through` is the index
 // of the portal it went in by (its position and velocity are already on

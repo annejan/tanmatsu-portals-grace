@@ -26,6 +26,12 @@ static int s_fail;
         }                                                   \
     } while (0)
 
+// Two levels the same in every field. chamber_parse clears a level before
+// it fills it, padding included, so memcmp is exact.
+static bool level_same(level_t const* a, level_t const* b) {
+    return memcmp(a, b, sizeof(*a)) == 0;
+}
+
 static bool near3(vec3_t a, vec3_t b, float eps) {
     return fabsf(a.x - b.x) < eps && fabsf(a.y - b.y) < eps && fabsf(a.z - b.z) < eps;
 }
@@ -305,14 +311,15 @@ static void test_demos(void) {
     demo_eval(demo_find("c1walk"), 2.37f, &a);
     demo_eval(demo_find("c1walk"), 2.37f, &b);
     CHECK(memcmp(&a.g.pl, &b.g.pl, sizeof(a.g.pl)) == 0, "demo replay is deterministic");
-    // c1loop goes round more than once.
+    // c1loop goes round and round: count the teleports, each a jump of
+    // more than 2 m between two steps.
     int loops = 0;
-    for (float t = 0.02f; t < demo_duration(demo_find("c1loop")); t += 0.02f) {
+    for (float t = 0.04f; t < demo_duration(demo_find("c1loop")); t += 0.02f) {
         demo_eval(demo_find("c1loop"), t, &a);
         demo_eval(demo_find("c1loop"), t - 0.02f, &b);
-        if ((a.events & PL_EV_TELEPORT) && !(b.events & PL_EV_TELEPORT)) loops++;
+        if (v3_len(v3_sub(a.g.pl.pos, b.g.pl.pos)) > 2.0f) loops++;
     }
-    CHECK(loops == 1, "first teleport found once (%d)", loops);
+    CHECK(loops >= 2, "c1loop goes round more than once (%d)", loops);
 }
 
 // Walking into an eye-level portal pair at badge frame rates: one clean
@@ -400,13 +407,9 @@ static void test_chamber_write(void) {
         bool const ok = chamber_parse(text, &b, sb, &nb, err, sizeof(err));
         CHECK(ok, "%s reads back: %s", chamber_id(i), err);
         if (!ok) continue;
-        CHECK(memcmp(a.cells, b.cells, sizeof(a.cells)) == 0 && a.w == b.w && a.h == b.h && a.d == b.d,
-              "%s: same cells", chamber_id(i));
-        CHECK(strcmp(a.name, b.name) == 0 && strcmp(a.hint, b.hint) == 0 && fabsf(a.spawn_yaw - b.spawn_yaw) < 1e-4f,
-              "%s: same header", chamber_id(i));
-        CHECK(a.n_doors == b.n_doors && a.n_buttons == b.n_buttons && a.n_cubes == b.n_cubes &&
-                  memcmp(a.doors, b.doors, sizeof(a.doors)) == 0 && memcmp(a.buttons, b.buttons, sizeof(a.buttons)) == 0,
-              "%s: same doors, buttons, cubes", chamber_id(i));
+        // Everything: cells, header, doors, buttons, cubes, plates and
+        // their targets, the platform and where it goes, the start.
+        CHECK(level_same(&a, &b), "%s: written and read back, the same level", chamber_id(i));
         CHECK(na == nb, "%s: same number of steps (%d, %d)", chamber_id(i), na, nb);
         for (int k = 0; k < na && k < nb; k++)
             CHECK(sa[k].op == sb[k].op && sa[k].which == sb[k].which && fabsf(sa[k].a - sb[k].a) < 1e-3f &&
@@ -433,9 +436,7 @@ static void test_draft(void) {
         CHECK(draft_from_text(&d, chamber_id(i), chamber_text(i)), "%s loads into a draft", chamber_id(i));
         CHECK(draft_level(&d, &lv, err, sizeof(err)), "%s: the draft parses: %s", chamber_id(i), err);
         chamber_build(i, &ref, NULL, NULL);
-        CHECK(memcmp(lv.cells, ref.cells, sizeof(lv.cells)) == 0 && lv.n_doors == ref.n_doors &&
-                  lv.n_buttons == ref.n_buttons && lv.n_cubes == ref.n_cubes,
-              "%s: the same chamber", chamber_id(i));
+        CHECK(level_same(&lv, &ref), "%s: through a draft, the same level", chamber_id(i));
         CHECK(draft_text(&d, a, sizeof(a)) > 0 && strstr(a, "\nsolution\n") != NULL, "%s: keeps its solution",
               chamber_id(i));
     }
@@ -465,18 +466,28 @@ static void test_draft(void) {
 
 // Chambers from a directory come after the built-in ones, in name order;
 // a file that does not parse is skipped. Run last: it adds to the list.
+// Write `text` to `dir`/`name`; false (and a failed check) if it cannot.
+static bool write_file(char const* dir, char const* name, char const* text) {
+    char path[256];
+    snprintf(path, sizeof(path), "%s/%s", dir, name);
+    FILE* f = fopen(path, "w");
+    CHECK(f != NULL, "cannot write %s", path);
+    if (f == NULL) return false;
+    fputs(text, f);
+    fclose(f);
+    return true;
+}
+
 static void test_chamber_dir(void) {
-    char const* dir = "build/test_chambers";
+    // Under the build directory the Makefile uses ($BUILD, else build/).
+    char const* build = getenv("BUILD");
+    char        dir[200];
+    snprintf(dir, sizeof(dir), "%s/test_chambers", build != NULL && build[0] ? build : "build");
     mkdir(dir, 0755);
-    FILE* f = fopen("build/test_chambers/b-second.txt", "w");
-    fputs("name: Second\nsize: 3 3 3\nlayer 1\n###\n#S#\n###\n", f);
-    fclose(f);
-    f = fopen("build/test_chambers/a-first.txt", "w");
-    fputs("name: First\nsize: 3 3 3\nfacing: east\nlayer 1\n###\n#S#\n###\n", f);
-    fclose(f);
-    f = fopen("build/test_chambers/c-broken.txt", "w");
-    fputs("name: Broken\nsize: 3 3 3\nlayer 1\n#X#\n", f);
-    fclose(f);
+    if (!write_file(dir, "b-second.txt", "name: Second\nsize: 3 3 3\nlayer 1\n###\n#S#\n###\n") ||
+        !write_file(dir, "a-first.txt", "name: First\nsize: 3 3 3\nfacing: east\nlayer 1\n###\n#S#\n###\n") ||
+        !write_file(dir, "c-broken.txt", "name: Broken\nsize: 3 3 3\nlayer 1\n#X#\n"))
+        return;
     int const before = chamber_count();
     CHECK(chamber_load_dir(dir) == 2, "two of the three files load");
     CHECK(chamber_count() == before + 2, "they join the list");
@@ -504,8 +515,10 @@ static void test_chamber_dir(void) {
 // Glass: you see through it, but neither you nor a shot gets through.
 static void test_glass(void) {
     static game_t g;
-    int const     i = demo_chamber(demo_find("08-through-the-glass"));
-    game_load(&g, i);
+    int const     d = demo_find("08-through-the-glass");
+    CHECK(d >= 0, "chamber 08 is there");
+    if (d < 0) return;
+    game_load(&g, demo_chamber(d));
     g.pl.pos = v3(5.5f, 1.0f, 3.0f);
     vec3_t const eye  = player_eye(&g.pl);
     vec3_t const look = v3_norm(v3_sub(v3(5.5f, 2.5f, 11.0f), eye));
@@ -568,7 +581,257 @@ static void test_two_buttons(void) {
     CHECK(b0->pressed && b1->pressed && g.lv.doors[0].open > 0.99f, "both: it opens (%.2f)", g.lv.doors[0].open);
 }
 
+// --- Badge frame rates -------------------------------------------------------
+//
+// The badge runs at 15 to 25 fps. Every test above that steps at 50 fps
+// alone missed bugs that only showed at the badge's own rate, so these
+// step at each of them.
+
+static float const FPS_DT[] = {1.0f / 50, 1.0f / 30, 1.0f / 25, 1.0f / 20, 1.0f / 15, 1.0f / 10};
+#define N_FPS ((int)(sizeof(FPS_DT) / sizeof(FPS_DT[0])))
+
+// A chamber from text, into a game.
+static bool load_text(game_t* g, char const* text) {
+    static level_t lv;
+    char           err[96];
+    bool const     ok = chamber_parse(text, &lv, NULL, NULL, err, sizeof(err));
+    CHECK(ok, "test chamber parses: %s", err);
+    if (ok) game_load_level(g, &lv);
+    return ok;
+}
+
+// Whether a box overlaps anything solid in the grid.
+static bool in_solid(level_t const* lv, aabb_t a) {
+    for (int y = (int)floorf(a.lo.y + 0.002f); y <= (int)floorf(a.hi.y - 0.002f); y++)
+        for (int z = (int)floorf(a.lo.z + 0.002f); z <= (int)floorf(a.hi.z - 0.002f); z++)
+            for (int x = (int)floorf(a.lo.x + 0.002f); x <= (int)floorf(a.hi.x - 0.002f); x++)
+                if (level_solid(lv, x, y, z)) return true;
+    return false;
+}
+
+static aabb_t player_box(player_t const* p) {
+    return (aabb_t){v3(p->pos.x - PL_HALF_W, p->pos.y, p->pos.z - PL_HALF_W),
+                    v3(p->pos.x + PL_HALF_W, p->pos.y + PL_HEIGHT, p->pos.z + PL_HALF_W)};
+}
+
+// Every built-in chamber's solution reaches the exit at every frame rate.
+static void test_solutions_fps(void) {
+    for (int c = 0; c < chamber_builtin_count; c++) {
+        int const d = demo_find(chamber_builtins[c].id);
+        for (int k = 0; k < N_FPS; k++) {
+            static demo_state_t st;
+            demo_eval_dt(d, demo_duration(d), FPS_DT[k], &st);
+            CHECK((st.events & PL_EV_EXIT) && !(st.events & PL_EV_DIED), "%s at %.0f fps: %s (at %.2f %.2f %.2f)",
+                  chamber_builtins[c].id, 1.0f / FPS_DT[k], (st.events & PL_EV_DIED) ? "died" : "never reached the exit",
+                  st.g.pl.pos.x, st.g.pl.pos.y, st.g.pl.pos.z);
+        }
+    }
+}
+
+// Chamber 07 with its solution's portals: blue in the room-1 floor,
+// orange on the far west wall, standing on the floor.
+static void grill_portals(game_t* g) {
+    game_load(g, demo_chamber(demo_find("07-the-grill")));
+    CHECK(portal_place_at(&g->lv, 5, 0, 5, DIR_PY, v3(0, 0, 1), NULL, &g->portals[0]), "07: floor portal");
+    CHECK(portal_place_at(&g->lv, 0, 1, 8, DIR_PX, v3(0, 1, 0), &g->portals[0], &g->portals[1]), "07: wall portal");
+}
+
+// A floor portal: standing beside it does not pull you in; dropping or
+// walking into it anywhere along it never leaves you inside the floor.
+static void test_floor_portal(void) {
+    static game_t      g;
+    game_input_t const idle = {0};
+    for (int k = 0; k < N_FPS; k++) {
+        float const  dt      = FPS_DT[k];
+        vec3_t const spots[] = {{5.62f, 1.0f, 3.82f}, {6.9f, 1.0f, 6.0f}, {4.1f, 1.0f, 6.0f}, {3.0f, 1.0f, 3.0f}};
+        for (size_t s = 0; s < sizeof(spots) / sizeof(spots[0]); s++) {
+            grill_portals(&g);
+            g.pl.pos  = spots[s];
+            int moved = 0;
+            for (int i = 0; i < (int)(3.0f / dt); i++) moved |= game_step(&g, &idle, dt) & PL_EV_TELEPORT;
+            CHECK(!moved && v3_len(v3_sub(g.pl.pos, spots[s])) < 0.05f,
+                  "%.0f fps: standing at %.2f %.2f beside a floor portal stays put (now %.2f %.2f %.2f)", 1.0f / dt,
+                  spots[s].x, spots[s].z, g.pl.pos.x, g.pl.pos.y, g.pl.pos.z);
+        }
+        // Dropping in, from a little above, all along its length.
+        for (float z = 5.05f; z < 7.0f; z += 0.1f) {
+            grill_portals(&g);
+            g.pl.pos = v3(5.5f, 1.6f, z);
+            for (int i = 0; i < (int)(3.0f / dt); i++) game_step(&g, &idle, dt);
+            CHECK(g.pl.pos.y > 0.99f && !in_solid(&g.lv, player_box(&g.pl)),
+                  "%.0f fps: dropped in at z %.2f, ends inside a solid (%.2f %.2f %.2f)", 1.0f / dt, z, g.pl.pos.x,
+                  g.pl.pos.y, g.pl.pos.z);
+        }
+        // Walking over it, four ways.
+        float const yaws[] = {0.0f, 3.1415927f, 1.5707963f, -1.5707963f};
+        vec3_t const from[] = {{5.5f, 1.0f, 3.8f}, {5.5f, 1.0f, 8.0f}, {3.8f, 1.0f, 6.0f}, {7.2f, 1.0f, 6.0f}};
+        for (int w = 0; w < 4; w++) {
+            grill_portals(&g);
+            g.pl.pos              = from[w];
+            g.pl.yaw              = yaws[w];
+            game_input_t const go = {.fwd = 1.0f};
+            for (int i = 0; i < (int)(1.0f / dt); i++) game_step(&g, &go, dt);
+            for (int i = 0; i < (int)(2.0f / dt); i++) game_step(&g, &idle, dt);
+            CHECK(!in_solid(&g.lv, player_box(&g.pl)), "%.0f fps: walked over the floor portal (way %d), ends inside a solid", 1.0f / dt, w);
+        }
+    }
+}
+
+// A portal's tunnel is open from the front only: through a thin wall
+// with a portal on its far face, you cannot walk in from behind.
+static void test_portal_back(void) {
+    static game_t g;
+    if (!load_text(&g, "size: 7 4 9\nfacing: south\n"
+                       "layer 1\n#######\n#.....#\n#..S..#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"
+                       "layer 2\n#######\n#.....#\n#.....#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"))
+        return;
+    // The wall is z = 4; its south face looks into the south room.
+    CHECK(portal_place_at(&g.lv, 3, 1, 4, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]), "back: portal on the wall's far face");
+    CHECK(portal_place_at(&g.lv, 1, 1, 4, DIR_NZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]), "back: second portal");
+    g.pl.pos              = v3(3.5f, 1.0f, 6.5f);
+    g.pl.yaw              = 3.1415927f;  // south, at the wall's back
+    game_input_t const go = {.fwd = 1.0f};
+    int                tp = 0;
+    for (int i = 0; i < 150; i++) tp |= game_step(&g, &go, 0.02f) & PL_EV_TELEPORT;
+    CHECK(!tp && g.pl.pos.z > 5.25f, "back: walking at the wall from behind stops at it (z %.2f)", g.pl.pos.z);
+}
+
+// A platform that would carry its rider into the ceiling waits instead.
+static void test_platform_ceiling(void) {
+    static game_t  g;
+    static level_t lift;
+    char           err[96];
+    // An elevator two cells high under a ceiling at y = 5 (layer 5 is metal).
+    if (!chamber_parse("size: 6 6 6\n"
+                       "layer 0\n######\n#WWWW#\n#WWWW#\n#WWWW#\n#WWWW#\n######\n"
+                       "layer 1\n######\n#....#\n#.MM.#\n#.MM.#\n#....#\n######\n"
+                       "layer 2\n######\n#....#\n#.S..#\n#....#\n#....#\n######\n"
+                       "layer 3\n######\n#....#\n#....#\n#.N..#\n#....#\n######\n"
+                       "layer 4\n######\n#....#\n#....#\n#....#\n#....#\n######\n",
+                       &lift, NULL, NULL, err, sizeof(err))) {
+        CHECK(false, "platform: test chamber: %s", err);
+        return;
+    }
+    game_input_t const idle = {0};
+    bool               bad  = false;
+    for (int k = 0; k < N_FPS; k++) {
+        game_load_level(&g, &lift);
+        for (int i = 0; i < (int)(8.0f / FPS_DT[k]); i++) {
+            game_step(&g, &idle, FPS_DT[k]);
+            bad = bad || in_solid(&g.lv, player_box(&g.pl));
+        }
+    }
+    CHECK(!bad, "platform: the rider is never carried into the ceiling");
+}
+
+// Fizzlers: they close the portals, take a carried cube, and take a cube
+// that touches them -- at any speed.
+static void test_fizzlers(void) {
+    static game_t      g;
+    game_input_t const go = {.fwd = 1.0f};
+    // Walking into the grill closes both portals.
+    grill_portals(&g);
+    g.pl.pos = v3(7.5f, 1.0f, 4.5f);
+    g.pl.yaw = 0.0f;
+    for (int i = 0; i < 50; i++) game_step(&g, &go, 0.02f);
+    CHECK(!g.portals[0].open && !g.portals[1].open, "fizzler: walking through it closes the portals");
+    // A cube carried in goes back where it started.
+    grill_portals(&g);
+    g.pl.pos   = v3(8.5f, 1.0f, 2.2f);
+    g.pl.yaw   = 0.0f;
+    g.pl.pitch = atan2f(PL_EYE - CUBE_HALF, 1.3f);  // down at the cube's middle, 1.3 m ahead
+    CHECK(game_use(&g) == GAME_EV_PICKUP, "fizzler: picked up the cube");
+    for (int i = 0; i < 100; i++) game_step(&g, &go, 0.02f);
+    vec3_t const home = g.lv.cubes[0];
+    CHECK(g.held < 0 && v3_len(v3_sub(g.cubes[0].body.pos, home)) < 0.05f, "fizzler: a carried cube goes back to its start");
+    // A free cube thrown into it, fast, at 10 fps.
+    grill_portals(&g);
+    g.cubes[0].body.pos = v3(4.5f, 1.4f, 4.0f);
+    g.cubes[0].body.vel = v3(0.0f, 0.0f, 20.0f);
+    int fz              = 0;
+    for (int i = 0; i < 5; i++) fz |= game_step(&g, &(game_input_t){0}, 0.1f) & GAME_EV_FIZZLE;
+    CHECK(fz, "fizzler: a cube at 20 m/s and 10 fps does not jump it");
+    // The player, as fast.
+    grill_portals(&g);
+    g.pl.pos = v3(4.5f, 1.0f, 4.0f);
+    g.pl.vel = v3(0.0f, 2.0f, 20.0f);
+    g.pl.on_ground = false;
+    for (int i = 0; i < 3; i++) game_step(&g, &(game_input_t){0}, 0.1f);
+    CHECK(!g.portals[0].open, "fizzler: a player at 20 m/s and 10 fps does not jump it");
+}
+
+// A faith plate lands what it throws on its target, at any frame rate.
+static void test_faith_plate_fps(void) {
+    static game_t      g;
+    game_input_t const idle = {0};
+    int const          c    = demo_chamber(demo_find("06-faith-plate"));
+    for (int k = 0; k < N_FPS; k++) {
+        float const dt = FPS_DT[k];
+        game_load(&g, c);
+        jump_t const j = g.lv.jumps[0];
+        g.pl.pos       = v3((float)j.x + 0.5f, (float)j.y + 1.0f, (float)j.z + 0.5f);
+        // Where it comes down: the first step back on the ground once thrown.
+        bool   flew = false;
+        vec3_t land = g.pl.pos;
+        for (int i = 0; i < (int)(4.0f / dt); i++) {
+            game_step(&g, &idle, dt);
+            if (!g.pl.on_ground) flew = true;
+            if (flew && g.pl.on_ground) {
+                land = g.pl.pos;
+                break;
+            }
+        }
+        float const miss = v3_len(v3_sub(v3(land.x, 0, land.z), v3(j.target.x, 0, j.target.z)));
+        CHECK(flew && miss < 0.5f && fabsf(land.y - j.target.y) < 0.05f, "faith plate at %.0f fps: came down %.2f m off target",
+              1.0f / dt, miss);
+    }
+}
+
+// Odds and ends the fixes are about.
+static void test_more_things(void) {
+    static game_t      g;
+    game_input_t const idle = {0};
+    char               err[96];
+    static level_t     a, b;
+
+    // A cube being carried does not press a button, even held right on it.
+    game_load(&g, demo_chamber(demo_find("04-button")));
+    button_t const* bt = &g.lv.buttons[0];
+    g.held             = 0;
+    g.cubes[0].body.pos = v3((float)bt->x + 0.5f, (float)bt->y + 1.05f, (float)bt->z + 0.5f);
+    game_step(&g, &idle, 0.02f);
+    CHECK(!g.lv.buttons[0].pressed, "a carried cube does not press a button");
+
+    // The old button letter A is button 1.
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.A#\n#####\n", &a, NULL, NULL, err, sizeof(err)), "old A: %s", err);
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.1#\n#####\n", &b, NULL, NULL, err, sizeof(err)), "new 1: %s", err);
+    CHECK(level_same(&a, &b), "old button A reads as button 1");
+
+    // A floor portal moved while a cube is halfway into it: the cube is
+    // not left buried in the floor.
+    grill_portals(&g);
+    g.cubes[0].body.pos = v3(5.5f, 0.6f, 6.0f);
+    g.cubes[0].body.vel = v3(0, 0, 0);
+    CHECK(portal_place_at(&g.lv, 2, 0, 2, DIR_PY, v3(0, 0, 1), &g.portals[1], &g.portals[0]), "moved the floor portal");
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.cubes[0].body.pos.y > 0.99f && !in_solid(&g.lv, cube_aabb(&g.cubes[0])),
+          "a cube half in a floor portal that moves comes back out (y %.2f)", g.cubes[0].body.pos.y);
+
+    // The moving platform stops a portal shot.
+    game_load(&g, demo_chamber(demo_find("09-the-ferry")));
+    g.pl.pos   = v3(5.0f, 2.0f, 3.0f);  // on the platform
+    g.pl.pitch = 1.45f;                   // looking straight down at it
+    CHECK(!game_fire(&g, 0), "a shot at the moving platform places nothing");
+}
+
 int main(void) {
+    test_solutions_fps();
+    test_floor_portal();
+    test_portal_back();
+    test_platform_ceiling();
+    test_fizzlers();
+    test_faith_plate_fps();
+    test_more_things();
     test_legend();
     test_two_buttons();
     test_glass();

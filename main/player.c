@@ -66,7 +66,7 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
             p->vel.z *= cap / after;
         }
     }
-    p->vel.y = fmaxf(p->vel.y - PHYS_GRAVITY * dt, -PHYS_MAX_FALL);
+    p->vel.y = fall_half(p->vel.y, dt);
 
     body_t    b   = as_body(p);
     int       via = -1;
@@ -75,6 +75,7 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
     p->pos        = b.pos;
     p->vel        = b.vel;
     p->on_ground  = b.on_ground;
+    if (!p->on_ground) p->vel.y = fall_half(p->vel.y, dt);
     if (pev & PHYS_TELEPORT) {
         // The view goes through too, upright again at once: the roll is dropped.
         basis_t const view = player_view(p);

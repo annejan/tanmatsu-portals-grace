@@ -14,6 +14,7 @@ typedef enum {
     OP_WAIT,        // a seconds
     OP_USE,         // pick up / put down
     OP_FACE_POINT,  // look at (a, b, c), at once
+    OP_GRAB,        // look at the nearest free cube and pick it up
 } op_t;
 
 typedef struct {

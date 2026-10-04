@@ -20,5 +20,9 @@ float       demo_duration(int i);
 // solution may be missing).
 int         demo_chamber(int i);
 bool        demo_has_solution(int i);
-// The state `t` seconds into demo `i`.
-void        demo_eval(int i, float t, demo_state_t* out);
+// The state `t` seconds into demo `i`, stepped at 50 fps: what the
+// device tests and the screenshots replay.
+void demo_eval(int i, float t, demo_state_t* out);
+// The same stepped at `dt`, as the badge's frame rate would: the tests
+// check every solution at 15 to 50 fps.
+void demo_eval_dt(int i, float t, float dt, demo_state_t* out);

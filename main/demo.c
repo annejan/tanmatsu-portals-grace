@@ -82,6 +82,10 @@ static void face_point(player_t* p, vec3_t target) {
 }
 
 void demo_eval(int i, float t, demo_state_t* s) {
+    demo_eval_dt(i, t, STEP_DT, s);
+}
+
+void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
     memset(s, 0, sizeof(*s));
     if (i < 0 || i >= demo_count()) return;
     game_t* g = &s->g;
@@ -98,8 +102,8 @@ void demo_eval(int i, float t, demo_state_t* s) {
 
     int   k       = 0;      // the step running
     float in_step = 0.0f;   // seconds into it
-    bool  left    = false;  // OP_STEP_OFF: off the edge
-    for (float now = 0.0f; now + STEP_DT * 0.5f < t; now += STEP_DT) {
+    bool  walked  = false;  // OP_STEP_OFF: has been walking on the ground
+    for (float now = 0.0f; now + dt * 0.5f < t; now += dt) {
         game_input_t in = {0};
         // Instant steps take no time: run them all before this tick.
         for (;;) {
@@ -116,6 +120,25 @@ void demo_eval(int i, float t, demo_state_t* s) {
                 if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
             } else if (st->op == OP_USE) {
                 s->events |= game_use(g);
+            } else if (st->op == OP_GRAB) {
+                // The nearest cube not already carried: look at its middle
+                // and pick it up. Where a cube lands can shift by a few
+                // centimetres with the frame rate; a script that names
+                // the spot would miss it.
+                int   near = -1;
+                float best = 1e9f;
+                for (int c = 0; c < g->n_cubes; c++) {
+                    if (c == g->held) continue;
+                    float const d = v3_len(v3_sub(body_center(&g->cubes[c].body), player_eye(&g->pl)));
+                    if (d < best) {
+                        best = d;
+                        near = c;
+                    }
+                }
+                if (near >= 0) {
+                    face_point(&g->pl, body_center(&g->cubes[near].body));
+                    s->events |= game_use(g);
+                }
             } else {
                 break;
             }
@@ -137,10 +160,13 @@ void demo_eval(int i, float t, demo_state_t* s) {
                 break;
             }
             case OP_STEP_OFF:
-                if (g->pl.on_ground && !left) {
+                // Walk until the ground is gone. Begun in the air, it waits
+                // to land first; each step_off starts afresh.
+                if (in_step == 0.0f) walked = false;
+                if (g->pl.on_ground) {
                     in.fwd = st->a;
-                } else {
-                    left = true;
+                    walked = true;
+                } else if (walked) {
                     done = true;
                 }
                 break;
@@ -150,10 +176,10 @@ void demo_eval(int i, float t, demo_state_t* s) {
             default:
                 break;  // OP_END: stand still
         }
-        int const ev  = game_step(g, &in, STEP_DT);
+        int const ev  = game_step(g, &in, dt);
         s->events    |= ev;
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
-        in_step += STEP_DT;
+        in_step += dt;
         if (done) {
             k++;
             in_step = 0.0f;
