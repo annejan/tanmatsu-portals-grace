@@ -1,4 +1,4 @@
 [submodule "synthengine3D"]
 	path = synthengine3D
-	url = git@github.com:nullislandspace/synthengine3D.git
+	url = https://github.com/nullislandspace/synthengine3D.git
 	branch = main
