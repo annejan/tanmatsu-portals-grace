@@ -11,6 +11,7 @@ project(app C)
 set(APP_SOURCES
     main/main.c
     main/crt0.c
+    main/chamber.c
     main/demo.c
     main/game.c
     main/input.c
@@ -64,6 +65,17 @@ set(APP_INCLUDES
     include/esp_additions/include
     ${CMAKE_CURRENT_BINARY_DIR}/generated
 )
+
+# The built-in chambers: chambers/*.txt turned into C (tools/embed_chambers.py).
+file(GLOB CHAMBER_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/chambers/*.txt)
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/generated/chambers_builtin.c
+    COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_chambers.py ${CMAKE_CURRENT_SOURCE_DIR}/chambers
+            ${CMAKE_CURRENT_BINARY_DIR}/generated/chambers_builtin.c
+    DEPENDS ${CHAMBER_FILES} ${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_chambers.py
+    COMMENT "Embedding chambers/*.txt"
+)
+list(APPEND APP_SOURCES ${CMAKE_CURRENT_BINARY_DIR}/generated/chambers_builtin.c)
 
 # Compile app sources as a relocatable object library
 add_library(app_obj OBJECT ${APP_SOURCES})

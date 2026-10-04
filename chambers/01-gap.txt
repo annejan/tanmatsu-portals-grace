@@ -1,0 +1,118 @@
+name: 01  The gap
+hint: Portals stick to white panels.
+size: 10 7 16
+facing: north
+
+layer 0
+##########
+#WWWWWWWW#
+#WWWEEWWW#
+#WWWEEWWW#
+#WWWWWWWW#
+#WWWWWWWW#
+#~~~~~~~~#
+#~~~~~~~~#
+#~~~~~~~~#
+#~~~~~~~~#
+#~~~~~~~~#
+#WWWWWWWW#
+#WWWWWWWW#
+#WWWWWWWW#
+#WWWWWWWW#
+##########
+
+layer 1
+WWWWWWWWWW
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W....S...W
+W........W
+WWWWWWWWWW
+
+layer 2
+WWWWWWWWWW
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+WWWWWWWWWW
+
+layer 3
+WWWWWWWWWW
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+WWWWWWWWWW
+
+layer 4
+WWWWWWWWWW
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+WWWWWWWWWW
+
+layer 5
+WWWWWWWWWW
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+W........W
+WWWWWWWWWW
+
+solution
+shoot blue 1.0 1.9 3.5
+shoot orange 1.0 1.9 12.5
+walk_to -1 3.5
+walk_to 5 13

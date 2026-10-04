@@ -9,6 +9,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "graceloader.h"
+#include "chamber.h"
 #include "demo.h"
 #include "input.h"
 #include "level.h"
@@ -26,7 +27,8 @@
 
 static char const TAG[] = "portal";
 
-#define MESSAGE_S 2.5f
+#define MESSAGE_S   2.5f
+#define CHAMBER_DIR "/sd/portals/chambers"
 
 static game_t         s_game;  // the chamber in play: level, player, portals, cubes
 static bool           s_half_ok;
@@ -98,7 +100,7 @@ static devtest_config_t const TEST = {
 static void demo_frame(void) {
     static demo_state_t st;
     demo_eval(s_demo, (float)(showtime_now() - s_demo_t0), &st);
-    bool const remesh = st.g.lv.name != s_game.lv.name || !same_portal(&st.g.portals[0], &s_game.portals[0]) ||
+    bool const remesh = st.g.chamber != s_game.chamber || !same_portal(&st.g.portals[0], &s_game.portals[0]) ||
                         !same_portal(&st.g.portals[1], &s_game.portals[1]);
     s_game = st.g;
     if (remesh) render_set_level(&s_game.lv, s_game.portals);
@@ -113,6 +115,9 @@ static void on_init(void* user) {
     render_init(tex_dir);
     settings_load();
     input_init();
+    // The player's own chambers, after the built-in ones.
+    int const own = chamber_load_dir(CHAMBER_DIR);
+    if (own > 0) ESP_LOGI(TAG, "%d chamber(s) from %s", own, CHAMBER_DIR);
 
     // The half-size layer a quarter-resolution frame draws into.
     s_half_ok = false;

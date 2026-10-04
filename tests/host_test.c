@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include "chamber.h"
 #include "demo.h"
 #include "game.h"
 #include "level.h"
@@ -282,14 +284,21 @@ static void test_loop(void) {
 static void test_demos(void) {
     demo_state_t st;
     for (int i = 0; i < demo_count(); i++) {
-        demo_eval(i, demo_duration(i), &st);
         char const* n = demo_name(i);
+        if (!demo_has_solution(i)) continue;
+        demo_eval(i, demo_duration(i), &st);
         CHECK(!(st.events & PL_EV_DIED), "demo %s: nobody dies", n);
-        if (strcmp(n, "c4button") != 0) CHECK(st.events & PL_EV_TELEPORT, "demo %s: goes through a portal", n);
-        bool const solves = strcmp(n, "c1walk") != 0 && strcmp(n, "c1loop") != 0;
-        if (solves) CHECK(st.events & PL_EV_EXIT, "demo %s: exits (at %.2f %.2f %.2f)", n, st.g.pl.pos.x, st.g.pl.pos.y,
-                          st.g.pl.pos.z);
+        bool const fixed = strcmp(n, "c1walk") == 0 || strcmp(n, "c1loop") == 0;
+        if (fixed) {
+            CHECK(st.events & PL_EV_TELEPORT, "demo %s: goes through a portal", n);
+        } else {
+            CHECK(st.events & PL_EV_EXIT, "chamber %s: its solution reaches the exit (stopped at %.2f %.2f %.2f)", n,
+                  st.g.pl.pos.x, st.g.pl.pos.y, st.g.pl.pos.z);
+        }
     }
+    // Every built-in chamber has a solution, so make check proves it can be solved.
+    for (int i = 0; i < chamber_builtin_count; i++)
+        CHECK(demo_has_solution(demo_find(chamber_builtins[i].id)), "chamber %s has a solution", chamber_builtins[i].id);
     // A pure function of time: the same instant twice is the same state.
     demo_state_t a, b;
     demo_eval(demo_find("c1walk"), 2.37f, &a);
@@ -375,6 +384,44 @@ static void test_things(void) {
           g.cubes[0].body.pos.y, g.cubes[0].body.pos.z);
 }
 
+// Chambers from a directory come after the built-in ones, in name order;
+// a file that does not parse is skipped. Run last: it adds to the list.
+static void test_chamber_dir(void) {
+    char const* dir = "build/test_chambers";
+    mkdir(dir, 0755);
+    FILE* f = fopen("build/test_chambers/b-second.txt", "w");
+    fputs("name: Second\nsize: 3 3 3\nlayer 1\n###\n#S#\n###\n", f);
+    fclose(f);
+    f = fopen("build/test_chambers/a-first.txt", "w");
+    fputs("name: First\nsize: 3 3 3\nfacing: east\nlayer 1\n###\n#S#\n###\n", f);
+    fclose(f);
+    f = fopen("build/test_chambers/c-broken.txt", "w");
+    fputs("name: Broken\nsize: 3 3 3\nlayer 1\n#X#\n", f);
+    fclose(f);
+    int const before = chamber_count();
+    CHECK(chamber_load_dir(dir) == 2, "two of the three files load");
+    CHECK(chamber_count() == before + 2, "they join the list");
+    CHECK(strcmp(chamber_id(before), "a-first") == 0 && strcmp(chamber_id(before + 1), "b-second") == 0,
+          "in name order, after the built-in ones");
+    level_t lv;
+    CHECK(level_load(&lv, before) && strcmp(lv.name, "First") == 0 && fabsf(lv.spawn_yaw - 1.5707963f) < 1e-4f,
+          "and play: name and facing read");
+
+    // What the parser says about mistakes.
+    char        err[96];
+    char const* bad[][2] = {
+        {"size: 3 3 3\nlayer 1\n###\n#S#\n", "has 2 of its 3 rows"},
+        {"size: 3 3 3\nlayer 1\n###\n#?#\n###\n", "unknown cell"},
+        {"size: 3 3 3\nlayer 1\n###\n#.#\n###\n", "exactly one S"},
+        {"size: 3 3 3\nwobble: 1\n", "unknown key"},
+        {"size: 3 3 3\nlayer 1\n###\n#S#\n###\nsolution\nfly 3\n", "unknown step"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        bool const ok = chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err));
+        CHECK(!ok && strstr(err, bad[i][1]) != NULL, "parse error %zu says \"%s\": got \"%s\"", i, bad[i][1], err);
+    }
+}
+
 int main(void) {
     test_things();
     test_frame_rates();
@@ -387,6 +434,7 @@ int main(void) {
     test_chamber_2();
     test_chamber_3();
     test_loop();
+    test_chamber_dir();
     if (s_fail) {
         printf("%d check(s) failed\n", s_fail);
         return 1;

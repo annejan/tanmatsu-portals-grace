@@ -66,17 +66,22 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c
+HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c \
+               $(BUILD)/generated/chambers_builtin.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons
-check:
+.PHONY: check shots textures icons chambers_c
+# The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
+chambers_c:
+	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
+
+check: chambers_c
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
 	$(BUILD)/host_test
 
-shots:
+shots: chambers_c
 	mkdir -p $(BUILD)/shots
 	$(HOSTCC) -O2 -Wall -Wextra $(HOST_ENGINE) -Imain $(ENGINE_DEFS) tests/host_shot.c main/render.c $(HOST_SRCS) -lm -o $(BUILD)/host_shot
 	$(BUILD)/host_shot

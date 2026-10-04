@@ -4,6 +4,7 @@
 // in fixed steps -- so the badge (device tests, main/testkit) and the
 // host (tests/host_*.c) see the same instant the same way.
 
+#include <stdbool.h>
 #include "game.h"
 
 typedef struct {
@@ -15,5 +16,9 @@ int         demo_count(void);
 int         demo_find(char const* name);  // -1 if none
 char const* demo_name(int i);
 float       demo_duration(int i);
+// The chamber a demo plays in; whether it has a script (a chamber file's
+// solution may be missing).
+int  demo_chamber(int i);
+bool demo_has_solution(int i);
 // The state `t` seconds into demo `i`.
 void demo_eval(int i, float t, demo_state_t* out);

@@ -66,8 +66,8 @@ typedef struct {
 } button_t;
 
 typedef struct {
-    char const* name;
-    char const* hint;
+    char        name[32];
+    char        hint[80];
     int         w, h, d;
     uint8_t     cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
     vec3_t      spawn;  // feet
@@ -80,8 +80,10 @@ typedef struct {
     int         n_cubes;
 } level_t;
 
+// The chambers (chamber.h): the built-in ones, then any from the SD card.
 int  level_count(void);
-// Build chamber `index` (0-based) into `lv`. False past the last one.
+// Build chamber `index` (0-based) into `lv`. False past the last one, or
+// if its file does not parse.
 bool level_load(level_t* lv, int index);
 
 uint8_t level_get(level_t const* lv, int x, int y, int z);

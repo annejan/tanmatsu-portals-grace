@@ -4,6 +4,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "input.h"
+#include "chamber.h"
 #include "level.h"
 #include "settings.h"
 #include "synthengine3d.h"
@@ -18,11 +19,22 @@ static int      s_chamber;  // the one being played
 static uint32_t s_act;      // this frame's actions, from events
 static int64_t  s_opened_us;
 
+#define CHAMBERS_MAX CHAMBER_MAX
+static char s_names[CHAMBERS_MAX][32];  // chamber names, read once when the list opens
+
 enum { A_UP = 1, A_DOWN = 2, A_LEFT = 4, A_RIGHT = 8, A_OK = 16, A_BACK = 32 };
 
 static void go(screen_t s) {
     s_scr = s;
-    if (s == SCR_CHAMBERS) s_cursor[s] = s_chamber;
+    if (s == SCR_CHAMBERS) {
+        s_cursor[s] = s_chamber;
+        // Each name means parsing a whole chamber file: once, not every frame.
+        static level_t lv;
+        for (int i = 0; i < level_count() && i < CHAMBERS_MAX; i++) {
+            if (!level_load(&lv, i)) snprintf(lv.name, sizeof(lv.name), "%s (broken)", chamber_id(i));
+            snprintf(s_names[i], sizeof(s_names[i]), "%s", lv.name);
+        }
+    }
 }
 
 void menu_open(int current_chamber) {
@@ -95,13 +107,11 @@ static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
 
 enum { SET_GYRO, SET_HALF, SET_DEPTH, SET_VOLUME, SET_SCREEN, SET_KEYS, SET_BACK, SET_ROWS };
 #define CONTROLS_ROWS (ACT_COUNT + 2)  // every action, reset, back
-#define CHAMBERS_MAX  16
 
 static se_menu_row_t s_set_rows[SET_ROWS];
 static se_menu_row_t s_ctl_rows[CONTROLS_ROWS];
 static se_menu_row_t s_ch_rows[CHAMBERS_MAX + 1];
 static char          s_depth_text[8];
-static level_t       s_names;  // scratch for reading chamber names
 
 static void draw_key(pax_buf_t* fb, float x, float y, float h, pax_col_t col, void* ctx) {
     char buf[24];
@@ -181,10 +191,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
         case SCR_CHAMBERS: {
             int n = level_count();
             if (n > CHAMBERS_MAX) n = CHAMBERS_MAX;
-            for (int i = 0; i < n; i++) {
-                level_load(&s_names, i);
-                s_ch_rows[i] = (se_menu_row_t){.label = s_names.name, .kind = SE_MENU_VAL_RADIO, .checked = i == s_chamber};
-            }
+            for (int i = 0; i < n; i++)
+                s_ch_rows[i] = (se_menu_row_t){.label = s_names[i], .kind = SE_MENU_VAL_RADIO, .checked = i == s_chamber};
             s_ch_rows[n]   = (se_menu_row_t){.label = "Back"};
             def->title     = "CHAMBERS";
             def->rows      = s_ch_rows;
