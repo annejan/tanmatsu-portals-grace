@@ -37,7 +37,7 @@ static void begin(level_t* lv, int w, int h, int d) {
 static void chamber_gap(level_t* lv) {
     begin(lv, 10, 7, 16);
     lv->name = "01  The gap";
-    lv->hint = "Q blue, E orange. Walls are white.";
+    lv->hint = "Portals stick to white panels.";
     box(lv, 0, 1, 0, 10, 6, 16, MAT_WHITE);  // all four walls
     box(lv, 1, 0, 1, 9, 1, 15, MAT_WHITE);   // floor
     box(lv, 1, 1, 1, 9, 6, 15, MAT_AIR);

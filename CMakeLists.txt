@@ -13,9 +13,11 @@ set(APP_SOURCES
     main/crt0.c
     main/input.c
     main/level.c
+    main/menu.c
     main/player.c
     main/portal.c
     main/render.c
+    main/settings.c
 )
 
 # Automated device tests (main/testkit/, README "Automated device tests").

@@ -62,14 +62,23 @@ bool portal_place(level_t const* lv, vec3_t eye, vec3_t look, portal_t const* ot
         up = v3(0, 0, look.z > 0 ? 1.0f : -1.0f);
     }
 
-    // The cell hit and its neighbour along `up` -- the one on the side of
-    // the cell the shot landed on first, so the portal centres near it.
+    vec3_t const down = v3_scale(up, -1.0f);
+    int const    dx   = (int)down.x, dy = (int)down.y, dz = (int)down.z;
+
+    // On a wall: the lower of the two pairs that hold the cell hit, so a
+    // shot at eye height leaves the portal standing on the floor, where
+    // it can be walked into, rather than hanging a metre up the wall.
+    if (n.y == 0.0f) {
+        if (portal_place_at(lv, h.x + dx, h.y + dy, h.z + dz, h.face, up, other, out)) return true;
+        return portal_place_at(lv, h.x, h.y, h.z, h.face, up, other, out);
+    }
+
+    // On a floor or a ceiling: the cell hit and its neighbour on the side
+    // of it the shot landed on, so the portal centres near the crosshair.
     float const sign  = up.x + up.y + up.z;  // +1 or -1: up is one axis
     float const coord = v3_dot(h.point, v3_scale(up, sign));
     float const frac  = coord - floorf(coord);
     bool const  upper = sign > 0 ? frac >= 0.5f : frac < 0.5f;
-    vec3_t const down = v3_scale(up, -1.0f);
-    int const    dx   = (int)down.x, dy = (int)down.y, dz = (int)down.z;
     if (upper) {
         if (portal_place_at(lv, h.x, h.y, h.z, h.face, up, other, out)) return true;
         return portal_place_at(lv, h.x + dx, h.y + dy, h.z + dz, h.face, up, other, out);

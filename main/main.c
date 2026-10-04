@@ -4,17 +4,20 @@
 
 #include <math.h>
 #include <stdio.h>
+#include "bsp/device.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "graceloader.h"
 #include "input.h"
 #include "level.h"
+#include "menu.h"
 #include "pax_fonts.h"
 #include "pax_gfx.h"
 #include "pax_text.h"
 #include "player.h"
 #include "portal.h"
 #include "render.h"
+#include "settings.h"
 #include "synthengine3d.h"
 
 static char const TAG[] = "portal";
@@ -25,8 +28,6 @@ static level_t        s_lv;
 static player_t       s_pl;
 static portal_t       s_portals[2];
 static int            s_chamber;
-static bool           s_gyro;
-static bool           s_half = true;
 static bool           s_half_ok;
 static se_ppa_layer_t s_layer;
 
@@ -66,6 +67,8 @@ static void on_init(void* user) {
     static char tex_dir[160];
     snprintf(tex_dir, sizeof(tex_dir), "%s/textures", graceloader_get_install_basepath());
     render_init(tex_dir);
+    settings_load();
+    input_init();
 
     // The half-size layer a quarter-resolution frame draws into.
     s_half_ok = false;
@@ -82,32 +85,58 @@ static void on_init(void* user) {
     message(s_lv.name);
 }
 
+static void on_input(bsp_input_event_t const* ev, void* user) {
+    (void)user;
+    // A menu that is showing has the keyboard, all of it.
+    if (menu_active()) {
+        menu_event(ev);
+    } else if (menu_is_open_key(ev)) {
+        menu_open(s_chamber);
+    }
+}
+
+// The menu's frame: the game stands still underneath it.
+static void menu_frame(void) {
+    menu_cmd_t const cmd = menu_update();
+    switch (cmd.kind) {
+        case MENU_CMD_RESTART:
+            load_chamber(s_chamber);
+            message(s_lv.name);
+            break;
+        case MENU_CMD_CHAMBER:
+            s_pending_chamber = -1;
+            load_chamber(cmd.chamber);
+            message(s_lv.name);
+            break;
+        case MENU_CMD_QUIT: bsp_device_restart_to_launcher(); break;
+        default: break;
+    }
+    // Keys still held from the menu do not fire on the way out.
+    if (!menu_active()) input_resync();
+}
+
 static void on_update(float dt, void* user) {
     (void)user;
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
+    if (menu_active()) {
+        menu_frame();
+        return;
+    }
 
     input_frame_t in;
-    input_poll(&in, dt, s_gyro);
+    input_poll(&in, dt, settings_gyro());
 
     if (in.gyro) {
-        s_gyro = !s_gyro;
-        message(s_gyro ? "Gyroscope on" : "Gyroscope off");
-    }
-    if (in.half && s_half_ok) s_half = !s_half;
-    if (in.depth) {
-        render_set_portal_depth(render_portal_depth() % RENDER_PORTAL_DEPTH_MAX + 1);
-        char m[32];
-        snprintf(m, sizeof(m), "Portal depth %d", render_portal_depth());
-        message(m);
+        settings_set_gyro(!settings_gyro());
+        message(settings_gyro() ? "Gyroscope on" : "Gyroscope off");
     }
     if (in.restart) {
         load_chamber(s_chamber);
         message(s_lv.name);
     }
-    if (in.next) s_pending_chamber = (s_chamber + 1) % level_count();
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
-    if (s_pending_chamber >= 0 && (s_msg_t <= 0.0f || in.next)) {
+    if (s_pending_chamber >= 0 && s_msg_t <= 0.0f) {
         load_chamber(s_pending_chamber);
         s_pending_chamber = -1;
         message(s_lv.name);
@@ -153,11 +182,19 @@ static void hud(pax_buf_t* fb) {
 
     pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_lv.name);
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_lv.hint);
+
+    // The keys as they are bound now, not as they shipped.
+    char blue[16], orange[16], help[96];
+    snprintf(help, sizeof(help), "%s blue   %s orange   Esc menu", input_key_name(input_key(ACT_BLUE), blue, sizeof(blue)),
+             input_key_name(input_key(ACT_ORANGE), orange, sizeof(orange)));
+    pax_vec2f const hs = pax_text_size(pax_font_sky_mono, 12, help);
+    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - hs.x, 6, help);
+
     int  passes, tris;
     char stat[64];
     render_stats(&passes, &tris);
     snprintf(stat, sizeof(stat), "%2.0f fps %3lld ms  %d pass %d tri%s%s", s_fps, s_render_us / 1000, passes, tris,
-             s_half ? "  half" : "", s_gyro ? "  gyro" : "");
+             settings_half_res() && s_half_ok ? "  half" : "", settings_gyro() ? "  gyro" : "");
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
 
     if (s_msg_t > 0.0f) {
@@ -168,7 +205,7 @@ static void hud(pax_buf_t* fb) {
 
 static void on_render(pax_buf_t* fb, void* user) {
     (void)user;
-    bool const       half   = s_half && s_half_ok;
+    bool const       half   = settings_half_res() && s_half_ok;
     pax_buf_t* const target = half ? &s_layer.buf : fb;
     scene_set_render_scale(half ? 2 : 1);
 
@@ -184,6 +221,7 @@ static void on_render(pax_buf_t* fb, void* user) {
     }
     s_render_us = esp_timer_get_time() - t0;
     hud(fb);
+    menu_draw(fb);
 }
 
 void app_main(void) {
@@ -193,6 +231,7 @@ void app_main(void) {
     };
     static se_app_callbacks_t const cb = {
         .on_init     = on_init,
+        .on_input    = on_input,
         .on_update   = on_update,
         .on_backdrop = on_backdrop,
         .on_render   = on_render,

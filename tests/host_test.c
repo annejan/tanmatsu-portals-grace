@@ -192,6 +192,24 @@ static void test_chamber_1(void) {
     CHECK(ev & PL_EV_EXIT, "c1 reached the exit (ev %d)", ev);
     CHECK(!(s.events & PL_EV_DIED), "c1 nobody died");
 
+    // Shot straight ahead at eye height, as a player does: the portal
+    // stands on the floor and walking straight in goes through.
+    sim_init(&s, 0);
+    s.pl.yaw = -1.5707963f;
+    CHECK(portal_place(&s.lv, player_eye(&s.pl), player_view(&s.pl).fwd, NULL, &s.portals[0]), "c1 eye-level blue");
+    CHECK(fabsf(s.portals[0].center.y - 2.0f) < 1e-4f, "c1 eye-level portal stands on the floor, centre y %f",
+          s.portals[0].center.y);
+    s.pl.yaw = -1.2f;
+    CHECK(portal_place(&s.lv, player_eye(&s.pl), player_view(&s.pl).fwd, &s.portals[0], &s.portals[1]),
+          "c1 eye-level orange");
+    s.pl.yaw = -1.5707963f;
+    ev = 0;
+    for (int i = 0; i < 200 && !(ev & PL_EV_TELEPORT); i++) {
+        player_input_t const in = {.fwd = 1.0f};
+        ev |= step(&s, &in);
+    }
+    CHECK(ev & PL_EV_TELEPORT, "c1 walked straight into an eye-level shot");
+
     // Without portals the goo is the only way, and it kills.
     sim_init(&s, 0);
     ev = walk_to(&s, 5.0f, 13.0f, PL_EV_EXIT | PL_EV_DIED, 8);
