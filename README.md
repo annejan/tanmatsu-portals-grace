@@ -13,6 +13,9 @@ out of the other, keeping your momentum. Three chambers are included:
 
 ## Controls
 
+The defaults are below. Every one can be rebound in **Esc → Controls**, and
+the new keys are kept in NVS.
+
 | Key | |
 |---|---|
 | W A S D | walk |
@@ -21,10 +24,21 @@ out of the other, keeping your momentum. Three chambers are included:
 | Q / E | fire the blue / orange portal |
 | G | gyroscope on or off: look round by turning the badge |
 | R | restart the chamber |
-| N | skip to the next chamber |
-| H | quarter resolution on or off (on by default) |
-| P | how many views deep a portal shows (1 to 3) |
+| Esc | the menu (not rebindable) |
 | F1 | back to the launcher |
+
+The menu has:
+
+- **Chamber select**.
+- **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), volume,
+  screen brightness, keyboard light.
+- **Controls**.
+
+Settings are kept in NVS.
+
+Aim portals at white panels. On a wall, a portal sits on the lower of the two
+panels it could use, so a shot at eye height stands on the floor, where you can
+walk into it.
 
 ## Building
 
@@ -74,7 +88,9 @@ the camera basis and the clip planes all go through that one map
 | `main/portal.*` | placement, the A→B map, clip planes, polygon clipping |
 | `main/player.*` | box physics, the tunnel behind a portal, teleporting |
 | `main/render.*` | the portal passes |
-| `main/input.*` | keyboard and gyroscope |
+| `main/input.*` | bindings (se_bindings), keyboard, gyroscope |
+| `main/menu.*` | the pause menu and its screens (se_ui) |
+| `main/settings.*` | settings kept in NVS |
 | `main/main.c` | the run loop, the HUD |
 | `tests/` | host tests and host screenshots |
 | `tools/make_textures.py` | the textures in `textures/` |
