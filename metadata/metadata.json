@@ -1,6 +1,6 @@
 {
   "name": "Portals",
-  "description": "Portal puzzles in five test chambers",
+  "description": "Portal puzzles in eight test chambers",
   "categories": [
     "games"
   ],
@@ -46,6 +46,18 @@
         {
           "source_file": "textures/cube.png",
           "target_file": "textures/cube.png"
+        },
+        {
+          "source_file": "textures/glass.png",
+          "target_file": "textures/glass.png"
+        },
+        {
+          "source_file": "textures/fizz.png",
+          "target_file": "textures/fizz.png"
+        },
+        {
+          "source_file": "textures/jump.png",
+          "target_file": "textures/jump.png"
         }
       ]
     }

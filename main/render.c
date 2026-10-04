@@ -22,6 +22,9 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_METAL] = {"metal.png", 0xFF44484Cu, 0, NULL},
     [MAT_GOO]   = {"goo.png", 0xFF5A4A18u, SE_TRI_EMISSIVE, NULL},
     [MAT_EXIT]  = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
+    [MAT_GLASS] = {"glass.png", 0xFF9ED8F0u, SE_TRI_BLEND, NULL},
+    [MAT_FIZZ]  = {"fizz.png", 0xFF60B0FFu, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
+    [MAT_JUMP]  = {"jump.png", 0xFFE08020u, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -32,6 +35,12 @@ static uint32_t const s_deep[2] = {0xFF184070u, 0xFF704018u};  // past the deepe
 
 static mquad_t s_quads[LV_MAX_QUADS];
 static int     s_nquads;
+// What is seen through: glass faces and fizzler sheets. Drawn after
+// everything solid, since a half-transparent triangle mixes with what is
+// already there.
+#define MAX_CLEAR 512
+static mquad_t s_clear[MAX_CLEAR];
+static int     s_nclear;
 static int     s_depth = 2;
 static int     s_stat_passes, s_stat_tris;
 static vec3_t  s_light;
@@ -49,6 +58,48 @@ void render_init(char const* texture_dir) {
     scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = false});
 }
 
+static void add_clear(vec3_t o, vec3_t du, vec3_t dv, vec3_t n, uint8_t m) {
+    if (s_nclear < MAX_CLEAR) s_clear[s_nclear++] = (mquad_t){o, du, dv, n, 1.0f, 1.0f, m};
+}
+
+static void build_clear(level_t const* lv) {
+    s_nclear = 0;
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                uint8_t const m = level_get(lv, x, y, z);
+                if (m == MAT_GLASS) {
+                    // Each face of a glass cell that looks onto open space.
+                    for (int face = 0; face < 6; face++) {
+                        int dx, dy, dz;
+                        dir_step(face, &dx, &dy, &dz);
+                        uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
+                        if (nb != MAT_AIR && nb != MAT_DOOR && nb != MAT_FIZZ) continue;
+                        int const a = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
+                        float     o[3] = {(float)x, (float)y, (float)z}, du[3] = {0}, dv[3] = {0};
+                        if (face % 2 == 0) o[a] += 1.0f;
+                        du[ua] = 1.0f;
+                        dv[va] = 1.0f;
+                        add_clear(v3(o[0], o[1], o[2]), v3(du[0], du[1], du[2]), v3(dv[0], dv[1], dv[2]), dir_vec(face), m);
+                    }
+                } else if (m == MAT_FIZZ) {
+                    // A sheet through the middle of the cell, across the
+                    // way the fizzler runs, seen from both sides.
+                    bool const along_x = level_get(lv, x - 1, y, z) == MAT_FIZZ || level_get(lv, x + 1, y, z) == MAT_FIZZ ||
+                                         !(level_get(lv, x, y, z - 1) == MAT_FIZZ || level_get(lv, x, y, z + 1) == MAT_FIZZ);
+                    if (along_x) {
+                        vec3_t const o = v3((float)x, (float)y, (float)z + 0.5f);
+                        add_clear(o, v3(1, 0, 0), v3(0, 1, 0), v3(0, 0, -1), m);
+                        add_clear(v3_add(o, v3(1, 0, 0)), v3(-1, 0, 0), v3(0, 1, 0), v3(0, 0, 1), m);
+                    } else {
+                        vec3_t const o = v3((float)x + 0.5f, (float)y, (float)z);
+                        add_clear(o, v3(0, 1, 0), v3(0, 0, 1), v3(-1, 0, 0), m);
+                        add_clear(v3_add(o, v3(0, 0, 1)), v3(0, 1, 0), v3(0, 0, -1), v3(1, 0, 0), m);
+                    }
+                }
+            }
+}
+
 void render_set_level(level_t const* lv, portal_t const portals[2]) {
     hole_t holes[4];
     int    nh = 0;
@@ -58,6 +109,7 @@ void render_set_level(level_t const* lv, portal_t const portals[2]) {
             holes[nh++] = (hole_t){portals[i].cell[c][0], portals[i].cell[c][1], portals[i].cell[c][2], portals[i].face};
     }
     s_nquads = level_mesh(lv, holes, nh, s_quads, LV_MAX_QUADS);
+    build_clear(lv);
     // Far off, so it is a direction: the engine lights each triangle on
     // its own, and a near light shades the two halves of a big merged
     // quad differently, leaving a seam along the diagonal.
@@ -212,6 +264,12 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         aabb_t const b = cube_aabb(&g->cubes[i]);
         submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
     }
+    // Where a faith plate lands you: a faint orange square on the floor.
+    for (int i = 0; i < g->lv.n_jumps; i++) {
+        vec3_t const t = g->lv.jumps[i].target;
+        submit_box(v3(t.x - 0.4f, t.y, t.z - 0.4f), v3(t.x + 0.4f, t.y + 0.02f, t.z + 0.4f), cam, cs, NULL, 0xFF8A4A10u,
+                   SE_TRI_EMISSIVE);
+    }
     for (int i = 0; i < g->lv.n_buttons; i++) {
         button_t const* bt  = &g->lv.buttons[i];
         float const     x   = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
@@ -261,6 +319,21 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
     se_light_set(&(se_light_t){.x = s_light.x, .y = s_light.y, .z = s_light.z, .brightness = 0.55f});
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
+    // Last: glass and fizzlers, which mix with what is behind them. Not
+    // drawn at all without their texture -- the engine blends textured
+    // triangles only, and an opaque one would look like a wall.
+    for (int i = 0; i < s_nclear; i++) {
+        mquad_t const*         q = &s_clear[i];
+        material_info_t const* m = &s_mat[q->mat];
+        if (m->tex == NULL) continue;
+        cvert_t const v[4] = {
+            {q->origin, 0, 0},
+            {v3_add(q->origin, q->du), 1, 0},
+            {v3_add(v3_add(q->origin, q->du), q->dv), 1, 1},
+            {v3_add(q->origin, q->dv), 0, 1},
+        };
+        submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
+    }
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
         portal_frame(&portals[i], cam, cs);

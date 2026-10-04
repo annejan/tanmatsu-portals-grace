@@ -63,6 +63,9 @@ se_texture_t* se_texture_load(char const* path, uint32_t flags) {
                    : strstr(path, "metal") ? 0xFF50545Au
                    : strstr(path, "goo")   ? 0xFF6A5A18u
                    : strstr(path, "cube")  ? 0xFF969AA0u
+                   : strstr(path, "glass") ? 0xFF9ED8F0u
+                   : strstr(path, "fizz")  ? 0xFF60B0FFu
+                   : strstr(path, "jump")  ? 0xFFE08020u
                                            : 0xFF30D060u;
     return t;
 }
@@ -78,6 +81,8 @@ static uint32_t shade(uint32_t argb, float k) {
     uint32_t const b = (uint32_t)fminf(255.0f, (float)(argb & 255) * k);
     return 0xFF000000u | r << 16 | g << 8 | b;
 }
+
+static uint32_t s_blend;  // this triangle mixes 50/50 with what is there (SE_TRI_BLEND)
 
 static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bool seams) {
     float sx[3], sy[3], iz[3], uz[3], vz[3];
@@ -116,6 +121,11 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
                 float const fu = u - floorf(u), fv = t - floorf(t);
                 if (fu < 0.03f || fu > 0.97f || fv < 0.03f || fv > 0.97f) out = shade(col, 0.6f);
             }
+            if (s_blend) {
+                uint32_t const o = s_px[y * W + x];
+                out = 0xFF000000u | ((((o >> 16) & 255) + ((out >> 16) & 255)) / 2) << 16 |
+                      ((((o >> 8) & 255) + ((out >> 8) & 255)) / 2) << 8 | (((o & 255) + (out & 255)) / 2);
+            }
             s_px[y * W + x] = out;
         }
     }
@@ -148,6 +158,7 @@ static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32
             buf[0][n++]   = (rv_t){v3_lerp(a->c, b->c, t), a->u + (b->u - a->u) * t, a->v + (b->v - a->v) * t};
         }
     }
+    s_blend = flags & SE_TRI_BLEND;
     for (int i = 1; i + 1 < n; i++) raster(&buf[0][0], &buf[0][i], &buf[0][i + 1], col, seams);
 }
 

@@ -19,6 +19,8 @@ typedef enum {
     SND_DEATH,
     SND_COMPLETE,
     SND_MENU,
+    SND_FIZZLE,
+    SND_LAUNCH,
     SND_COUNT,
 } sound_t;
 

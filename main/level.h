@@ -20,6 +20,9 @@ typedef enum {
     MAT_GOO,    // a floor that kills
     MAT_EXIT,   // a floor that ends the chamber
     MAT_DOOR,   // a door's cells: solid while it is shut (see door_t)
+    MAT_GLASS,  // solid and see-through; takes no portal, stops a shot
+    MAT_FIZZ,   // a fizzler: air that closes portals and destroys cubes
+    MAT_JUMP,   // a faith plate: a floor that launches (see jump_t)
     MAT_COUNT,
 } material_t;
 
@@ -48,6 +51,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_DOORS   4
 #define LV_MAX_BUTTONS 4
 #define LV_MAX_CUBES   4
+#define LV_MAX_JUMPS   4
 
 // A door fills the cells [x0, x1) x [y0, y1) x [z0, z1), one cell thick
 // along x or z. It opens while any button with its `link` is pressed.
@@ -65,6 +69,13 @@ typedef struct {
     bool pressed;  // state, set by the game
 } button_t;
 
+// A faith plate: the MAT_JUMP cell (x, y, z), and where it lands what
+// stands on it.
+typedef struct {
+    int    x, y, z;
+    vec3_t target;
+} jump_t;
+
 typedef struct {
     char        name[32];
     char        hint[80];
@@ -78,6 +89,8 @@ typedef struct {
     int         n_buttons;
     vec3_t      cubes[LV_MAX_CUBES];  // where each cube starts, its base
     int         n_cubes;
+    jump_t      jumps[LV_MAX_JUMPS];
+    int         n_jumps;
 } level_t;
 
 // The chambers (chamber.h): the built-in ones, then any from the SD card.

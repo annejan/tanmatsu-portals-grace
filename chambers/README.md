@@ -105,6 +105,10 @@ cells are metal.
 | `A` `B` `C`… | a button. Put the button letter in the air cell above the solid cell it sits on. Button `A` opens door `a`. |
 | `C` | a cube. Put it in the air cell where the cube starts. |
 | `S` | the player's start. Use exactly one `S`. |
+| `G` | glass: solid and see-through. A portal shot stops at it, and no portal sticks to it. |
+| `F` | a fizzler: air you can walk through. Touching it closes both portals and destroys a cube you carry. A cube that touches it comes back where it started. Portal shots pass through it. |
+| `J` | a faith plate, in the floor: it throws the player or a cube to its target |
+| `T` | a faith plate's target: the air cell where it lands you. The first `J` goes with the first `T`, in reading order (layer by layer upwards, each layer top line first, left to right). |
 
 (`C` is the cube, not button C. The game supports buttons and doors `a`–`d`,
 but chambers usually use only `A` and `B`.)

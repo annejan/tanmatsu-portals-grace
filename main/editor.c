@@ -130,6 +130,10 @@ static char const* brush_name(char c) {
         case 'E': return "exit";
         case 'C': return "cube";
         case 'S': return "start";
+        case 'G': return "glass";
+        case 'F': return "fizzler";
+        case 'J': return "faith plate";
+        case 'T': return "plate target";
         default: return c >= 'a' && c <= 'd' ? "door" : c >= 'A' && c <= 'D' ? "button" : "?";
     }
 }
@@ -257,6 +261,10 @@ void editor_event(bsp_input_event_t const* ev) {
             break;
         case BSP_INPUT_SCANCODE_8: s_brush = 'C'; break;
         case BSP_INPUT_SCANCODE_9: s_brush = 'S'; break;
+        case BSP_INPUT_SCANCODE_0: s_brush = 'G'; break;
+        case BSP_INPUT_SCANCODE_MINUS: s_brush = 'F'; break;
+        case BSP_INPUT_SCANCODE_EQUAL: s_brush = 'J'; break;
+        case BSP_INPUT_SCANCODE_T: s_brush = 'T'; break;
         case BSP_INPUT_SCANCODE_Q:
         case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGDN: layer(-1); break;
         case BSP_INPUT_SCANCODE_E:
@@ -434,6 +442,10 @@ static uint32_t cell_colour(char c, bool floor_below) {
         case 'E': return 0xFF30C060u;
         case 'C': return 0xFF9AA0A8u;
         case 'S': return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
+        case 'G': return 0xFF8EC8E0u;
+        case 'F': return 0xFF3070D0u;
+        case 'J': return 0xFFE08020u;
+        case 'T': return 0xFF6A3A10u;
         case '.':
         case ' ': return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
         default:
@@ -497,27 +509,28 @@ void editor_draw(pax_buf_t* fb) {
     static struct {
         char        key;
         char        ch;
-    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'},
-                         {'6', 'a'}, {'7', 'A'}, {'8', 'C'}, {'9', 'S'}};
-    for (int i = 0; i < 9; i++) {
+    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', 'A'},
+                         {'8', 'C'}, {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}};
+    int const n_palette = (int)(sizeof(palette) / sizeof(palette[0]));
+    for (int i = 0; i < n_palette; i++) {
         char ch = palette[i].ch;
         if (ch == 'a') ch = s_door;
         if (ch == 'A') ch = s_button;
-        float const y   = 96.0f + (float)i * 22.0f;
+        float const y   = 90.0f + (float)i * 18.0f;
         bool const  sel = s_brush == ch;
-        pax_simple_rect(fb, cell_colour(ch, true), tx, y, 16, 16);
+        pax_simple_rect(fb, cell_colour(ch, true), tx, y, 14, 14);
         snprintf(line, sizeof(line), "%c %s%s%c", palette[i].key, brush_name(ch),
                  (ch >= 'a' && ch <= 'd') || (ch >= 'A' && ch <= 'D') ? " " : "",
                  (ch >= 'a' && ch <= 'd') || (ch >= 'A' && ch <= 'D') ? ch : ' ');
-        pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 22, y + 2, line);
+        pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y + 1, line);
     }
     static char const* const help[] = {
         "arrows  move",  "Space   paint (hold)", "B       box, twice", "Bksp    erase",
         "R       turn start", "P       play-test",     "F       save",        "Esc     menu",
     };
     for (int i = 0; i < 8; i++)
-        pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 310.0f + (float)i * 16.0f, help[i]);
-    if (s_msg_t > 0.0f) pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 466, s_msg);
+        pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 334.0f + (float)i * 16.0f, help[i]);
+    if (s_msg_t > 0.0f) pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
 
     if (s_menu) {
         se_menu_def_t def;

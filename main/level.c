@@ -23,7 +23,7 @@ int level_door_at(level_t const* lv, int x, int y, int z) {
 
 bool level_solid(level_t const* lv, int x, int y, int z) {
     uint8_t const m = level_get(lv, x, y, z);
-    if (m == MAT_AIR) return false;
+    if (m == MAT_AIR || m == MAT_FIZZ) return false;
     if (m == MAT_DOOR) {
         int const d = level_door_at(lv, x, y, z);
         return d < 0 || lv->doors[d].open < DOOR_PASSABLE;
@@ -120,10 +120,12 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
                     uint8_t const m = level_get(lv, c[0], c[1], c[2]);
                     int           e[3] = {c[0], c[1], c[2]};
                     e[a] += sign;
-                    // A door is drawn by the game, not the mesh: its cells
-                    // are open space here, so the frame round it shows.
+                    // Doors, glass and fizzlers are drawn by the game, not the
+                    // mesh: their cells are open space here, so what is
+                    // round and behind them shows.
                     uint8_t const n    = level_get(lv, e[0], e[1], e[2]);
-                    bool const    vis  = m != MAT_AIR && m != MAT_DOOR && (n == MAT_AIR || n == MAT_DOOR) &&
+                    bool const    vis  = m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ &&
+                                     (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ) &&
                                      !is_hole(holes, n_holes, c[0], c[1], c[2], face);
                     mask[j * nu + i] = vis ? m : MAT_AIR;
                 }

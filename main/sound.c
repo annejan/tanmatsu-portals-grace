@@ -41,6 +41,8 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_DEATH]       = {W_SAW, 420, 70, 0.90f, 0.01f, 0.30f, 1800, {0}},
     [SND_COMPLETE]    = {W_TRI, 0, 0, 0.14f, 0.005f, 0.35f, 0, {523.25f, 659.25f, 783.99f, 1046.5f}},
     [SND_MENU]        = {W_SINE, 900, 900, 0.04f, 0.002f, 0.18f, 0, {0}},
+    [SND_FIZZLE]      = {W_NOISE, 6000, 2000, 0.35f, 0.005f, 0.30f, 5000, {0}},
+    [SND_LAUNCH]      = {W_SINE, 120, 520, 0.35f, 0.005f, 0.50f, 0, {0}},
 };
 
 typedef struct {
@@ -138,6 +140,8 @@ void sound_events(int ev) {
     if (ev & GAME_EV_DOOR) sound_play(SND_DOOR);
     if (ev & PL_EV_DIED) sound_play(SND_DEATH);
     if (ev & PL_EV_EXIT) sound_play(SND_COMPLETE);
+    if (ev & GAME_EV_FIZZLE) sound_play(SND_FIZZLE);
+    if (ev & GAME_EV_LAUNCH) sound_play(SND_LAUNCH);
 }
 
 // --- Music ----------------------------------------------------------------

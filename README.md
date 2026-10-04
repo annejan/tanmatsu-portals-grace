@@ -5,7 +5,7 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Five chambers are included:
+out of the other, keeping your momentum. Eight chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
@@ -13,6 +13,11 @@ out of the other, keeping your momentum. Five chambers are included:
 4. **The button**: put a cube on a button to hold a door open.
 5. **Delivery**: the cube is up on a ledge and the button is down below.
    Carry the cube through a portal.
+6. **Faith plate**: a plate throws you over the goo.
+7. **The grill**: a fizzler destroys a cube you carry. Send the cube
+   across through a portal instead.
+8. **Through the glass**: you can see the exit through the glass, but you
+   cannot shoot through it. Look over it.
 
 Cubes can be picked up, stood on and carried through portals. A cube
 that falls in the goo comes back where it started. A door stays open while
@@ -63,6 +68,7 @@ far side.
 | arrows | move the cursor (hold to move faster) |
 | Q / E | go one layer down / up |
 | 1 – 9 | select a brush: metal, white, air, goo, exit, door, button, cube, start. Press 6 or 7 again to step through the door or button letters `a`–`d` / `A`–`D`. |
+| 0 - = T | select a brush: glass, fizzler, faith plate, plate target |
 | Space | paint. Hold it while you move to paint a line. |
 | B | press it at one corner, then at the other corner, to fill a rectangle |
 | Backspace | erase (set the cell to air) |

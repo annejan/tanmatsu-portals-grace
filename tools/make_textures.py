@@ -98,6 +98,47 @@ def cube(rng):
     return img
 
 
+def glass(rng):
+    """Pale blue glass with a frame and one diagonal glint. Drawn half
+    transparent, so it only tints what is behind it."""
+    img = Image.new("RGB", (N, N))
+    px = img.load()
+    for y in range(N):
+        for x in range(N):
+            c = [150, 200, 225]
+            if min(x, y, N - 1 - x, N - 1 - y) < 2:
+                c = [90, 110, 125]
+            elif 0 <= (x - y) - 6 < 3:
+                c = [225, 240, 250]
+            px[x, y] = tuple(clamp(v + rng.uniform(-3, 3)) for v in c)
+    return img
+
+
+def fizz(rng):
+    """The fizzler's sheet: bright blue streaks, falling."""
+    img = Image.new("RGB", (N, N))
+    px = img.load()
+    for x in range(N):
+        bright = rng.uniform(0.3, 1.0) if x % 4 == 0 else rng.uniform(0.0, 0.3)
+        for y in range(N):
+            w = bright * (0.6 + 0.4 * ((y * 3 + x * 7) % 16) / 16)
+            px[x, y] = (clamp(40 + 80 * w), clamp(110 + 120 * w), clamp(200 + 55 * w))
+    return img
+
+
+def jump(rng):
+    """A faith plate: orange rings on a dark plate."""
+    img = panel((70, 64, 58), (30, 28, 26), 3, rng)
+    px = img.load()
+    c = (N - 1) / 2
+    for y in range(N):
+        for x in range(N):
+            d = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
+            if int(d) in (4, 5, 9, 10, 13):
+                px[x, y] = (235, 140, 40)
+    return img
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     rng = random.Random(0x9047A1)
@@ -107,6 +148,9 @@ def main():
         "goo.png": goo(rng),
         "exit.png": exit_pad(rng),
         "cube.png": cube(rng),
+        "glass.png": glass(rng),
+        "fizz.png": fizz(rng),
+        "jump.png": jump(rng),
     }
     for name, img in textures.items():
         img.save(os.path.join(OUT, name), optimize=True)

@@ -51,7 +51,14 @@ enum {
     GAME_EV_SHOT_BLUE   = 1 << 15,  // a portal placed
     GAME_EV_SHOT_ORANGE = 1 << 16,
     GAME_EV_SHOT_FAIL   = 1 << 17,  // a shot the surface would not take
+    GAME_EV_FIZZLE      = 1 << 18,  // a fizzler took the portals, or a cube
+    GAME_EV_LAUNCH      = 1 << 19,  // a faith plate threw something
 };
+
+// The velocity that carries a body from `from` (its base) to land on
+// `to`: an arc peaking JUMP_APEX above the higher of the two.
+#define JUMP_APEX 2.5f
+vec3_t jump_velocity(vec3_t from, vec3_t to);
 
 void game_load(game_t* g, int chamber);
 // The same with a level from elsewhere (the editor's play-test).

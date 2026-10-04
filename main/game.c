@@ -117,7 +117,32 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
     return n;
 }
 
-static void step_cube(game_t* g, int i, float dt) {
+vec3_t jump_velocity(vec3_t from, vec3_t to) {
+    float const apex = fmaxf(from.y, to.y) + JUMP_APEX;
+    float const vy   = sqrtf(2.0f * PHYS_GRAVITY * (apex - from.y));
+    float const t    = vy / PHYS_GRAVITY + sqrtf(2.0f * (apex - to.y) / PHYS_GRAVITY);
+    return v3((to.x - from.x) / t, vy, (to.z - from.z) / t);
+}
+
+// The faith plate a body standing at `pos` is on, or NULL.
+static jump_t const* plate_under(level_t const* lv, vec3_t pos) {
+    int const x = (int)floorf(pos.x), y = (int)floorf(pos.y - 0.05f), z = (int)floorf(pos.z);
+    for (int i = 0; i < lv->n_jumps; i++)
+        if (lv->jumps[i].x == x && lv->jumps[i].y == y && lv->jumps[i].z == z) return &lv->jumps[i];
+    return NULL;
+}
+
+// Whether a box reaches into any fizzler cell.
+static bool in_fizzler(level_t const* lv, aabb_t const* a) {
+    for (int y = (int)floorf(a->lo.y); y <= (int)floorf(a->hi.y - 0.001f); y++)
+        for (int z = (int)floorf(a->lo.z); z <= (int)floorf(a->hi.z - 0.001f); z++)
+            for (int x = (int)floorf(a->lo.x); x <= (int)floorf(a->hi.x - 0.001f); x++)
+                if (level_get(lv, x, y, z) == MAT_FIZZ) return true;
+    return false;
+}
+
+static int step_cube(game_t* g, int i, float dt) {
+    int ev = 0;
     body_t* b = &g->cubes[i].body;
     aabb_t  boxes[LV_MAX_CUBES + 1];
     int     n = gather_boxes(g, i, boxes);
@@ -152,12 +177,25 @@ static void step_cube(game_t* g, int i, float dt) {
         if (g->held_far > CUBE_STUCK) drop(g);
     }
 
-    // Lost in the goo or out of the world: a new one where it started.
+    // Lost in the goo, out of the world or through a fizzler: a new one
+    // where it started.
     uint8_t const under = level_get(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z));
-    if (b->pos.y < -4.0f || (b->on_ground && under == MAT_GOO)) {
+    aabb_t const  box   = body_aabb(b);
+    bool const    fizz  = in_fizzler(&g->lv, &box);
+    if (b->pos.y < -4.0f || (b->on_ground && under == MAT_GOO) || fizz) {
         if (i == g->held) drop(g);
         cube_spawn(g, i);
+        if (fizz) ev |= GAME_EV_FIZZLE;
+        return ev;
     }
+    // A faith plate throws a cube that is not being carried.
+    jump_t const* j = i != g->held && b->on_ground ? plate_under(&g->lv, b->pos) : NULL;
+    if (j != NULL) {
+        b->vel       = jump_velocity(b->pos, j->target);
+        b->on_ground = false;
+        ev |= GAME_EV_LAUNCH;
+    }
+    return ev;
 }
 
 // On top of a button: its base within the pad, resting on it.
@@ -204,7 +242,29 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     ev |= player_update_in(&g->pl, &w, &pin, dt, &via);
     if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
 
-    for (int i = 0; i < g->n_cubes; i++) step_cube(g, i, dt);
+    // A fizzler: the portals close, and a cube carried in goes.
+    aabb_t const pbox = player_aabb(&g->pl);
+    if (in_fizzler(&g->lv, &pbox)) {
+        if (g->portals[0].open || g->portals[1].open) {
+            g->portals[0].open = g->portals[1].open = false;
+            ev |= GAME_EV_PORTAL | GAME_EV_FIZZLE;
+        }
+        if (g->held >= 0) {
+            int const c = g->held;
+            drop(g);
+            cube_spawn(g, c);
+            ev |= GAME_EV_FIZZLE;
+        }
+    }
+    // A faith plate.
+    jump_t const* j = g->pl.on_ground ? plate_under(&g->lv, g->pl.pos) : NULL;
+    if (j != NULL) {
+        g->pl.vel       = jump_velocity(g->pl.pos, j->target);
+        g->pl.on_ground = false;
+        ev |= GAME_EV_LAUNCH;
+    }
+
+    for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);
 
     // Buttons: down under the player or a cube that is not being carried.
     aabb_t const pa = player_aabb(&g->pl);

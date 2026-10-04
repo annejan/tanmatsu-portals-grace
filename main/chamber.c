@@ -138,6 +138,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     bool in_sol    = false;
     bool have_size = false;
     int  spawns    = 0;
+    // Faith plates and their targets, paired in the order they are read.
+    jump_t plates[LV_MAX_JUMPS];
+    vec3_t targets[LV_MAX_JUMPS];
+    int    n_plates = 0, n_targets = 0;
     char buf[128];
     char const* p = text;
 
@@ -154,6 +158,17 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     case '#': m = MAT_METAL; break;
                     case 'W': m = MAT_WHITE; break;
                     case '~': m = MAT_GOO; break;
+                    case 'G': m = MAT_GLASS; break;
+                    case 'F': m = MAT_FIZZ; break;
+                    case 'J':
+                        if (n_plates >= LV_MAX_JUMPS) return fail(&c, "more than %d faith plates", LV_MAX_JUMPS);
+                        m                  = MAT_JUMP;
+                        plates[n_plates++] = (jump_t){x, layer, z, v3(0, 0, 0)};
+                        break;
+                    case 'T':
+                        if (n_targets >= LV_MAX_JUMPS) return fail(&c, "more than %d targets", LV_MAX_JUMPS);
+                        targets[n_targets++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
+                        break;
                     case 'E': m = MAT_EXIT; break;
                     case '.':
                     case ' ': break;
@@ -244,6 +259,12 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (layer >= 0) return fail(&c, "layer %d has %d of its %d rows", layer, row, lv->d);
     if (!have_size) return fail(&c, "no size");
     if (spawns != 1) return fail(&c, "want exactly one S, found %d", spawns);
+    if (n_plates != n_targets) return fail(&c, "%d faith plate(s) (J) but %d target(s) (T)", n_plates, n_targets);
+    for (int i = 0; i < n_plates; i++) {
+        plates[i].target = targets[i];
+        lv->jumps[i]     = plates[i];
+    }
+    lv->n_jumps = n_plates;
 
     // Each door must fill its box, one cell thick across x or z.
     for (int i = 0; i < lv->n_doors; i++) {
@@ -294,7 +315,14 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
         if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
             return 'C';
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z) return 'S';
+    for (int i = 0; i < lv->n_jumps; i++)
+        if ((int)floorf(lv->jumps[i].target.x) == x && (int)floorf(lv->jumps[i].target.y) == y &&
+            (int)floorf(lv->jumps[i].target.z) == z)
+            return 'T';
     switch (level_get(lv, x, y, z)) {
+        case MAT_GLASS: return 'G';
+        case MAT_FIZZ: return 'F';
+        case MAT_JUMP: return 'J';
         case MAT_AIR: return '.';
         case MAT_WHITE: return 'W';
         case MAT_GOO: return '~';

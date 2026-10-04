@@ -501,7 +501,24 @@ static void test_chamber_dir(void) {
     }
 }
 
+// Glass: you see through it, but neither you nor a shot gets through.
+static void test_glass(void) {
+    static game_t g;
+    int const     i = demo_chamber(demo_find("08-through-the-glass"));
+    game_load(&g, i);
+    g.pl.pos = v3(5.5f, 1.0f, 3.0f);
+    vec3_t const eye  = player_eye(&g.pl);
+    vec3_t const look = v3_norm(v3_sub(v3(5.5f, 2.5f, 11.0f), eye));
+    portal_t     p;
+    CHECK(!portal_place(&g.lv, eye, look, NULL, &p), "a shot through the glass takes no portal");
+    game_input_t const fwd = {.fwd = 1.0f};
+    g.pl.yaw               = 0.0f;
+    for (int k = 0; k < 150; k++) game_step(&g, &fwd, 0.02f);
+    CHECK(g.pl.pos.z < 5.71f, "walking into the glass stops at it (z %.2f)", g.pl.pos.z);
+}
+
 int main(void) {
+    test_glass();
     test_things();
     test_frame_rates();
     test_demos();
