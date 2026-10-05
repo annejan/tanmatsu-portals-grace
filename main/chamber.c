@@ -115,11 +115,20 @@ static bool fail(ctx_t* c, char const* fmt, ...) {
 }
 
 // The next line of `*p` into `out` (without its line ending); false at the end.
-static bool next_line(char const** p, char* out, size_t n) {
+// The next line of `*p` into out[n]. *long_line is set when it did not
+// fit: the rest is skipped, and the caller refuses it rather than read a
+// story line cut short.
+static bool next_line(char const** p, char* out, size_t n, bool* long_line) {
     if (**p == '\0') return false;
-    size_t k = 0;
+    size_t k   = 0;
+    *long_line = false;
     while (**p != '\0' && **p != '\n') {
-        if (**p != '\r' && k + 1 < n) out[k++] = **p;
+        if (**p != '\r') {
+            if (k + 1 < n)
+                out[k++] = **p;
+            else
+                *long_line = true;
+        }
         (*p)++;
     }
     if (**p == '\n') (*p)++;
@@ -251,13 +260,15 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     // The moving platform: the box its M cells span, and the N cell.
     int         m_box[6] = {0}, n_cell[3] = {0}, n_m = 0;
     bool        have_m = false, have_n = false;
-    char        buf[128];
-    char const* p = text;
+    char        buf[256];
+    bool        long_line = false;
+    char const* p         = text;
     // A byte-order mark, as Windows editors write one, is not text.
     if (strncmp(p, "\xEF\xBB\xBF", 3) == 0) p += 3;
 
-    while (next_line(&p, buf, sizeof(buf))) {
+    while (next_line(&p, buf, sizeof(buf), &long_line)) {
         c.line++;
+        if (long_line) return fail(&c, "line longer than %d characters", (int)sizeof(buf) - 1);
         if (layer >= 0) {
             // A row of the map: read as it stands, comments and all.
             if ((int)strlen(buf) > lv->w) return fail(&c, "row longer than the size's %d cells", lv->w);
@@ -373,10 +384,16 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         char* const k = trim(s);
         char* const v = trim(colon + 1);
         if (strcmp(k, "name") == 0) {
+            if (strlen(v) >= sizeof(lv->name))
+                return fail(&c, "name: longer than %d characters", (int)sizeof(lv->name) - 1);
             snprintf(lv->name, sizeof(lv->name), "%s", v);
         } else if (strcmp(k, "hint") == 0) {
+            if (strlen(v) >= sizeof(lv->hint))
+                return fail(&c, "hint: longer than %d characters", (int)sizeof(lv->hint) - 1);
             snprintf(lv->hint, sizeof(lv->hint), "%s", v);
         } else if (strcmp(k, "story") == 0) {
+            if (strlen(v) >= sizeof(lv->story))
+                return fail(&c, "story: longer than %d characters", (int)sizeof(lv->story) - 1);
             snprintf(lv->story, sizeof(lv->story), "%s", v);
         } else if (strcmp(k, "platform") == 0) {
             if (strlen(v) != 1 || !chamber_is_button(v[0]))

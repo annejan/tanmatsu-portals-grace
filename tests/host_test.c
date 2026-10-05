@@ -1284,6 +1284,33 @@ static void test_parse_rules(void) {
         CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "facing") != NULL,
               "facing: %s is refused: %s", facing[i], err);
     }
+    // A story line of 159 letters is read whole -- lines of 120 and more
+    // were cut short once, and the story with them; one longer is refused,
+    // and so is a line too long to read.
+    char long_story[200];
+    memset(long_story, 'a', sizeof(long_story));
+    long_story[158] = '!';
+    long_story[159] = '\0';
+    snprintf(text, sizeof(text), "story: %s\nsize: 5 3 3\n%s", long_story, room);
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strlen(lv.story) == 159 && lv.story[158] == '!',
+          "a story of 159 letters is read whole (%d): %s", (int)strlen(lv.story), err);
+    long_story[159] = 'a';
+    long_story[160] = '\0';
+    snprintf(text, sizeof(text), "story: %s\nsize: 5 3 3\n%s", long_story, room);
+    CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "story: longer") != NULL,
+          "a story of 160 letters is refused: %s", err);
+    snprintf(text, sizeof(text), "name: %.32s\nsize: 5 3 3\n%s", long_story, room);
+    CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "name: longer") != NULL,
+          "a name of 32 letters is refused: %s", err);
+    snprintf(text, sizeof(text), "hint: %.80s\nsize: 5 3 3\n%s", long_story, room);
+    CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "hint: longer") != NULL,
+          "a hint of 80 letters is refused: %s", err);
+    char very_long[301];
+    memset(very_long, 'a', 300);
+    very_long[300] = '\0';
+    snprintf(text, sizeof(text), "// %s\nsize: 5 3 3\n%s", very_long, room);
+    CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "line longer than 255") != NULL,
+          "a line of 303 characters is refused: %s", err);
     snprintf(text, sizeof(text), "size: 5 3 3\nfacing: 450\n%s", room);
     CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && fabsf(lv.spawn_yaw - 1.5707963f) < 1e-4f,
           "facing: 450 is east (%.4f)", lv.spawn_yaw);
