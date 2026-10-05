@@ -247,11 +247,21 @@ void sound_say(char const* line) {
 }
 
 // A turret's line, unless someone is talking already.
+static char const* s_turret_line;
+static int         s_turret_lines;
+
 static void turret_says(char const* const lines[]) {
     static int k;
     if (sound_saying()) return;
-    sound_say(lines[k++ % SPEECH_TURRET_LINES]);
+    s_turret_line = lines[k++ % SPEECH_TURRET_LINES];
+    s_turret_lines++;
+    sound_say(s_turret_line);
     s_speaker = SPEECH_TURRET;
+}
+
+int sound_turret_said(char const** line) {
+    *line = s_turret_line;
+    return s_turret_lines;
 }
 
 bool sound_saying(void) {

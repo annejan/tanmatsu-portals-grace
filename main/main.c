@@ -74,6 +74,12 @@ static void message(char const* text) {
 static float s_story_t  = 0.0f;
 static int   s_story_of = -2;
 
+// What a turret said, as a subtitle, for this long.
+#define TURRET_SUB_S 2.5f
+static float       s_sub_t;
+static int         s_sub_seen;
+static char const* s_sub;
+
 // "[Subject-Name-here]" in a story line is the badge owner's nickname, if
 // they have set one in the launcher; otherwise the joke stands as written.
 static void personalise(char* story, size_t n) {
@@ -318,6 +324,14 @@ static void on_update(float dt, void* user) {
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
     s_story_t += dt;
+    if (s_sub_t > 0.0f) s_sub_t -= dt;
+    char const* said = NULL;
+    int const   n    = sound_turret_said(&said);
+    if (n != s_sub_seen) {
+        s_sub_seen = n;
+        s_sub      = said;
+        s_sub_t    = TURRET_SUB_S;
+    }
     // The next chamber, once "Chamber complete" has been read: in play
     // only, never in the editor's play-test.
     if (s_mode != MODE_PLAY) s_pending_chamber = -1;
@@ -366,7 +380,8 @@ static void on_backdrop(pax_buf_t* fb, void* user) {
     (void)user;  // every pixel is drawn by the passes; nothing to clear
 }
 
-static void draw_story(pax_buf_t* fb);
+static int  draw_story(pax_buf_t* fb);
+static void draw_subtitle(pax_buf_t* fb, int above);
 
 static void hud(pax_buf_t* fb) {
     float const cx = RENDER_HALF_W, cy = RENDER_HORIZON_Y;
@@ -401,7 +416,7 @@ static void hud(pax_buf_t* fb) {
     snprintf(stat, sizeof(stat), "%2.0f fps %3lld ms  %d pass %d tri%s%s", s_fps, s_render_us / 1000, passes, tris,
              settings_half_res() && s_half_ok ? "  half" : "", settings_gyro() ? "  gyro" : "");
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
-    draw_story(fb);
+    draw_subtitle(fb, draw_story(fb));
 
     if (s_msg_t > 0.0f) {
         pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
@@ -410,12 +425,12 @@ static void hud(pax_buf_t* fb) {
 }
 
 // The story line, typed out a letter at a time, in lines of whole words
-// along the bottom of the screen.
-static void draw_story(pax_buf_t* fb) {
+// along the bottom of the screen. Returns how many lines it drew.
+static int draw_story(pax_buf_t* fb) {
     char const* story = s_game.lv.story;
     int const   len   = (int)strlen(story);
     // Up while it types, a while after, and as long as GLaDOS is still saying it.
-    if (len == 0 || (s_story_t > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) return;
+    if (len == 0 || (s_story_t > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) return 0;
     int shown = (int)(s_story_t * STORY_CPS);
     if (shown > len) shown = len;
     enum {
@@ -441,6 +456,16 @@ static void draw_story(pax_buf_t* fb) {
         float const y = (float)(DISPLAY_LOG_H - 44 - (n - 1 - i) * 18);
         pax_draw_text(fb, 0xFFFFE08Au, pax_font_sky_mono, 14, 16, y, line[i]);
     }
+    return n;
+}
+
+// A turret's last words, in its own colour, where the story line goes --
+// above it, if `above` lines of it are up.
+static void draw_subtitle(pax_buf_t* fb, int above) {
+    if (s_sub_t <= 0.0f || s_sub == NULL) return;
+    char text[48];
+    snprintf(text, sizeof(text), "Turret: %s", s_sub);
+    pax_draw_text(fb, 0xFFFF7A6Au, pax_font_sky_mono, 14, 16, (float)(DISPLAY_LOG_H - 44 - above * 18), text);
 }
 
 static void on_render(pax_buf_t* fb, void* user) {

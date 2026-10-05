@@ -47,5 +47,8 @@ void sound_set_voice(bool on);
 // line cuts the old one off. NULL just stops.
 void sound_say(char const* line);
 bool sound_saying(void);
+// The line a turret said last (NULL before the first), and how many it
+// has said: a new count is a new line, to show as a subtitle.
+int  sound_turret_said(char const** line);
 // Once a frame: the next sentence, when the last has been said.
 void sound_update(void);
