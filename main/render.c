@@ -31,6 +31,7 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_CUBEBASE] = {NULL, 0xFF3E4A60u, 0, NULL},
     [MAT_EMITTER]  = {NULL, 0xFF5A2A2Au, 0, NULL},
     [MAT_CATCHER]  = {NULL, 0xFF6A5030u, 0, NULL},
+    [MAT_BRIDGE]   = {NULL, 0xFF2A4A6Au, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -325,10 +326,10 @@ static void beam_strip(vec3_t a, vec3_t b, cam_t const* cam, clipset_t const* cs
 }
 
 // A small glowing square on a face: centre c, facing along axis direction d.
-static void lens(vec3_t c, vec3_t d, float half, cam_t const* cam, clipset_t const* cs) {
+static void lens(vec3_t c, vec3_t d, float half, uint32_t argb, cam_t const* cam, clipset_t const* cs) {
     vec3_t const h =
         v3(fabsf(d.x) > 0.5f ? 0.005f : half, fabsf(d.y) > 0.5f ? 0.005f : half, fabsf(d.z) > 0.5f ? 0.005f : half);
-    submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
+    submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
 
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
@@ -373,10 +374,34 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
     }
     // Lasers: the emitter's lens, and the beam as traced last step.
     for (int k = 0; k < g->lv.n_lasers; k++) {
-        laser_t const* L = &g->lv.lasers[k];
-        vec3_t const   d = dir_vec(L->dir);
-        lens(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.505f), d, 0.25f, cam, cs);
+        emitter_t const* L = &g->lv.lasers[k];
+        vec3_t const     d = dir_vec(L->dir);
+        lens(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.505f), d, 0.25f, 0xFFFF3A28u,
+             cam, cs);
         for (int i = 0; i < g->beam_n[k]; i++) beam_strip(g->beam[k][i].a, g->beam[k][i].b, cam, cs);
+    }
+    // Light bridges: a pale blue slab, with glowing edges, along each piece.
+    for (int k = 0; k < g->lv.n_bridges; k++) {
+        emitter_t const* E = &g->lv.bridges[k];
+        vec3_t const     d = dir_vec(E->dir);
+        lens(v3_mad(v3((float)E->x + 0.5f, (float)E->y + 0.15f, (float)E->z + 0.5f), d, 0.505f), d, 0.1f, 0xFF8CD8FFu,
+             cam, cs);
+        for (int i = 0; i < g->bridge_n[k]; i++) {
+            beam_seg_t const* s    = &g->bridge[k][i];
+            bool const        on_x = fabsf(s->b.x - s->a.x) > fabsf(s->b.z - s->a.z);
+            // Drawn a hair above its surface: where it lies on a floor, the
+            // floor would show through.
+            vec3_t const      lo   = v3(fminf(s->a.x, s->b.x), s->a.y - 0.05f, fminf(s->a.z, s->b.z));
+            vec3_t const      hi   = v3(fmaxf(s->a.x, s->b.x), s->a.y + 0.012f, fmaxf(s->a.z, s->b.z));
+            vec3_t const      w    = on_x ? v3(0, 0, 0.5f) : v3(0.5f, 0, 0);
+            vec3_t const      e    = on_x ? v3(0, 0, 0.04f) : v3(0.04f, 0, 0);  // its two edges, lit
+            vec3_t const      up   = v3(0, 0.01f, 0);
+            submit_box(v3_sub(lo, w), v3_add(hi, w), cam, cs, NULL, 0xFF78C0E8u, 0);
+            submit_box(v3_sub(lo, w), v3_add(v3_add(v3_sub(hi, w), e), up), cam, cs, NULL, 0xFFB8ECFFu,
+                       SE_TRI_EMISSIVE);
+            submit_box(v3_sub(v3_add(lo, w), e), v3_add(v3_add(hi, w), up), cam, cs, NULL, 0xFFB8ECFFu,
+                       SE_TRI_EMISSIVE);
+        }
     }
     // A reflection cube: a red lens on the side the beam leaves by.
     for (int i = 0; i < g->n_cubes; i++) {

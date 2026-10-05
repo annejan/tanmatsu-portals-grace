@@ -121,6 +121,7 @@ cells are metal.
 | `L` | a laser emitter: a solid cell that fires a beam out of its one open side (exactly one side must be open). The beam goes through glass, fizzlers and portals. Walls, closed doors, cubes, the platform and the player stop it. Half a second in it kills you. |
 | `O` | a laser catcher: a block, waist high. A button digit on top of it is down while a beam hits the block. |
 | `R` | a reflection cube, in the cell where it starts. A beam that hits it leaves it level, the way the cube faces. A carried cube faces where you look, in steps of 45°. |
+| `H` | a light bridge emitter: a solid cell that lays a walkable strip of hard light, 1 m wide, out of its one open side, which must face sideways. Its surface is level with the bottom of the emitter cell. It runs until a wall, through fizzlers and portal pairs; a portal that would stand it on end (a floor or ceiling portal) stops it. Players and cubes stand on it; shots and lasers pass through. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

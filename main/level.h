@@ -28,6 +28,7 @@ typedef enum {
     MAT_CUBEBASE,  // a floor a cube button stands on
     MAT_EMITTER,   // a laser emitter: fires out of its one open side (see laser_t)
     MAT_CATCHER,   // a laser catcher: a block whose button is down while lit
+    MAT_BRIDGE,    // a light bridge emitter: a walkable strip out of its open side
     MAT_COUNT,
 } material_t;
 
@@ -58,6 +59,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_CUBES   4
 #define LV_MAX_JUMPS   4
 #define LV_MAX_LASERS  4
+#define LV_MAX_BRIDGES 2
 
 // A moving platform: the box [lo, hi) where it starts, and how far it
 // travels; it glides there and back, pausing at each end.
@@ -94,12 +96,13 @@ typedef struct {
 // A dropper's cube appears with its base this far under the hatch.
 #define LV_DROP_DEPTH 0.7f
 
-// A laser emitter: the MAT_EMITTER cell (x, y, z), and the side it fires
-// out of (a dir_t), its only open one.
+// An emitter -- of a laser (MAT_EMITTER) or a light bridge (MAT_BRIDGE):
+// its cell (x, y, z), and the side it emits out of (a dir_t), its only
+// open one.
 typedef struct {
     int x, y, z;
     int dir;
-} laser_t;
+} emitter_t;
 
 // A faith plate: the MAT_JUMP cell (x, y, z), and where it lands what
 // stands on it.
@@ -127,8 +130,10 @@ typedef struct {
     float      timer;       // seconds a pedestal button stays down
     jump_t     jumps[LV_MAX_JUMPS];
     int        n_jumps;
-    laser_t    lasers[LV_MAX_LASERS];
+    emitter_t  lasers[LV_MAX_LASERS];
     int        n_lasers;
+    emitter_t  bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
+    int        n_bridges;
     platform_t platform;  // M cells and the N cell; none when n_platforms is 0
     int        n_platforms;
 } level_t;

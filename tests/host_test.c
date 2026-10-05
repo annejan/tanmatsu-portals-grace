@@ -683,6 +683,66 @@ static void test_lasers(void) {
           "an emitter open on two sides is refused: %s", err);
 }
 
+// Light bridges (chamber 13): laid out from the emitter, through portals,
+// solid to stand on.
+static void test_bridges(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("13-hard-light"));
+    CHECK(c >= 0, "chamber 13 is there");
+    if (c < 0) return;
+    // Without the bridge the pit is the end of you.
+    game_load(&g, c);
+    g.pl.pos = v3(7.5f, 2.0f, 3.2f);
+    g.pl.yaw = 0.0f;
+    int ev   = 0;
+    for (int i = 0; i < 150 && !(ev & PL_EV_DIED); i++) ev |= game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+    CHECK(ev & PL_EV_DIED, "walking north without the bridge: into the goo");
+    game_load(&g, c);
+    CHECK(g.lv.n_bridges == 1 && g.lv.bridges[0].dir == DIR_PX && g.bridge_n[0] == 1 &&
+              fabsf(g.bridge[0][0].b.x - 13.0f) < 0.01f && fabsf(g.bridge[0][0].a.y - 2.0f) < 1e-4f,
+          "one bridge, east along the floor to the wall (to x %.2f)", g.bridge[0][0].b.x);
+    // Portals on the east and south walls: on north across the pit.
+    CHECK(portal_place_at(&g.lv, 13, 2, 2, DIR_NX, v3(0, 1, 0), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 7, 2, 0, DIR_PZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]),
+          "the two portals");
+    game_step(&g, &idle, 0.02f);
+    beam_seg_t const* s = &g.bridge[0][1];
+    CHECK(g.bridge_n[0] == 2 && fabsf(s->a.x - 7.5f) < 0.01f && fabsf(s->a.y - 2.0f) < 0.01f && s->b.z > 10.9f,
+          "through them, north at x %.2f, height %.2f, to z %.2f", s->a.x, s->a.y, s->b.z);
+    // Standing on it over the pit, and a cube resting on it.
+    g.pl.pos   = v3(7.5f, 2.0f, 5.5f);
+    g.pl.vel   = v3(0, 0, 0);
+    g.n_cubes  = 1;
+    g.cubes[0] = (cube_t){.body = {v3(7.5f, 2.5f, 6.8f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    ev         = 0;
+    for (int i = 0; i < 100; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(!(ev & PL_EV_DIED) && fabsf(g.pl.pos.y - 2.0f) < 0.01f && g.pl.on_ground, "the player stands on it (y %.2f)",
+          g.pl.pos.y);
+    CHECK(fabsf(g.cubes[0].body.pos.y - 2.0f) < 0.01f && g.cubes[0].body.on_ground, "and so does a cube (y %.2f)",
+          g.cubes[0].body.pos.y);
+    // A floor portal would stand it on end: it stops at the wall instead.
+    game_load(&g, c);
+    level_set(&g.lv, 7, 1, 2, MAT_WHITE);
+    level_set(&g.lv, 7, 1, 3, MAT_WHITE);
+    CHECK(portal_place_at(&g.lv, 13, 2, 2, DIR_NX, v3(0, 1, 0), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 7, 1, 2, DIR_PY, v3(0, 0, 1), &g.portals[0], &g.portals[1]),
+          "a wall portal and a floor portal");
+    game_step(&g, &idle, 0.02f);
+    CHECK(g.bridge_n[0] == 1, "out of a floor portal no bridge stands up (%d pieces)", g.bridge_n[0]);
+
+    CHECK(!chamber_parse("size: 5 4 3\nlayer 1\n#####\n#SH.#\n#####\nlayer 2\n#####\n###.#\n#####\n", &lv, NULL, NULL,
+                         err, sizeof(err)) &&
+              strstr(err, "one open side") != NULL,
+          "a bridge emitter open two ways is refused: %s", err);
+    CHECK(!chamber_parse("size: 5 4 3\nlayer 1\n#####\n#S#H#\n#####\nlayer 2\n#####\n#...#\n#####\n", &lv, NULL, NULL,
+                         err, sizeof(err)) &&
+              strstr(err, "sideways") != NULL,
+          "a bridge emitter open only upwards is refused: %s", err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1307,6 +1367,7 @@ int main(void) {
     test_parse_rules();
     test_pedestal_dropper();
     test_lasers();
+    test_bridges();
     test_draft_save();
     test_glass();
     test_things();

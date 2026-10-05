@@ -9,13 +9,16 @@
 #include "player.h"
 #include "portal.h"
 
-#define CUBE_HALF  0.3f  // the cube is 0.6 m on a side
-#define CUBE_HOLD  1.3f  // carried this far in front of the eye
-#define CUBE_REACH 2.0f  // picked up from no further than this
-#define CUBE_LETGO 2.5f  // dropped when this far from where it should be ...
-#define CUBE_STUCK 0.4f  // ... for this long: stuck, not merely swinging round
-#define BEAM_SEGS  8     // pieces of one laser beam: bounces and portals
-#define BEAM_BURN  0.5f  // seconds in a laser beam a player survives
+#define CUBE_HALF      0.3f  // the cube is 0.6 m on a side
+#define CUBE_HOLD      1.3f  // carried this far in front of the eye
+#define CUBE_REACH     2.0f  // picked up from no further than this
+#define CUBE_LETGO     2.5f  // dropped when this far from where it should be ...
+#define CUBE_STUCK     0.4f  // ... for this long: stuck, not merely swinging round
+#define BEAM_SEGS      8     // pieces of one laser beam: bounces and portals
+#define BEAM_BURN      0.5f  // seconds in a laser beam a player survives
+// Every solid box a body can meet besides the grid: the other cubes, the
+// player, the platform, and the pieces of the light bridges.
+#define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS)
 
 typedef struct {
     body_t body;
@@ -41,7 +44,9 @@ typedef struct {
     vec3_t     plat_at;                         // ... and how far from where it started
     beam_seg_t beam[LV_MAX_LASERS][BEAM_SEGS];  // each laser's beam, as traced last step
     int        beam_n[LV_MAX_LASERS];
-    float      burn_t;  // seconds the player has stood in a beam
+    float      burn_t;                             // seconds the player has stood in a beam
+    beam_seg_t bridge[LV_MAX_BRIDGES][BEAM_SEGS];  // each light bridge's centre line, on its surface
+    int        bridge_n[LV_MAX_BRIDGES];
 } game_t;
 
 typedef struct {

@@ -9,6 +9,8 @@
 #define PLAT_SPEED    1.5f   // m/s
 #define PLAT_PAUSE    1.0f   // s at each end
 
+static void trace_bridges(game_t* g);
+
 static void cube_spawn(game_t* g, int i) {
     vec3_t const s   = g->lv.cubes[i];
     g->cubes[i].body = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
@@ -43,6 +45,7 @@ void game_load_level(game_t* g, level_t const* lv) {
     g->held     = -1;
     g->held_via = -1;
     for (int i = 0; i < g->n_cubes; i++) cube_spawn(g, i);
+    trace_bridges(g);
 }
 
 aabb_t cube_aabb(cube_t const* c) {
@@ -169,6 +172,15 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
         if (i != skip && i != g->held) out[n++] = cube_aabb(&g->cubes[i]);
     if (skip >= 0 && skip != g->held) out[n++] = player_aabb(&g->pl);
     if (g->lv.n_platforms) out[n++] = platform_aabb(g);
+    // A light bridge: a slab 1 m wide and a few cm thick under its line.
+    for (int k = 0; k < g->lv.n_bridges; k++)
+        for (int i = 0; i < g->bridge_n[k]; i++) {
+            beam_seg_t const* s    = &g->bridge[k][i];
+            bool const        on_x = fabsf(s->b.x - s->a.x) > fabsf(s->b.z - s->a.z);
+            float const       wx = on_x ? 0.0f : 0.5f, wz = on_x ? 0.5f : 0.0f;
+            out[n++] = (aabb_t){v3(fminf(s->a.x, s->b.x) - wx, s->a.y - 0.06f, fminf(s->a.z, s->b.z) - wz),
+                                v3(fmaxf(s->a.x, s->b.x) + wx, s->a.y, fmaxf(s->a.z, s->b.z) + wz)};
+        }
     return n;
 }
 
@@ -235,7 +247,7 @@ static bool box_in_solid(level_t const* lv, aabb_t const* a) {
 static int step_cube(game_t* g, int i, float dt) {
     int                ev = 0;
     body_t*            b  = &g->cubes[i].body;
-    aabb_t             boxes[LV_MAX_CUBES + 2];
+    aabb_t             boxes[GAME_MAX_BOXES];
     int                n = gather_boxes(g, i, boxes);
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
 
@@ -310,12 +322,12 @@ static bool in_hole(portal_t const* p, vec3_t at) {
 // Sets lit[b] for each catcher button whose block it ends on, and
 // *player if it ends on the player.
 static void trace_beam(game_t* g, int k, bool lit[LV_MAX_BUTTONS], bool* player) {
-    laser_t const* L    = &g->lv.lasers[k];
-    vec3_t         d    = dir_vec(L->dir);
-    vec3_t         o    = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.501f);
-    float          left = 64.0f;
-    int            skip = -1;  // the cube it just came out of
-    g->beam_n[k]        = 0;
+    emitter_t const* L    = &g->lv.lasers[k];
+    vec3_t           d    = dir_vec(L->dir);
+    vec3_t           o    = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.501f);
+    float            left = 64.0f;
+    int              skip = -1;  // the cube it just came out of
+    g->beam_n[k]          = 0;
     for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
         // The wall it reaches, looking past glass.
         ray_hit_t w    = {0};
@@ -380,6 +392,43 @@ static void trace_beam(game_t* g, int k, bool lit[LV_MAX_BUTTONS], bool* player)
                     g->lv.buttons[b].z == w.z)
                     lit[b] = true;
         return;
+    }
+}
+
+// --- Light bridges ---------------------------------------------------------
+
+// The bridge is traced this far above its surface: through a portal's
+// oval, not along the very bottom of it.
+#define BRIDGE_LIFT 0.25f
+
+// Lay each light bridge out from its emitter: on through fizzlers and
+// portal pairs, until a wall -- or a portal that would stand it on end.
+static void trace_bridges(game_t* g) {
+    for (int k = 0; k < g->lv.n_bridges; k++) {
+        emitter_t const* E    = &g->lv.bridges[k];
+        vec3_t           d    = dir_vec(E->dir);
+        vec3_t           o    = v3_mad(v3((float)E->x + 0.5f, (float)E->y + BRIDGE_LIFT, (float)E->z + 0.5f), d, 0.5f);
+        float            left = 64.0f;
+        g->bridge_n[k]        = 0;
+        for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
+            ray_hit_t const w   = level_raycast(&g->lv, o, d, left);
+            float const     t   = w.hit ? w.dist : left;
+            vec3_t const    end = v3_mad(o, d, t);
+            g->bridge[k][g->bridge_n[k]++] =
+                (beam_seg_t){v3(o.x, o.y - BRIDGE_LIFT, o.z), v3(end.x, end.y - BRIDGE_LIFT, end.z)};
+            left -= t;
+            if (!w.hit) break;
+            bool through = false;
+            for (int p = 0; p < 2 && !through; p++) {
+                if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[p], end)) continue;
+                vec3_t const d2 = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
+                if (fabsf(d2.y) > 0.5f) break;  // out of a floor or a ceiling: no bridge stands up
+                d       = v3(roundf(d2.x), 0.0f, roundf(d2.z));
+                o       = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], end), d, 0.01f);
+                through = true;
+            }
+            if (!through) break;
+        }
     }
 }
 
@@ -478,9 +527,10 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     if (in->use) ev |= game_use(g);
 
     move_platform(g, dt);
+    trace_bridges(g);  // the portals may have moved
 
     // The player, among the cubes.
-    aabb_t               boxes[LV_MAX_CUBES + 2];
+    aabb_t               boxes[GAME_MAX_BOXES];
     int const            n      = gather_boxes(g, -1, boxes);
     phys_world_t const   w      = {&g->lv, g->portals, boxes, n};
     player_input_t const pin    = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};

@@ -58,6 +58,7 @@ chamber_glyph_t const chamber_legend[] = {
     {'L', "laser emitter", GLYPH_CELL, MAT_EMITTER, 0, 'L', 0xFFB02020u},
     {'O', "laser catcher", GLYPH_CELL, MAT_CATCHER, 0, 'O', 0xFFD07020u},
     {'R', "reflection cube", GLYPH_REFLECT, MAT_AIR, 0, 'Y', 0xFFC8A0A0u},
+    {'H', "light bridge emitter", GLYPH_CELL, MAT_BRIDGE, 0, 'H', 0xFF3C8CC8u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -447,13 +448,14 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
-    // Laser emitters: each fires out of its one open side.
+    // Emitters: each emits out of its one open side; a bridge sideways.
     for (int y = 0; y < lv->h; y++)
         for (int z = 0; z < lv->d; z++)
             for (int x = 0; x < lv->w; x++) {
-                if (level_get(lv, x, y, z) != MAT_EMITTER) continue;
-                if (lv->n_lasers >= LV_MAX_LASERS) return fail(&c, "more than %d laser emitters", LV_MAX_LASERS);
-                int open = -1, n_open = 0;
+                uint8_t const m = level_get(lv, x, y, z);
+                if (m != MAT_EMITTER && m != MAT_BRIDGE) continue;
+                char const* const what = m == MAT_EMITTER ? "laser emitter" : "light bridge emitter";
+                int               open = -1, n_open = 0;
                 for (int dir = 0; dir < 6; dir++) {
                     int dx, dy, dz;
                     dir_step(dir, &dx, &dy, &dz);
@@ -461,9 +463,17 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     if (nb == MAT_AIR || nb == MAT_FIZZ) open = dir, n_open++;
                 }
                 if (n_open != 1)
-                    return fail(&c, "the laser emitter at %d %d %d needs exactly one open side, has %d", x, y, z,
-                                n_open);
-                lv->lasers[lv->n_lasers++] = (laser_t){x, y, z, open};
+                    return fail(&c, "the %s at %d %d %d needs exactly one open side, has %d", what, x, y, z, n_open);
+                if (m == MAT_EMITTER) {
+                    if (lv->n_lasers >= LV_MAX_LASERS) return fail(&c, "more than %d laser emitters", LV_MAX_LASERS);
+                    lv->lasers[lv->n_lasers++] = (emitter_t){x, y, z, open};
+                } else {
+                    if (open == DIR_PY || open == DIR_NY)
+                        return fail(&c, "the light bridge emitter at %d %d %d must open sideways", x, y, z);
+                    if (lv->n_bridges >= LV_MAX_BRIDGES)
+                        return fail(&c, "more than %d light bridge emitters", LV_MAX_BRIDGES);
+                    lv->bridges[lv->n_bridges++] = (emitter_t){x, y, z, open};
+                }
             }
     // A dropper's cube needs room to come out.
     for (int i = 0; i < lv->n_cubes; i++) {
