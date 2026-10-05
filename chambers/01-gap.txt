@@ -1,5 +1,6 @@
 name: 01  The gap
 hint: Portals stick to white panels.
+story: Welcome to the test. The gap is wider than you can jump. You will notice the white panels. We would rather you did.
 size: 10 7 16
 facing: north
 

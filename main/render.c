@@ -18,13 +18,16 @@ typedef struct {
 } material_info_t;
 
 static material_info_t s_mat[MAT_COUNT] = {
-    [MAT_WHITE] = {"white.png", 0xFFD8D8D0u, 0, NULL},
-    [MAT_METAL] = {"metal.png", 0xFF44484Cu, 0, NULL},
-    [MAT_GOO]   = {"goo.png", 0xFF5A4A18u, SE_TRI_EMISSIVE, NULL},
-    [MAT_EXIT]  = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
-    [MAT_GLASS] = {"glass.png", 0xFF9ED8F0u, SE_TRI_BLEND, NULL},
-    [MAT_FIZZ]  = {"fizz.png", 0xFF60B0FFu, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
-    [MAT_JUMP]  = {"jump.png", 0xFFE08020u, 0, NULL},
+    [MAT_WHITE]    = {"white.png", 0xFFD8D8D0u, 0, NULL},
+    [MAT_METAL]    = {"metal.png", 0xFF44484Cu, 0, NULL},
+    [MAT_GOO]      = {"goo.png", 0xFF5A4A18u, SE_TRI_EMISSIVE, NULL},
+    [MAT_EXIT]     = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
+    [MAT_GLASS]    = {"glass.png", 0xFF9ED8F0u, SE_TRI_BLEND, NULL},
+    [MAT_FIZZ]     = {"fizz.png", 0xFF60B0FFu, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
+    [MAT_JUMP]     = {"jump.png", 0xFFE08020u, 0, NULL},
+    // Flat colours: the pedestal a light grey block, the dropper dark.
+    [MAT_PEDESTAL] = {NULL, 0xFF7A7E86u, 0, NULL},
+    [MAT_DROPPER]  = {NULL, 0xFF34363Bu, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -328,6 +331,25 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         float const h = bt->pressed ? 0.06f : 0.12f;
         submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL,
                    bt->pressed ? 0xFFFF6040u : 0xFFB02818u, bt->pressed ? SE_TRI_EMISSIVE : 0);
+        // A pedestal button's time left: a blue bar along the pad that
+        // shrinks as it runs out.
+        if (bt->pedestal && bt->timer_left > 0.0f && g->lv.timer > 0.0f) {
+            float const len = 0.8f * bt->timer_left / g->lv.timer;
+            submit_box(v3(x + 0.1f, top, z + 0.06f), v3(x + 0.1f + len, top + 0.05f, z + 0.14f), cam, cs, NULL,
+                       0xFF2C8CFFu, SE_TRI_EMISSIVE);
+        }
+    }
+    // Droppers: a dark hatch under the ceiling cell, with a light round
+    // its edge where the cube comes out.
+    for (int i = 0; i < g->lv.n_cubes; i++) {
+        if (!g->lv.cube_drop[i]) continue;
+        vec3_t const c = g->lv.cubes[i];
+        float const  x = floorf(c.x), z = floorf(c.z), y = c.y + LV_DROP_DEPTH;
+        submit_box(v3(x + 0.1f, y - 0.02f, z + 0.1f), v3(x + 0.9f, y, z + 0.9f), cam, cs, NULL, 0xFF0C0D10u, 0);
+        submit_box(v3(x + 0.05f, y - 0.03f, z + 0.05f), v3(x + 0.95f, y - 0.01f, z + 0.1f), cam, cs, NULL, 0xFFFF8A1Cu,
+                   SE_TRI_EMISSIVE);
+        submit_box(v3(x + 0.05f, y - 0.03f, z + 0.9f), v3(x + 0.95f, y - 0.01f, z + 0.95f), cam, cs, NULL, 0xFFFF8A1Cu,
+                   SE_TRI_EMISSIVE);
     }
     // Doors: two panels, 0.2 thick in the middle of their cells, that
     // slide apart into the frame as the door opens, and a light across

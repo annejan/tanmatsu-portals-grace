@@ -1,5 +1,6 @@
 name: 05  Delivery
 hint: Carry the cube through a portal.
+story: The cube belongs over there. Portals do not care what you carry. Neither do we.
 size: 12 9 14
 facing: north
 

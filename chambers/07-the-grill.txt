@@ -1,5 +1,6 @@
 name: 07  The grill
 hint: Nothing you carry gets through the grill.
+story: The grill takes portals and cubes. It leaves you alone. For now.
 size: 12 7 12
 facing: north
 

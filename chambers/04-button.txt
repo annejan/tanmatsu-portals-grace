@@ -1,5 +1,6 @@
 name: 04  The button
 hint: Pick up a cube. Buttons hold doors open.
+story: This is a button. It likes weight. You have weight. The cube has more dignity.
 size: 12 6 14
 facing: north
 

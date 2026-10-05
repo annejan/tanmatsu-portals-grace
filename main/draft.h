@@ -12,6 +12,8 @@ typedef struct {
     char  id[CHAMBER_ID_N];  // file name without .txt
     char  name[32];
     char  hint[80];
+    char  story[160];
+    float timer;  // a pedestal button's seconds
     int   w, h, d;
     float yaw;                                 // the start's facing, radians
     char  grid[LV_MAX_H][LV_MAX_D][LV_MAX_W];  // [y][z][x]

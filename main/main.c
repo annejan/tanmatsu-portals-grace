@@ -30,6 +30,8 @@
 static char const TAG[] = "portal";
 
 #define MESSAGE_S   2.5f
+#define STORY_CPS   30.0f  // the story line types out this fast ...
+#define STORY_HOLD  5.0f   // ... and stays this long once it is all there
 #define CHAMBER_DIR "/sd/portals/chambers"
 
 static game_t         s_game;  // the chamber in play: level, player, portals, cubes
@@ -65,7 +67,14 @@ static void message(char const* text) {
     s_msg_t = MESSAGE_S;
 }
 
+// The chamber's story line: seconds since it started typing, and which
+// chamber it was -- a restart does not tell it again.
+static float s_story_t  = 0.0f;
+static int   s_story_of = -2;
+
 static void load_chamber(int index) {
+    if (index != s_story_of) s_story_t = 0.0f;
+    s_story_of = index;
     game_load(&s_game, index);
     render_set_level(&s_game.lv, s_game.portals);
     ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
@@ -156,6 +165,8 @@ static void on_init(void* user) {
 static void start_playtest(void) {
     s_pending_chamber = -1;
     game_load_level(&s_game, editor_level());
+    s_story_t  = 0.0f;
+    s_story_of = -1;
     render_set_level(&s_game.lv, s_game.portals);
     s_mode      = MODE_TEST;
     s_test_back = false;
@@ -271,6 +282,7 @@ static void on_update(float dt, void* user) {
     }
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
+    s_story_t += dt;
     // The next chamber, once "Chamber complete" has been read: in play
     // only, never in the editor's play-test.
     if (s_mode != MODE_PLAY) s_pending_chamber = -1;
@@ -319,6 +331,8 @@ static void on_backdrop(pax_buf_t* fb, void* user) {
     (void)user;  // every pixel is drawn by the passes; nothing to clear
 }
 
+static void draw_story(pax_buf_t* fb);
+
 static void hud(pax_buf_t* fb) {
     float const cx = RENDER_HALF_W, cy = RENDER_HORIZON_Y;
     // The crosshair: blue half left, orange half right, filled when placed.
@@ -352,10 +366,44 @@ static void hud(pax_buf_t* fb) {
     snprintf(stat, sizeof(stat), "%2.0f fps %3lld ms  %d pass %d tri%s%s", s_fps, s_render_us / 1000, passes, tris,
              settings_half_res() && s_half_ok ? "  half" : "", settings_gyro() ? "  gyro" : "");
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
+    draw_story(fb);
 
     if (s_msg_t > 0.0f) {
         pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
         pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
+    }
+}
+
+// The story line, typed out a letter at a time, in lines of whole words
+// along the bottom of the screen.
+static void draw_story(pax_buf_t* fb) {
+    char const* story = s_game.lv.story;
+    int const   len   = (int)strlen(story);
+    if (len == 0 || s_story_t > (float)len / STORY_CPS + STORY_HOLD) return;
+    int shown = (int)(s_story_t * STORY_CPS);
+    if (shown > len) shown = len;
+    enum {
+        WIDTH = 70,
+        LINES = 3
+    };
+    char line[LINES][WIDTH + 1];
+    int  n = 0, at = 0;
+    while (at < shown && n < LINES) {
+        int end = at + WIDTH < len ? at + WIDTH : len;
+        if (end < len)  // break at the last space that fits
+            for (int k = end; k > at; k--)
+                if (story[k] == ' ') {
+                    end = k;
+                    break;
+                }
+        int const upto = end < shown ? end : shown;
+        snprintf(line[n++], sizeof(line[0]), "%.*s", upto - at, story + at);
+        at = end;
+        while (at < len && story[at] == ' ') at++;
+    }
+    for (int i = 0; i < n; i++) {
+        float const y = (float)(DISPLAY_LOG_H - 44 - (n - 1 - i) * 18);
+        pax_draw_text(fb, 0xFFFFE08Au, pax_font_sky_mono, 14, 16, y, line[i]);
     }
 }
 

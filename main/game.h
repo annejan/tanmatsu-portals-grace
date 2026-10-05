@@ -38,7 +38,7 @@ typedef struct {
     float dyaw, dpitch;  // radians
     bool  jump;          // held
     bool  fire[2];       // pressed this step
-    bool  use;           // pressed this step: pick up or put down
+    bool  use;           // pressed this step: pick up, put down, or press
 } game_input_t;
 
 // Events, on top of player_event_t's.
@@ -55,6 +55,9 @@ enum {
     GAME_EV_SHOT_FAIL   = 1 << 17,  // a shot the surface would not take
     GAME_EV_FIZZLE      = 1 << 18,  // a fizzler took the portals, or a cube
     GAME_EV_LAUNCH      = 1 << 19,  // a faith plate threw something
+    GAME_EV_TICK        = 1 << 20,  // a pedestal button's timer: another second gone
+    GAME_EV_PRESS       = 1 << 21,  // a pedestal button pressed by hand
+    GAME_EV_DROPPER     = 1 << 22,  // a dropper let a new cube out
 };
 
 void game_load(game_t* g, int chamber);

@@ -85,6 +85,8 @@ Write each line as `key: value`.
 | `hint` | One line under the name, up to 79 characters. |
 | `size` | The width (x), height (y) and depth (z) in cells. One cell is 1 m. The maximum is 24 16 24. |
 | `facing` | The direction the player faces at the start: `north` (+z), `east` (+x), `south`, `west`, or degrees. |
+| `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. |
+| `timer` | Optional. How many seconds a pedestal button stays down, from 0.5 to 60. The default is 4. |
 
 ## Layers
 
@@ -114,6 +116,8 @@ cells are metal.
 | `J` | a faith plate, in the floor: it throws the player or a cube to its target |
 | `T` | a faith plate's target: the air cell where it lands you. The first `J` goes with the first `T`, in reading order (layer by layer upwards, each layer top line first, left to right). |
 | `M` | a moving platform: a box of `M` cells where it starts. It is solid, and what stands on it rides along. |
+| `I` | a pedestal: a solid block, waist high. A button digit on top of it is a pedestal button. You press it with Use, and it stays down for `timer` seconds, ticking. Standing on it or putting a cube on it does nothing. |
+| `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 
 Every character has exactly one meaning; `make check` tests this. Older

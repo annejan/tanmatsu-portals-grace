@@ -1,5 +1,6 @@
 name: 02  The ledge
 hint: Only some panels take a portal.
+story: Not every surface wants a portal. Neither do we, frankly, but here we are.
 size: 10 10 14
 facing: north
 

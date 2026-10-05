@@ -540,6 +540,70 @@ static void test_draft_save(void) {
           "a file that would not read back is not saved: %s", err);
 }
 
+// Pedestal buttons, droppers, the story line and the timer (chamber 11).
+static void test_pedestal_dropper(void) {
+    static game_t      g;
+    game_input_t const idle = {0};
+    int const          c    = demo_chamber(demo_find("11-against-the-clock"));
+    CHECK(c >= 0, "chamber 11 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_buttons == 2 && !g.lv.buttons[0].pedestal && g.lv.buttons[1].pedestal,
+          "a floor button and a pedestal");
+    CHECK(fabsf(g.lv.timer - 3.0f) < 1e-6f && g.lv.story[0] != '\0', "timer 3 and a story");
+    CHECK(g.n_cubes == 1 && g.lv.cube_drop[0] && g.cubes[0].body.pos.y > 3.0f, "the cube starts in the dropper");
+    for (int i = 0; i < 100; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.cubes[0].body.on_ground && fabsf(g.cubes[0].body.pos.y - 1.0f) < 0.01f, "and drops to the floor (y %.2f)",
+          g.cubes[0].body.pos.y);
+    // Lost, it comes out of the dropper again.
+    g.cubes[0].body.pos = v3(5.5f, -5.0f, 5.5f);
+    int ev              = game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_DROPPER) && g.cubes[0].body.pos.y > 3.0f, "a lost cube drops out of the dropper again");
+
+    // A cube resting on the pedestal's pad does not press it; Use does.
+    button_t const* pb  = &g.lv.buttons[1];
+    g.cubes[0].body.pos = v3((float)pb->x + 0.5f, (float)pb->y + 1.0f, (float)pb->z + 0.5f);
+    g.cubes[0].body.vel = v3(0, 0, 0);
+    for (int i = 0; i < 20; i++) game_step(&g, &idle, 0.02f);
+    CHECK(!g.lv.buttons[1].pressed, "a cube on a pedestal button does not press it");
+    game_load(&g, c);
+    g.pl.pos         = v3(2.4f, 1.0f, 4.5f);
+    g.pl.yaw         = -1.5707963f;  // west
+    vec3_t const eye = player_eye(&g.pl), to = v3(1.5f, 2.1f, 4.5f);
+    g.pl.pitch = atan2f(eye.y - to.y, eye.x - to.x);
+    int down = 0, up = 0, ticks = 0;
+    ev = game_step(&g, &(game_input_t){.use = true}, 0.02f);
+    CHECK(ev & GAME_EV_PRESS, "Use presses the pedestal button");
+    float held = 0.0f;
+    for (int i = 0; i < 250; i++) {
+        down  += (ev & GAME_EV_BUTTON_DOWN) != 0;
+        up    += (ev & GAME_EV_BUTTON_UP) != 0;
+        ticks += (ev & GAME_EV_TICK) != 0;
+        if (g.lv.buttons[1].pressed) held += 0.02f;
+        ev = game_step(&g, &idle, 0.02f);
+    }
+    CHECK(down == 1 && up == 1 && ticks == 2 && fabsf(held - 3.0f) < 0.05f,
+          "down for 3 s (%.2f), ticking each second (%d), down %d up %d", held, ticks, down, up);
+
+    // The puzzle: with the cube on the floor button, walking from the
+    // pedestal to the door is too slow; the door is shut on arrival.
+    game_load(&g, c);
+    g.cubes[0].body.pos = v3((float)g.lv.buttons[0].x + 0.5f, 1.0f, (float)g.lv.buttons[0].z + 0.5f);
+    g.pl.pos            = v3(2.4f, 1.0f, 4.5f);
+    g.pl.yaw            = -1.5707963f;
+    g.pl.pitch          = atan2f(eye.y - to.y, eye.x - to.x);
+    game_step(&g, &(game_input_t){.use = true}, 0.02f);
+    g.pl.yaw     = atan2f(22.5f - 2.4f, 5.4f - 4.5f);  // straight for the door
+    g.pl.pitch   = 0.0f;
+    float best_z = 0.0f;
+    for (int i = 0; i < 400; i++) {
+        if (g.pl.pos.x > 22.0f) g.pl.yaw = 0.0f;  // there: turn north, into it
+        game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+        best_z = fmaxf(best_z, g.pl.pos.z);
+    }
+    CHECK(best_z < 6.0f, "on foot, the door is shut before you get there (got to z %.2f)", best_z);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -575,6 +639,10 @@ static void test_parse_rules(void) {
         // One door's box holding another's cell.
         {"size: 7 4 3\nlayer 1\n#######\n#S.aba#\n#######\nlayer 2\n#######\n#..aba#\n#######\n", "overlap"},
         {"size: 6 4 3\nlayer 1\n######\n#S.ab#\n######\nlayer 2\n######\n#..ba#\n######\n", "overlap"},
+        // A dropper's cube needs room under it.
+        {"size: 5 4 3\nlayer 1\n#####\n#S#.#\n#####\nlayer 2\n#####\n#.V.#\n#####\n", "needs air under it"},
+        {"size: 5 3 3\ntimer: 0\nlayer 1\n#####\n#.S.#\n#####\n", "timer"},
+        {"size: 5 3 3\ntimer: 99\nlayer 1\n#####\n#.S.#\n#####\n", "timer"},
         // Nothing can rest on a button over a fizzler.
         {"size: 5 4 3\nlayer 1\n#####\n#SFa#\n#####\nlayer 2\n#####\n#.1.#\n#####\n", "nothing under it"},
     };
@@ -777,7 +845,8 @@ static void test_legend(void) {
     for (int i = 0; i < chamber_legend_n; i++) {
         char const k = chamber_legend[i].key;
         if (k == 0) continue;
-        CHECK(strchr(CHAMBER_EDITOR_KEYS, k) == NULL, "'%c' is on key %c, which the editor uses", chamber_legend[i].ch, k);
+        CHECK(strchr(CHAMBER_EDITOR_KEYS, k) == NULL, "'%c' is on key %c, which the editor uses", chamber_legend[i].ch,
+              k);
         for (int j = i + 1; j < chamber_legend_n; j++)
             CHECK(chamber_legend[j].key != k, "key %c picks both '%c' and '%c'", k, chamber_legend[i].ch,
                   chamber_legend[j].ch);
@@ -1157,6 +1226,7 @@ int main(void) {
     test_caps();
     test_draft_keeps();
     test_parse_rules();
+    test_pedestal_dropper();
     test_draft_save();
     test_glass();
     test_things();

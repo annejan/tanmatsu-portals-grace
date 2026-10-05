@@ -1,5 +1,6 @@
 name: 09  The ferry
 hint: Ride it across. Mind the gap.
+story: The platform keeps its own schedule. Do try to be on it.
 size: 16 7 7
 facing: east
 

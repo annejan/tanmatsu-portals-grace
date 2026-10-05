@@ -14,6 +14,19 @@ static void cube_spawn(game_t* g, int i) {
     g->cubes[i].body = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
 }
 
+// A cube lost: a new one where it started -- out of its dropper, if it
+// came from one.
+static int cube_respawn(game_t* g, int i) {
+    cube_spawn(g, i);
+    return g->lv.cube_drop[i] ? GAME_EV_DROPPER : 0;
+}
+
+// Where a pedestal button can be pressed: its pad, and a little above.
+static aabb_t pedestal_pad(button_t const* bt) {
+    float const x = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
+    return (aabb_t){v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.25f, z + 0.95f)};
+}
+
 void game_load(game_t* g, int chamber) {
     static level_t lv;  // static: a level is too big for the stack
     level_load(&lv, chamber);
@@ -124,6 +137,22 @@ int game_use(game_t* g) {
             best = t;
             pick = i;
         }
+    }
+    // A pedestal button, if that is nearer: down for the chamber's time,
+    // from the start again if it was down already.
+    int press = -1;
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        if (!g->lv.buttons[b].pedestal) continue;
+        aabb_t const pad = pedestal_pad(&g->lv.buttons[b]);
+        float const  t   = ray_aabb(eye, fwd, &pad);
+        if (t >= 0.0f && t < best) {
+            best  = t;
+            press = b;
+        }
+    }
+    if (press >= 0) {
+        g->lv.buttons[press].timer_left = g->lv.timer;
+        return GAME_EV_PRESS;
     }
     if (pick < 0) return 0;
     g->held     = pick;
@@ -250,7 +279,7 @@ static int step_cube(game_t* g, int i, float dt) {
     bool const   fizz = swept_fizzler(&g->lv, &start, &box, pev & PHYS_TELEPORT);
     if (b->pos.y < -4.0f || (b->on_ground && under == MAT_GOO) || fizz) {
         if (i == g->held) drop(g);
-        cube_spawn(g, i);
+        ev |= cube_respawn(g, i);
         if (fizz) ev |= GAME_EV_FIZZLE;
         return ev;
     }
@@ -380,8 +409,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         if (g->held >= 0) {
             int const c = g->held;
             drop(g);
-            cube_spawn(g, c);
-            ev |= GAME_EV_FIZZLE;
+            ev |= cube_respawn(g, c) | GAME_EV_FIZZLE;
         }
     }
     // A faith plate.
@@ -394,14 +422,23 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);
 
-    // Buttons: down under the player or a cube that is not being carried.
+    // Buttons: down under the player or a cube that is not being carried;
+    // a pedestal button while its time runs, ticking each second.
     aabb_t const pa = player_aabb(&g->pl);
     for (int b = 0; b < g->lv.n_buttons; b++) {
         button_t* bt   = &g->lv.buttons[b];
-        bool      down = on_button(bt, &pa);
-        for (int i = 0; i < g->n_cubes && !down; i++) {
-            aabb_t const c = cube_aabb(&g->cubes[i]);
-            down           = i != g->held && on_button(bt, &c);
+        bool      down = false;
+        if (bt->pedestal) {
+            float const before = bt->timer_left;
+            bt->timer_left     = fmaxf(0.0f, bt->timer_left - dt);
+            down               = bt->timer_left > 0.0f;
+            if (down && ceilf(bt->timer_left) != ceilf(before)) ev |= GAME_EV_TICK;
+        } else {
+            down = on_button(bt, &pa);
+            for (int i = 0; i < g->n_cubes && !down; i++) {
+                aabb_t const c = cube_aabb(&g->cubes[i]);
+                down           = i != g->held && on_button(bt, &c);
+            }
         }
         if (down != bt->pressed) ev |= GAME_EV_BUTTON | (down ? GAME_EV_BUTTON_DOWN : GAME_EV_BUTTON_UP);
         bt->pressed = down;

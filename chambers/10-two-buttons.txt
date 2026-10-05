@@ -1,5 +1,6 @@
 name: 10  Two buttons
 hint: The door needs both.
+story: One door, two buttons, two cubes. We trust you can count to two.
 size: 12 6 12
 facing: north
 

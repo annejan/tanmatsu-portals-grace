@@ -52,6 +52,8 @@ chamber_glyph_t const chamber_legend[] = {
     {'T', "plate target", GLYPH_TARGET, MAT_AIR, 0, 'T', 0xFF6A3A10u},
     {'M', "platform", GLYPH_PLATFORM, MAT_AIR, 0, 'M', 0xFF5A6070u},
     {'N', "platform goes to", GLYPH_PLATFORM_END, MAT_AIR, 0, 'N', 0xFF2C5C9Cu},
+    {'I', "pedestal", GLYPH_CELL, MAT_PEDESTAL, 0, 'I', 0xFF7A7E86u},
+    {'V', "cube dropper", GLYPH_DROPPER, MAT_DROPPER, 0, 'V', 0xFF50402Au},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -71,7 +73,7 @@ static char char_of(int kind, int mat, int link) {
     for (int i = 0; i < chamber_legend_n; i++) {
         chamber_glyph_t const* g = &chamber_legend[i];
         if (g->kind != kind) continue;
-        if (kind == GLYPH_CELL && g->mat != mat) continue;
+        if ((kind == GLYPH_CELL || kind == GLYPH_DROPPER) && g->mat != mat) continue;
         if ((kind == GLYPH_DOOR || kind == GLYPH_BUTTON) && g->link != link) continue;
         return g->ch;
     }
@@ -212,6 +214,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (err_n) err[0] = '\0';
     memset(lv, 0, sizeof(*lv));
     snprintf(lv->name, sizeof(lv->name), "Untitled");
+    lv->timer                        = LV_TIMER_S;
     int         ns                   = 0;
     int         layer                = -1;  // the layer whose rows are being read
     int         row                  = 0;
@@ -277,10 +280,16 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
                         lv->cubes[lv->n_cubes++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
+                    case GLYPH_DROPPER:
+                        // Its cube appears under it (checked below: air there).
+                        if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
+                        lv->cube_drop[lv->n_cubes] = true;
+                        lv->cubes[lv->n_cubes++]   = v3((float)x + 0.5f, (float)layer - LV_DROP_DEPTH, (float)z + 0.5f);
+                        break;
                     case GLYPH_BUTTON:
                         if (lv->n_buttons >= LV_MAX_BUTTONS) return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
                         if (layer == 0) return fail(&c, "a button needs a cell under it");
-                        lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, gl->link, false};
+                        lv->buttons[lv->n_buttons++] = (button_t){.x = x, .y = layer - 1, .z = z, .link = gl->link};
                         break;
                     default:
                         break;
@@ -339,6 +348,14 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             snprintf(lv->name, sizeof(lv->name), "%s", v);
         } else if (strcmp(k, "hint") == 0) {
             snprintf(lv->hint, sizeof(lv->hint), "%s", v);
+        } else if (strcmp(k, "story") == 0) {
+            snprintf(lv->story, sizeof(lv->story), "%s", v);
+        } else if (strcmp(k, "timer") == 0) {
+            float t = 0;
+            int   n = 0;
+            if (sscanf(v, "%f %n", &t, &n) != 1 || v[n] != '\0' || !isfinite(t) || t < 0.5f || t > 60.0f)
+                return fail(&c, "timer: seconds, from 0.5 to 60");
+            lv->timer = t;
         } else if (strcmp(k, "size") == 0) {
             if (have_size) return fail(&c, "size given twice");
             if (sscanf(v, "%d %d %d", &lv->w, &lv->h, &lv->d) != 3 || lv->w < 3 || lv->h < 3 || lv->d < 3 ||
@@ -418,8 +435,16 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         uint8_t const   m = level_get(lv, b->x, b->y, b->z);
         if (m == MAT_AIR || m == MAT_DOOR || m == MAT_FIZZ)
             return fail(&c, "button '%c' has nothing under it", chamber_button_char(b->link));
+        lv->buttons[i].pedestal = m == MAT_PEDESTAL;
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
+    }
+    // A dropper's cube needs room to come out.
+    for (int i = 0; i < lv->n_cubes; i++) {
+        if (!lv->cube_drop[i]) continue;
+        int const x = (int)floorf(lv->cubes[i].x), y = (int)floorf(lv->cubes[i].y), z = (int)floorf(lv->cubes[i].z);
+        if (y < 0 || level_get(lv, x, y, z) != MAT_AIR)
+            return fail(&c, "the dropper at %d %d %d needs air under it", x, y + 1, z);
     }
     // More than the renderer holds: refused here, not drawn with holes.
     int const quads = level_mesh(lv, NULL, 0, NULL, 0);
@@ -459,7 +484,8 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
         if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z)
             return char_of(GLYPH_BUTTON, 0, lv->buttons[i].link);
     for (int i = 0; i < lv->n_cubes; i++)
-        if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
+        if (!lv->cube_drop[i] && (int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y &&
+            (int)floorf(lv->cubes[i].z) == z)
             return char_of(GLYPH_CUBE, 0, 0);
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
         return char_of(GLYPH_START, 0, 0);
@@ -477,6 +503,7 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
             return char_of(GLYPH_TARGET, 0, 0);
     uint8_t const m = level_get(lv, x, y, z);
     if (m == MAT_JUMP) return char_of(GLYPH_PLATE, 0, 0);
+    if (m == MAT_DROPPER) return char_of(GLYPH_DROPPER, m, 0);
     if (m == MAT_DOOR) {
         int const d = level_door_at(lv, x, y, z);
         return char_of(GLYPH_DOOR, 0, d >= 0 ? lv->doors[d].link : 0);
@@ -497,6 +524,8 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
     if (out_n) out[0] = '\0';
     put(&o, "name: %s\n", lv->name);
     if (lv->hint[0]) put(&o, "hint: %s\n", lv->hint);
+    if (lv->story[0]) put(&o, "story: %s\n", lv->story);
+    if (lv->timer != LV_TIMER_S) put(&o, "timer: %g\n", (double)lv->timer);
     put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
     char const* f = chamber_facing_name(lv->spawn_yaw);
     if (f)

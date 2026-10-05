@@ -1,5 +1,6 @@
 name: 08  Through the glass
 hint: Glass stops a portal. Look over it.
+story: Glass stops a portal shot. It does not stop you looking. Look higher.
 size: 12 9 12
 facing: north
 

@@ -48,6 +48,8 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_MENU]        = {W_SINE, 900, 900, 0.04f, 0.002f, 0.18f, 0, {0}},
     [SND_FIZZLE]      = {W_NOISE, 6000, 2000, 0.35f, 0.005f, 0.30f, 5000, {0}},
     [SND_LAUNCH]      = {W_SINE, 120, 520, 0.35f, 0.005f, 0.50f, 0, {0}},
+    [SND_TICK]        = {W_SQUARE, 1800, 1800, 0.03f, 0.001f, 0.20f, 4000, {0}},
+    [SND_DROPPER]     = {W_NOISE, 900, 200, 0.30f, 0.01f, 0.35f, 1200, {0}},
 };
 
 typedef struct {
@@ -153,13 +155,15 @@ void sound_events(int ev) {
     if (ev & PL_EV_LANDED) sound_play(SND_LAND);
     if (ev & GAME_EV_PICKUP) sound_play(SND_PICKUP);
     if (ev & GAME_EV_DROP) sound_play(SND_DROP);
-    if (ev & GAME_EV_BUTTON_DOWN) sound_play(SND_BUTTON_DOWN);
+    if (ev & (GAME_EV_BUTTON_DOWN | GAME_EV_PRESS)) sound_play(SND_BUTTON_DOWN);
     if (ev & GAME_EV_BUTTON_UP) sound_play(SND_BUTTON_UP);
     if (ev & GAME_EV_DOOR) sound_play(SND_DOOR);
     if (ev & PL_EV_DIED) sound_play(SND_DEATH);
     if (ev & PL_EV_EXIT) sound_play(SND_COMPLETE);
     if (ev & GAME_EV_FIZZLE) sound_play(SND_FIZZLE);
     if (ev & GAME_EV_LAUNCH) sound_play(SND_LAUNCH);
+    if (ev & GAME_EV_TICK) sound_play(SND_TICK);
+    if (ev & GAME_EV_DROPPER) sound_play(SND_DROPPER);
 }
 
 // --- Music ----------------------------------------------------------------

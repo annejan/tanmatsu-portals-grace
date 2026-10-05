@@ -1,5 +1,6 @@
 name: 03  The fling
 hint: Fall far into one, fly out of the other.
+story: What falls far into one portal flies far out of the other. Physics is not optional here.
 size: 23 15 9
 facing: west
 

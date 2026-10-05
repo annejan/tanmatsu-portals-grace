@@ -11,6 +11,8 @@
 //   hint: Both doors need a cube.
 //   size: 12 6 14                cells across (x), up (y), deep (z)
 //   facing: north                north +z, east +x, south, west, or degrees
+//   story: Words, as it starts.  optional; also `timer: 4`, a pedestal
+//                                button's seconds
 //
 //   layer 1                      one per height y; a missing one is metal
 //   ############                 a map from above: the top line is the
@@ -67,6 +69,7 @@ typedef enum {
     GLYPH_PLATFORM_END,  // the cell the platform's lowest corner goes to
     GLYPH_DOOR,          // a cell of door `link`
     GLYPH_BUTTON,        // a button for door `link`, above a solid cell
+    GLYPH_DROPPER,       // a ceiling hatch (MAT_DROPPER) with its own cube
 } glyph_kind_t;
 
 typedef struct {

@@ -1,5 +1,6 @@
 name: 06  Faith plate
 hint: Stand on the plate.
+story: The faith plate will throw you. Where you land is a matter of faith, and of our arithmetic.
 size: 14 10 9
 facing: east
 
