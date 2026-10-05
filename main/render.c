@@ -418,6 +418,18 @@ static void submit_cube(aabb_t const* b, float k, cam_t const* cam, clipset_t co
 #undef P
 }
 
+// A flat octagon of radius r in the plane through c facing n, spanned by
+// u and v: as near round as a lens needs to be.
+static void octagon(vec3_t c, vec3_t n, vec3_t u, vec3_t v, float r, uint32_t argb, uint32_t flags, cam_t const* cam,
+                    clipset_t const* cs) {
+    cvert_t q[8];
+    for (int i = 0; i < 8; i++) {
+        float const a = (float)i * 0.78539816f + 0.39269908f;
+        q[i]          = (cvert_t){v3_add(c, v3_add(v3_scale(u, r * cosf(a)), v3_scale(v, r * sinf(a)))), 0, 0};
+    }
+    submit_poly(q, 8, n, cam, cs, NULL, argb, flags);
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
@@ -507,6 +519,24 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         vec3_t const  c = v3_mad(v3(b->pos.x, b->pos.y + CUBE_HALF, b->pos.z), f, t);
         submit_box(v3(c.x - 0.08f, c.y - 0.08f, c.z - 0.08f), v3(c.x + 0.08f, c.y + 0.08f, c.z + 0.08f), cam, cs, NULL,
                    0xFFFF3A28u, SE_TRI_EMISSIVE);
+    }
+    // Laser catchers: a lens on each open side, in a metal ring, dark
+    // until a beam lights it.
+    for (int i = 0; i < g->lv.n_buttons; i++) {
+        button_t const* bt = &g->lv.buttons[i];
+        if (!bt->laser) continue;
+        vec3_t const mid = v3((float)bt->x + 0.5f, (float)bt->y + 0.5f, (float)bt->z + 0.5f);
+        for (int face = 0; face < 6; face++) {
+            if (face == DIR_PY || face == DIR_NY) continue;  // the button is on top
+            int dx, dy, dz;
+            dir_step(face, &dx, &dy, &dz);
+            if (level_solid(&g->lv, bt->x + dx, bt->y + dy, bt->z + dz)) continue;
+            vec3_t const n = dir_vec(face);
+            vec3_t const u = v3(fabsf(n.z), 0, fabsf(n.x)), v = v3(0, 1, 0);
+            octagon(v3_mad(mid, n, 0.503f), n, u, v, 0.40f, 0xFF8A8E96u, 0, cam, cs);
+            octagon(v3_mad(mid, n, 0.506f), n, u, v, 0.30f, bt->pressed ? 0xFFFF3A28u : 0xFF1A1414u,
+                    bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
+        }
     }
     // Droppers: a dark hatch under the ceiling cell, with a light round
     // its edge where the cube comes out.
