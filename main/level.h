@@ -38,6 +38,7 @@ typedef enum {
     MAT_FIELD,     // a laser field: a red sheet like a fizzler, deadly to touch
     MAT_CRUSHER,   // while parsing only: a crusher's cells (then crusher_t, and air)
     MAT_CUP,       // a floor a sphere button stands on: only a sphere presses it, and it holds the sphere
+    MAT_FUNNEL,    // an excursion funnel emitter: a tractor beam out of its one open side
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -76,6 +77,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_GELS     4
 #define LV_MAX_PELLETS  2
 #define LV_MAX_CRUSHERS 4
+#define LV_MAX_FUNNELS  2
 
 // A crusher: a block hanging in the ceiling, [lo, hi), that slams down
 // `drop` metres onto the floor under it and rises again, over and over.
@@ -138,7 +140,8 @@ typedef struct {
 // A dropper's cube appears with its base this far under the hatch.
 #define LV_DROP_DEPTH 0.7f
 
-// An emitter -- of a laser (MAT_EMITTER) or a light bridge (MAT_BRIDGE):
+// An emitter -- of a laser (MAT_EMITTER), a light bridge (MAT_BRIDGE) or
+// an excursion funnel (MAT_FUNNEL):
 // its cell (x, y, z), and the side it emits out of (a dir_t), its only
 // open one.
 typedef struct {
@@ -154,31 +157,34 @@ typedef struct {
 } jump_t;
 
 typedef struct {
-    char       name[32];
-    char       hint[80];
-    int        w, h, d;
-    uint8_t    cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
-    vec3_t     spawn;  // feet
-    float      spawn_yaw;
-    door_t     doors[LV_MAX_DOORS];
-    int        n_doors;
-    button_t   buttons[LV_MAX_BUTTONS];
-    int        n_buttons;
-    vec3_t     cubes[LV_MAX_CUBES];         // where each cube starts, its base
-    bool       cube_drop[LV_MAX_CUBES];     // ... out of a dropper's hatch
-    bool       cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
-    bool       cube_sphere[LV_MAX_CUBES];   // a sphere: it rolls, and walking into it pushes it
-    bool       cube_turret[LV_MAX_CUBES];   // a turret: it shoots the player it sees
-    float      cube_yaw[LV_MAX_CUBES];      // the way a turret faces at the start: towards the player's
-    int        n_cubes;
-    char       story[160];  // shown as the chamber starts
-    float      timer;       // seconds a pedestal button stays down
-    jump_t     jumps[LV_MAX_JUMPS];
-    int        n_jumps;
-    emitter_t  lasers[LV_MAX_LASERS];
-    int        n_lasers;
-    emitter_t  bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
-    int        n_bridges;
+    char      name[32];
+    char      hint[80];
+    int       w, h, d;
+    uint8_t   cells[LV_MAX_W * LV_MAX_H * LV_MAX_D];
+    vec3_t    spawn;  // feet
+    float     spawn_yaw;
+    door_t    doors[LV_MAX_DOORS];
+    int       n_doors;
+    button_t  buttons[LV_MAX_BUTTONS];
+    int       n_buttons;
+    vec3_t    cubes[LV_MAX_CUBES];         // where each cube starts, its base
+    bool      cube_drop[LV_MAX_CUBES];     // ... out of a dropper's hatch
+    bool      cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
+    bool      cube_sphere[LV_MAX_CUBES];   // a sphere: it rolls, and walking into it pushes it
+    bool      cube_turret[LV_MAX_CUBES];   // a turret: it shoots the player it sees
+    float     cube_yaw[LV_MAX_CUBES];      // the way a turret faces at the start: towards the player's
+    int       n_cubes;
+    char      story[160];  // shown as the chamber starts
+    float     timer;       // seconds a pedestal button stays down
+    jump_t    jumps[LV_MAX_JUMPS];
+    int       n_jumps;
+    emitter_t lasers[LV_MAX_LASERS];
+    int       n_lasers;
+    emitter_t bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
+    int       n_bridges;
+    emitter_t funnels[LV_MAX_FUNNELS];  // excursion funnels
+    int       n_funnels;
+    int funnel_link;  // -1: they pull away from their emitters; else, while that link's buttons are all down, towards
     crusher_t  crushers[LV_MAX_CRUSHERS];
     int        n_crushers;
     emitter_t  launchers[LV_MAX_PELLETS];  // energy pellet launchers

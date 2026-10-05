@@ -1196,6 +1196,81 @@ static void test_turrets(void) {
           "a turret lost does not come back");
 }
 
+static void test_funnels(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("20-excursion"));
+    CHECK(c >= 0, "chamber 20 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_funnels == 1 && g.lv.funnels[0].dir == DIR_PZ && g.funnel_n[0] == 1 &&
+              fabsf(g.funnel[0][0].a.z - 1.0f) < 1e-4f && fabsf(g.funnel[0][0].b.z - 7.0f) < 1e-4f &&
+              chamber_cell_char(&g.lv, 2, 1, 0) == '%',
+          "a funnel from the south wall to the north one");
+    // A cube in it floats to its middle and along it, at its speed.
+    g.n_cubes  = 1;
+    g.cubes[0] = (cube_t){.body = {v3(2.5f, 1.4f, 2.0f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    body_t const* const b = &g.cubes[0].body;
+    CHECK(fabsf(b->pos.y + CUBE_HALF - 1.5f) < 0.06f && fabsf(b->pos.z - (2.0f + FUNNEL_SPEED)) < 0.15f,
+          "a cube floats along it (at %.2f %.2f after 1 s)", b->pos.y, b->pos.z);
+    // Through portals: north wall to high on the west wall, and on east.
+    portal_place_at(&g.lv, 2, 1, 7, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]);
+    portal_place_at(&g.lv, 0, 5, 4, DIR_PX, v3(0, 1, 0), &g.portals[0], &g.portals[1]);
+    game_step(&g, &idle, 0.02f);
+    beam_seg_t const* const s2 = &g.funnel[0][1];
+    CHECK(g.funnel_n[0] == 2 && s2->b.x > s2->a.x + 8.0f && fabsf(s2->a.y - 5.5f) < 0.05f,
+          "through the portals and on east, high up (%d pieces)", g.funnel_n[0]);
+    // A player in it floats along its middle, gravity or no.
+    g.pl.pos = v3(3.0f, 5.5f - PL_HEIGHT * 0.5f, 4.5f);
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    CHECK(fabsf(g.pl.pos.y + PL_HEIGHT * 0.5f - 5.5f) < 0.02f && g.pl.pos.x > 5.5f,
+          "a player floats along it, at its middle (%.3f m off, at x %.2f)", g.pl.pos.y + PL_HEIGHT * 0.5f - 5.5f,
+          g.pl.pos.x);
+    // Turned round by its button: towards the emitter.
+    game_load(&g, c);
+    vec3_t carry;
+    g.lv.funnel_link = 0;
+    g.lv.n_buttons   = 1;
+    g.lv.buttons[0]  = (button_t){.x = 4, .y = 0, .z = 4, .link = 0, .pressed = true};
+    CHECK(funnel_reversed(&g) && funnel_carry(&g, v3(2.5f, 1.5f, 3.0f), &carry) && carry.z < -FUNNEL_SPEED + 0.01f,
+          "its button down, it pulls back (%.2f)", carry.z);
+    g.lv.buttons[0].pressed = false;
+    CHECK(!funnel_reversed(&g) && funnel_carry(&g, v3(2.5f, 1.5f, 3.0f), &carry) && carry.z > FUNNEL_SPEED - 0.01f,
+          "its button up, it pushes on (%.2f)", carry.z);
+    g.lv.n_buttons = 0;
+    CHECK(!funnel_reversed(&g), "with no button, it never turns round");
+    CHECK(!funnel_carry(&g, v3(3.6f, 1.5f, 3.0f), &carry) && !funnel_carry(&g, v3(2.5f, 2.6f, 3.0f), &carry) &&
+              !funnel_carry(&g, v3(2.5f, 1.5f, 0.5f), &carry) && !funnel_carry(&g, v3(2.5f, 1.5f, 7.5f), &carry),
+          "outside it, nothing is carried: not beside it, nor past either end");
+    // The file: funnel: N, with or without a door for the button.
+    char const* const ok = "size: 6 4 3\nfunnel: 1\nlayer 1\n######\n#S.1.%\n######\nlayer 2\n######\n#....#\n######\n";
+    CHECK(chamber_parse(ok, &lv, NULL, NULL, err, sizeof(err)) && lv.funnel_link == 0 && lv.n_funnels == 1 &&
+              lv.funnels[0].dir == DIR_NX,
+          "funnel: 1, its button with no door: %s", err);
+    // Written back, by the game and by the editor, it keeps its button.
+    static char    text[4096];
+    static level_t again;
+    static draft_t d;
+    chamber_write(&lv, NULL, 0, text, sizeof(text));
+    CHECK(chamber_parse(text, &again, NULL, NULL, err, sizeof(err)) && again.funnel_link == 0,
+          "written and read back, funnel: 1 stays");
+    CHECK(draft_from_text(&d, "f", ok, err, sizeof(err)) && draft_text(&d, text, sizeof(text)) > 0 &&
+              strstr(text, "funnel: 1\n") != NULL,
+          "the editor keeps funnel: 1");
+    char const* const bad[][2] = {
+        {"size: 6 4 3\nfunnel: 1\nlayer 1\n######\n#S.1.#\n######\nlayer 2\n######\n#....#\n######\n",
+         "there is no funnel"},
+        {"size: 6 4 3\nfunnel: 2\nlayer 1\n######\n#S...%\n######\nlayer 2\n######\n#....#\n######\n",
+         "no button for it"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK(!chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err)) && strstr(err, bad[i][1]) != NULL,
+              "refused (%s): %s", bad[i][1], err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1838,6 +1913,7 @@ int main(void) {
     test_crushers();
     test_spheres();
     test_turrets();
+    test_funnels();
     test_draft_save();
     test_glass();
     test_things();

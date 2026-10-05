@@ -13,6 +13,7 @@
 #define BLUE_JUMP    10.5f  // m/s: about 3.7 m up, at this gravity
 #define BLUE_BOUNCE  0.9f   // of the speed it came down at
 #define BOUNCE_FROM  3.0f   // m/s: slower than this, a landing does not bounce
+#define FLOAT_STEER  2.5f   // m/s of steering in a funnel: enough to get out of one
 
 void player_spawn(player_t* p, level_t const* lv) {
     *p     = (player_t){0};
@@ -51,7 +52,11 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
     int const gel =
         p->on_ground ? level_paint(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z))
                      : GEL_NONE;
-    if (p->on_ground) {
+    if (in->floating) {
+        // Carried by a funnel: its pull, and a little steering.
+        p->vel       = v3_mad(in->carry, wish, FLOAT_STEER);
+        p->on_ground = false;
+    } else if (p->on_ground) {
         bool const   orange = gel == GEL_ORANGE;
         vec3_t const target = v3_scale(wish, orange ? ORANGE_SPEED : WALK_SPEED);
         vec3_t       dv     = v3(target.x - p->vel.x, 0.0f, target.z - p->vel.z);
@@ -77,7 +82,7 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
             p->vel.z *= cap / after;
         }
     }
-    p->vel.y = fall_half(p->vel.y, dt);
+    if (!in->floating) p->vel.y = fall_half(p->vel.y, dt);
 
     body_t    b   = as_body(p);
     int       via = -1;

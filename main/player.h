@@ -21,8 +21,10 @@ typedef struct {
 } player_t;
 
 typedef struct {
-    float fwd, strafe;  // -1 .. 1
-    bool  jump;
+    float  fwd, strafe;  // -1 .. 1
+    bool   jump;
+    bool   floating;  // in an excursion funnel: no gravity, no ground ...
+    vec3_t carry;     // ... and carried along at this, steering a little
 } player_input_t;
 
 typedef enum {

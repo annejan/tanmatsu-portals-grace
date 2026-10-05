@@ -88,6 +88,7 @@ Write each line as `key: value`.
 | `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. `[Subject-Name-here]` in it becomes the nickname set under Owner in the launcher, if there is one. |
 | `timer` | Optional. How many seconds a pedestal button stays down, from 0.5 to 60. The default is 4. |
 | `platform` | Optional. A button digit, `1` to `8`: the moving platform then moves only while all of that button's group are down, and stands still otherwise. Such a button needs no door. |
+| `funnel` | Optional. A button digit, `1` to `8`: while all of that button's group are down, the excursion funnels pull back towards their emitters. Such a button needs no door. |
 
 ## Layers
 
@@ -132,6 +133,7 @@ cells are metal.
 | `o` | a sphere: a ball the size of a cube, carried like one. It rolls: walk into it and it rolls off the way you walk, and on after you stop, and bounces off walls. It presses buttons like a cube. |
 | `@` | a cup: a floor for a sphere button (put a button on top). Only a sphere presses that button, and a sphere that rolls into the cup stays there. |
 | `t` | a turret, facing the player's start (square to the walls). It sees what is in front of it, up to 15 m away and 53° to either side, unless a wall, glass or a cube is in between. After 0.6 s it fires; a second of its fire kills. Something landing on it, or it landing hard itself, knocks it over for good. It can be carried like a cube: it faces where you face. Lost in the goo, a fizzler or under a crusher, it does not come back. |
+| `%` | an excursion funnel emitter: a block that projects a tractor beam a cell across out of its one open side, through portals, any way -- up and down too. The player, cubes and turrets in it float along it at 3 m/s with no gravity, drawn to its middle; the player can steer out of it sideways. With `funnel: N`, it pulls back towards its emitter while button N's group is down. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

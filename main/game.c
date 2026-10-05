@@ -14,6 +14,7 @@
 #define PLAT_PAUSE      1.0f   // s at each end
 
 static void trace_bridges(game_t* g);
+static void trace_funnels(game_t* g);
 
 static void cube_spawn(game_t* g, int i) {
     vec3_t const  s = g->lv.cubes[i];
@@ -83,6 +84,7 @@ void game_load_level(game_t* g, level_t const* lv) {
     g->held_via = -1;
     for (int i = 0; i < g->n_cubes; i++) cube_spawn(g, i);
     trace_bridges(g);
+    trace_funnels(g);
 }
 
 aabb_t cube_aabb(cube_t const* c) {
@@ -379,6 +381,8 @@ static int step_cube(game_t* g, int i, float dt) {
     aabb_t             boxes[GAME_MAX_BOXES];
     int                n = gather_boxes(g, i, boxes);
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
+    vec3_t             carry;
+    bool const         floating = i != g->held && funnel_carry(g, body_center(b), &carry);
 
     if (i == g->held) {
         // A reflection cube turns with you, in eighths of a turn: a beam
@@ -393,6 +397,8 @@ static int step_cube(game_t* g, int i, float dt) {
         vec3_t pull = v3_scale(v3_sub(target, body_center(b)), CUBE_PULL);
         if (v3_len(pull) > CUBE_MAX_PULL) pull = v3_scale(v3_norm(pull), CUBE_MAX_PULL);
         b->vel = pull;
+    } else if (floating) {
+        b->vel = carry;  // in a funnel: carried, and no gravity
     } else {
         b->vel.y = fall_half(b->vel.y, dt);
         if (b->on_ground) {
@@ -653,6 +659,69 @@ static void trace_bridges(game_t* g) {
             if (!through) break;
         }
     }
+}
+
+// --- Excursion funnels ------------------------------------------------------
+
+// Each funnel's middle line, from its emitter's open side, through
+// portals -- any way: a funnel may go up or down.
+static void trace_funnels(game_t* g) {
+    for (int k = 0; k < g->lv.n_funnels; k++) {
+        emitter_t const* E    = &g->lv.funnels[k];
+        vec3_t           d    = dir_vec(E->dir);
+        vec3_t           o    = v3_mad(v3((float)E->x + 0.5f, (float)E->y + 0.5f, (float)E->z + 0.5f), d, 0.5f);
+        float            left = 64.0f;
+        g->funnel_n[k]        = 0;
+        for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
+            ray_hit_t const w               = level_raycast(&g->lv, o, d, left);
+            float const     t               = w.hit ? w.dist : left;
+            vec3_t const    end             = v3_mad(o, d, t);
+            g->funnel[k][g->funnel_n[k]++]  = (beam_seg_t){o, end};
+            left                           -= t;
+            if (!w.hit) break;
+            bool through = false;
+            for (int p = 0; p < 2 && !through; p++) {
+                if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[p], end)) continue;
+                vec3_t const d2 = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
+                d               = v3(roundf(d2.x), roundf(d2.y), roundf(d2.z));
+                o               = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], end), d, 0.01f);
+                through         = true;
+            }
+            if (!through) break;
+        }
+    }
+}
+
+bool funnel_reversed(game_t const* g) {
+    if (g->lv.funnel_link < 0) return false;
+    int n = 0;
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        if (g->lv.buttons[b].link != g->lv.funnel_link) continue;
+        if (!g->lv.buttons[b].pressed) return false;
+        n++;
+    }
+    return n > 0;
+}
+
+bool funnel_carry(game_t const* g, vec3_t c, vec3_t* carry) {
+    float const speed = funnel_reversed(g) ? -FUNNEL_SPEED : FUNNEL_SPEED;
+    for (int k = 0; k < g->lv.n_funnels; k++)
+        for (int i = 0; i < g->funnel_n[k]; i++) {
+            beam_seg_t const* s   = &g->funnel[k][i];
+            vec3_t const      ab  = v3_sub(s->b, s->a);
+            float const       len = v3_len(ab);
+            if (len < 1e-3f) continue;
+            vec3_t const d     = v3_scale(ab, 1.0f / len);
+            float const  along = v3_dot(v3_sub(c, s->a), d);
+            if (along < 0.0f || along > len) continue;
+            // Square across, a cell wide: off the middle by under half a
+            // metre on both of the other axes.
+            vec3_t const off = v3_sub(c, v3_mad(s->a, d, along));
+            if (fabsf(off.x) >= 0.5f || fabsf(off.y) >= 0.5f || fabsf(off.z) >= 0.5f) continue;
+            *carry = v3_sub(v3_scale(d, speed), v3_scale(off, FUNNEL_PULL));
+            return true;
+        }
+    return false;
 }
 
 // --- Gel --------------------------------------------------------------------
@@ -947,19 +1016,21 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         }
     }
     trace_bridges(g);  // the portals may have moved
+    trace_funnels(g);
     ev |= step_gel(g, dt);
     ev |= step_pellets(g, dt);
 
     // The player, among the cubes.
-    aabb_t               boxes[GAME_MAX_BOXES];
-    int const            n      = gather_boxes(g, -1, boxes);
-    phys_world_t const   w      = {&g->lv, g->portals, boxes, n};
-    player_input_t const pin    = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
-    int                  via    = -1;
-    aabb_t const         start  = player_aabb(&g->pl);
-    float const          fall   = -g->pl.vel.y;
-    int const            pev    = player_update_in(&g->pl, &w, &pin, dt, &via);
-    ev                         |= pev;
+    aabb_t             boxes[GAME_MAX_BOXES];
+    int const          n    = gather_boxes(g, -1, boxes);
+    phys_world_t const w    = {&g->lv, g->portals, boxes, n};
+    player_input_t     pin  = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
+    pin.floating            = funnel_carry(g, v3(g->pl.pos.x, g->pl.pos.y + PL_HEIGHT * 0.5f, g->pl.pos.z), &pin.carry);
+    int          via        = -1;
+    aabb_t const start      = player_aabb(&g->pl);
+    float const  fall       = -g->pl.vel.y;
+    int const    pev        = player_update_in(&g->pl, &w, &pin, dt, &via);
+    ev                     |= pev;
     // Coming down hard on a turret knocks it over.
     if ((pev & PL_EV_LANDED) && fall > TURRET_KNOCK) {
         aabb_t const pb  = player_aabb(&g->pl);

@@ -41,6 +41,9 @@
 #define TURRET_BURST   0.1f   // s between bursts of fire
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
 
+#define FUNNEL_SPEED 3.0f  // m/s an excursion funnel carries things along it
+#define FUNNEL_PULL  3.0f  // per second: how hard it draws them to its middle
+
 #define PELLET_SPEED 6.0f   // m/s, straight, no gravity
 #define PELLET_LIFE  10.0f  // s before it fizzles out ...
 #define PELLET_WAIT  1.5f   // ... and before its launcher fires the next
@@ -94,11 +97,13 @@ typedef struct {
     beam_seg_t bridge[LV_MAX_BRIDGES][BEAM_SEGS];  // each light bridge's centre line, on its surface
     int        bridge_n[LV_MAX_BRIDGES];
     gel_blob_t blobs[GEL_BLOBS];
-    float      drip_t[LV_MAX_GELS];      // each dispenser: seconds to its next blob
-    pellet_t   pellets[LV_MAX_PELLETS];  // one per launcher
-    float      crush_t;                  // the crushers' clock
-    float      shot_t;                   // seconds the player has been under a turret's fire
-    float      burst_t;                  // the turrets' fire: its clock
+    float      drip_t[LV_MAX_GELS];                // each dispenser: seconds to its next blob
+    pellet_t   pellets[LV_MAX_PELLETS];            // one per launcher
+    float      crush_t;                            // the crushers' clock
+    beam_seg_t funnel[LV_MAX_FUNNELS][BEAM_SEGS];  // each excursion funnel's middle, from its emitter on
+    int        funnel_n[LV_MAX_FUNNELS];
+    float      shot_t;   // seconds the player has been under a turret's fire
+    float      burst_t;  // the turrets' fire: its clock
 } game_t;
 
 typedef struct {
@@ -147,6 +152,11 @@ bool game_fire(game_t* g, int which);
 int  game_use(game_t* g);
 
 aabb_t cube_aabb(cube_t const* c);
+// Whether the funnels pull towards their emitters, their button down.
+bool   funnel_reversed(game_t const* g);
+// Whether the point `c` is in a funnel, and if so, the velocity it is
+// carried at.
+bool   funnel_carry(game_t const* g, vec3_t c, vec3_t* carry);
 // Whether turret `i` is firing at the player.
 bool   turret_firing(game_t const* g, int i);
 // Crusher `k` where it is now.

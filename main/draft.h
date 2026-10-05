@@ -15,6 +15,7 @@ typedef struct {
     char  story[160];
     float timer;          // a pedestal button's seconds
     int   platform_link;  // -1, or the button the platform waits for
+    int   funnel_link;    // -1, or the button that turns the funnels round
     int   w, h, d;
     float yaw;                                 // the start's facing, radians
     char  grid[LV_MAX_H][LV_MAX_D][LV_MAX_W];  // [y][z][x]

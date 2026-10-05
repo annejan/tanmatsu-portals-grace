@@ -40,6 +40,7 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_RELAY]        = {NULL, 0xFF8A8E96u, 0, NULL},
     [MAT_FIELD]        = {"field.png", 0xFFFF4030u, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
     [MAT_CUP]          = {NULL, 0xFF2E4A5Cu, 0, NULL},
+    [MAT_FUNNEL]       = {NULL, 0xFF2A3E5Cu, 0, NULL},
     [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
     [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
     [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
@@ -363,6 +364,17 @@ static void beam_strip(vec3_t a, vec3_t b, float half, uint32_t argb, cam_t cons
     submit_quad(r, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
 
+// A rectangle c +- a +- b, turned to face the eye whichever side it is on.
+static void card(vec3_t c, vec3_t a, vec3_t b, uint32_t argb, uint32_t flags, cam_t const* cam, clipset_t const* cs) {
+    vec3_t n = v3_cross(a, b);
+    if (v3_dot(v3_sub(cam->pos, c), n) < 0.0f) n = v3_scale(n, -1.0f);
+    cvert_t const q[4] = {{v3_sub(v3_sub(c, a), b), 0, 0},
+                          {v3_sub(v3_add(c, a), b), 1, 0},
+                          {v3_add(v3_add(c, a), b), 1, 1},
+                          {v3_add(v3_sub(c, a), b), 0, 1}};
+    submit_quad(q, n, cam, cs, NULL, argb, flags);
+}
+
 // A small glowing square on a face: centre c, facing along axis direction d.
 static void lens(vec3_t c, vec3_t d, float half, uint32_t argb, cam_t const* cam, clipset_t const* cs) {
     vec3_t const h =
@@ -660,6 +672,45 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
                        SE_TRI_EMISSIVE);
             submit_box(v3_sub(v3_add(lo, w), e), v3_add(v3_add(hi, w), up), cam, cs, NULL, 0xFFB8ECFFu,
                        SE_TRI_EMISSIVE);
+        }
+    }
+    // Excursion funnels: the edges of a tube of light, blue -- orange while
+    // turned round -- with rings sliding along it the way it carries. (No
+    // see-through walls: the engine blends textured triangles only.)
+    {
+        bool const     rev  = funnel_reversed(g);
+        uint32_t const wall = rev ? 0xFFFF9A40u : 0xFF4A9AFFu, ring = rev ? 0xFFFFC080u : 0xFF9CD4FFu;
+        float          ph = fmodf(s_time * (rev ? -FUNNEL_SPEED : FUNNEL_SPEED), 1.0f);
+        if (ph < 0.0f) ph += 1.0f;
+        for (int k = 0; k < g->lv.n_funnels; k++) {
+            emitter_t const* E = &g->lv.funnels[k];
+            vec3_t const     d = dir_vec(E->dir);
+            lens(v3_mad(v3((float)E->x + 0.5f, (float)E->y + 0.5f, (float)E->z + 0.5f), d, 0.505f), d, 0.3f, ring, cam,
+                 cs);
+            float run = 0.0f;  // along the funnel, from its emitter
+            for (int i = 0; i < g->funnel_n[k]; i++) {
+                beam_seg_t const* s   = &g->funnel[k][i];
+                vec3_t const      ab  = v3_sub(s->b, s->a);
+                float const       len = v3_len(ab);
+                if (len < 1e-3f) continue;
+                vec3_t const a        = v3_scale(ab, 1.0f / len);
+                vec3_t const u        = fabsf(a.y) > 0.5f ? v3(1, 0, 0) : v3(0, 1, 0);
+                vec3_t const v        = fabsf(a.z) > 0.5f ? v3(1, 0, 0) : v3(0, 0, 1);
+                vec3_t const side[4]  = {u, v3_scale(u, -1.0f), v, v3_scale(v, -1.0f)};
+                vec3_t const other[4] = {v, v, u, u};
+                for (int w = 0; w < 4; w++) {  // its four edges
+                    vec3_t const e = v3_add(v3_scale(u, w & 1 ? 0.48f : -0.48f), v3_scale(v, w & 2 ? 0.48f : -0.48f));
+                    beam_strip(v3_add(s->a, e), v3_add(s->b, e), 0.02f, wall, cam, cs);
+                }
+                for (float t = ceilf(run - ph) + ph; t < run + len; t += 1.0f) {
+                    if (t < run) continue;
+                    vec3_t const p = v3_mad(s->a, a, t - run);
+                    for (int w = 0; w < 4; w++)
+                        card(v3_mad(p, side[w], 0.49f), v3_scale(a, 0.04f), v3_scale(other[w], 0.49f), ring,
+                             SE_TRI_EMISSIVE, cam, cs);
+                }
+                run += len;
+            }
         }
     }
     // Crushers: a metal block with a band of warning light round its foot.

@@ -5,7 +5,7 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Nineteen chambers are included:
+out of the other, keeping your momentum. Twenty chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
@@ -36,11 +36,14 @@ out of the other, keeping your momentum. Nineteen chambers are included:
 18. **Edgeless**: a sphere, and a cup behind glass with a gap under it
     only a ball fits through.
 19. **Sentry**: a turret guards the exit. It cannot see straight up.
+20. **Excursion**: a tractor beam along the floor, and a ledge across the
+    goo, high up.
 
 Cubes can be picked up, stood on and carried through portals. A cube
 that falls in the goo comes back where it started. A sphere is carried
 the same way, and rolls when you walk into it. A turret shoots you if it
-sees you for long enough; drop something on it to knock it over. A door stays open while
+sees you for long enough; drop something on it to knock it over. An
+excursion funnel carries you, and cubes, along it, through portals too. A door stays open while
 all of its buttons are pressed, and does not shut on anything standing in
 it.
 
@@ -101,7 +104,7 @@ far side.
 | U Z X | select a brush: blue, orange and white gel dispenser |
 | J C | select a brush: pellet launcher, pellet receiver (a button on top) |
 | G ; [ | select a brush: laser relay (a button on top), laser field, crusher |
-| ] ' , | select a brush: sphere, sphere cup (a button on top), turret |
+| ] ' , . | select a brush: sphere, sphere cup (a button on top), turret, excursion funnel emitter |
 | Space | paint. Hold it while you move to paint a line. |
 | B | press it at one corner, then at the other corner, to fill a rectangle |
 | Backspace | erase (set the cell to air) |

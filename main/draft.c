@@ -32,6 +32,7 @@ void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
     snprintf(d->name, sizeof(d->name), "%s", id);
     d->timer         = LV_TIMER_S;
     d->platform_link = -1;
+    d->funnel_link   = -1;
     d->w             = w;
     d->h             = h;
     d->d             = dep;
@@ -87,6 +88,7 @@ bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, si
     snprintf(d->story, sizeof(d->story), "%s", lv.story);
     d->timer         = lv.timer;
     d->platform_link = lv.platform_link;
+    d->funnel_link   = lv.funnel_link;
     d->w             = lv.w;
     d->h             = lv.h;
     d->d             = lv.d;
@@ -111,6 +113,7 @@ static int write_text(draft_t const* d, char* out, size_t n, bool solution) {
     if (d->story[0]) PUT("story: %s\n", d->story);
     if (d->timer != LV_TIMER_S) PUT("timer: %g\n", (double)d->timer);
     if (d->platform_link >= 0) PUT("platform: %c\n", chamber_button_char(d->platform_link));
+    if (d->funnel_link >= 0) PUT("funnel: %c\n", chamber_button_char(d->funnel_link));
     PUT("size: %d %d %d\n", d->w, d->h, d->d);
     char const* const facing = chamber_facing_name(d->yaw);
     if (facing != NULL)

@@ -70,6 +70,7 @@ chamber_glyph_t const chamber_legend[] = {
     {'o', "sphere", GLYPH_SPHERE, MAT_AIR, 0, ']', 0xFFB8C4D0u},
     {'@', "sphere cup", GLYPH_CELL, MAT_CUP, 0, '\'', 0xFF2E5A70u},
     {'t', "turret", GLYPH_TURRET, MAT_AIR, 0, ',', 0xFFF0F0F0u},
+    {'%', "funnel emitter", GLYPH_CELL, MAT_FUNNEL, 0, '.', 0xFF2A5A9Au},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -235,6 +236,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     snprintf(lv->name, sizeof(lv->name), "Untitled");
     lv->timer                        = LV_TIMER_S;
     lv->platform_link                = -1;
+    lv->funnel_link                  = -1;
     int         ns                   = 0;
     int         layer                = -1;  // the layer whose rows are being read
     int         row                  = 0;
@@ -380,6 +382,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             if (strlen(v) != 1 || !chamber_is_button(v[0]))
                 return fail(&c, "platform: the button (1-%d) that has to be down for it to move", LV_MAX_BUTTONS);
             lv->platform_link = v[0] - '1';
+        } else if (strcmp(k, "funnel") == 0) {
+            if (strlen(v) != 1 || !chamber_is_button(v[0]))
+                return fail(&c, "funnel: the button (1-%d) that turns the funnels round", LV_MAX_BUTTONS);
+            lv->funnel_link = v[0] - '1';
         } else if (strcmp(k, "timer") == 0) {
             float t = 0;
             int   n = 0;
@@ -483,7 +489,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         lv->buttons[i].laser       = m == MAT_CATCHER;
         lv->buttons[i].receiver    = m == MAT_RECEIVER;
         lv->buttons[i].relay       = m == MAT_RELAY;
-        if (b->link != lv->platform_link && (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0))
+        if (b->link != lv->platform_link && b->link != lv->funnel_link &&
+            (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0))
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
     // Emitters: each emits out of its one open side; a bridge sideways.
@@ -491,9 +498,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         for (int z = 0; z < lv->d; z++)
             for (int x = 0; x < lv->w; x++) {
                 uint8_t const m = level_get(lv, x, y, z);
-                if (m != MAT_EMITTER && m != MAT_BRIDGE && m != MAT_LAUNCHER) continue;
+                if (m != MAT_EMITTER && m != MAT_BRIDGE && m != MAT_LAUNCHER && m != MAT_FUNNEL) continue;
                 char const* const what = m == MAT_EMITTER  ? "laser emitter"
                                          : m == MAT_BRIDGE ? "light bridge emitter"
+                                         : m == MAT_FUNNEL ? "funnel emitter"
                                                            : "pellet launcher";
                 int               open = -1, n_open = 0;
                 for (int dir = 0; dir < 6; dir++) {
@@ -508,6 +516,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     if (lv->n_launchers >= LV_MAX_PELLETS)
                         return fail(&c, "more than %d pellet launchers", LV_MAX_PELLETS);
                     lv->launchers[lv->n_launchers++] = (emitter_t){x, y, z, open};
+                } else if (m == MAT_FUNNEL) {
+                    if (lv->n_funnels >= LV_MAX_FUNNELS)
+                        return fail(&c, "more than %d funnel emitters", LV_MAX_FUNNELS);
+                    lv->funnels[lv->n_funnels++] = (emitter_t){x, y, z, open};
                 } else if (m == MAT_EMITTER) {
                     if (lv->n_lasers >= LV_MAX_LASERS) return fail(&c, "more than %d laser emitters", LV_MAX_LASERS);
                     lv->lasers[lv->n_lasers++] = (emitter_t){x, y, z, open};
@@ -519,6 +531,13 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     lv->bridges[lv->n_bridges++] = (emitter_t){x, y, z, open};
                 }
             }
+    if (lv->funnel_link >= 0) {
+        bool any = false;
+        for (int i = 0; i < lv->n_buttons; i++) any = any || lv->buttons[i].link == lv->funnel_link;
+        if (lv->n_funnels == 0 || !any)
+            return fail(&c, "funnel: %c, but %s", chamber_button_char(lv->funnel_link),
+                        lv->n_funnels == 0 ? "there is no funnel" : "no button for it");
+    }
     // Crushers: each connected group of Y cells is one, a box; the cells go
     // back to air (the game moves the box), and it drops to the floor.
     for (int y = 0; y < lv->h; y++)
@@ -674,6 +693,7 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
     if (lv->story[0]) put(&o, "story: %s\n", lv->story);
     if (lv->timer != LV_TIMER_S) put(&o, "timer: %g\n", (double)lv->timer);
     if (lv->platform_link >= 0) put(&o, "platform: %c\n", chamber_button_char(lv->platform_link));
+    if (lv->funnel_link >= 0) put(&o, "funnel: %c\n", chamber_button_char(lv->funnel_link));
     put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
     char const* f = chamber_facing_name(lv->spawn_yaw);
     if (f)
