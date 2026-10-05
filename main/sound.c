@@ -1,12 +1,13 @@
 #include "sound.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 #include "game.h"
 #include "speech.h"
 #include "synthengine3d.h"
 
 #define SR       ((float)AUDIO_SAMPLE_RATE_HZ)
-#define POOL     6  // of the mixer's 8 voice slots; the rest stay free
+#define POOL     6  // of the mixer's 8 voice slots; the other two speak (below)
 #define GROUP_FX 0
 
 // --- One effect -----------------------------------------------------------
@@ -191,30 +192,33 @@ void sound_events(int ev) {
     }
 }
 
-// --- GLaDOS ---------------------------------------------------------------
+// --- GLaDOS, and the turrets ----------------------------------------------
 //
-// One voice, playing a piece SAM rendered (speech.c) at 22050 Hz, stepped
-// to the mixer's rate. A piece is rendered here, on the game's task, only
-// once the mixer has dropped the voice playing the last one -- SAM reuses
-// nothing, but its buffer must outlive the playing.
+// Two voices, each playing a piece SAM rendered (speech.c) at 22050 Hz,
+// stepped to the mixer's rate: GLaDOS, and a turret, which talks over her
+// as turrets do. SAM reuses its one buffer, so each voice plays its own
+// copy; a voice's copy is only written once the mixer has dropped it.
 
 #define SAY_PIECES 8
 #define SAY_GAIN   180  // 8-bit to 16-bit, with room for the effects
+#define GLADOS     0
+#define TURRET     1
 
 typedef struct {
-    sfx_voice_t    base;  // first
-    uint8_t const* pcm;
-    uint32_t       n;     // samples
-    uint64_t       pos;   // 16.16 fixed point, in SAM's samples: 64-bit, as 32 bits
-    uint32_t       step;  // overflow after 65536 samples -- 3 s -- and the piece starts over
-    bool           used;
-    volatile bool  reaped;
+    sfx_voice_t   base;  // first
+    uint8_t*      pcm;   // its own copy of SAM's sound ...
+    size_t        cap;   // ... in a buffer this big
+    uint32_t      n;     // samples
+    uint64_t      pos;   // 16.16 fixed point, in SAM's samples: 64-bit, as 32 bits
+    uint32_t      step;  // overflow after 65536 samples -- 3 s -- and the piece starts over
+    bool          used;
+    volatile bool reaped;
 } say_t;
 
-static say_t s_say;
+static say_t s_say[2];
 static bool  s_voice_on = true;
 static char  s_pieces[SAY_PIECES][SPEECH_MAX];
-static int   s_n_pieces, s_next, s_speaker;
+static int   s_n_pieces, s_next;
 
 static void say_render(sfx_voice_t* self, int16_t* out, size_t frames) {
     say_t* v = (say_t*)self;
@@ -235,28 +239,54 @@ static void say_reaped(sfx_voice_t* self) {
     ((say_t*)self)->reaped = true;
 }
 
-static bool say_busy(void) {
-    return s_say.used && !s_say.reaped;
+static bool say_busy(int who) {
+    return s_say[who].used && !s_say[who].reaped;
+}
+
+// Say `piece` in `who`'s voice, which is not busy.
+static void speak(int who, char const* piece) {
+    int                  n   = 0;
+    uint8_t const* const pcm = speech_render(piece, who == GLADOS ? SPEECH_GLADOS : SPEECH_TURRET, &n);
+    if (pcm == NULL || n <= 0) return;
+    say_t* const v = &s_say[who];
+    if ((size_t)n > v->cap) {
+        uint8_t* const grown = realloc(v->pcm, (size_t)n);
+        if (grown == NULL) return;
+        v->pcm = grown;
+        v->cap = (size_t)n;
+    }
+    memcpy(v->pcm, pcm, (size_t)n);
+    speech_free();
+    uint8_t* const buf = v->pcm;
+    size_t const   cap = v->cap;
+    memset(v, 0, sizeof(*v));
+    v->pcm           = buf;
+    v->cap           = cap;
+    v->base.render   = say_render;
+    v->base.shutdown = say_reaped;
+    v->base.group    = GROUP_FX;
+    v->n             = (uint32_t)n;
+    v->step          = (uint32_t)((float)SPEECH_RATE / SR * 65536.0f);
+    v->used          = audio_mixer_register_voice(&v->base);
 }
 
 void sound_say(char const* line) {
-    if (say_busy()) audio_mixer_stop_voice(&s_say.base);
+    if (say_busy(GLADOS)) audio_mixer_stop_voice(&s_say[GLADOS].base);
     s_n_pieces = line != NULL && s_voice_on ? speech_split(line, s_pieces, SAY_PIECES) : 0;
     s_next     = 0;
-    s_speaker  = SPEECH_GLADOS;
 }
 
-// A turret's line, unless someone is talking already.
+// A turret's line, unless a turret is talking already. GLaDOS may be: it
+// talks over her.
 static char const* s_turret_line;
 static int         s_turret_lines;
 
 static void turret_says(char const* const lines[]) {
     static int k;
-    if (sound_saying()) return;
+    if (say_busy(TURRET)) return;
     s_turret_line = lines[k++ % SPEECH_TURRET_LINES];
     s_turret_lines++;
-    sound_say(s_turret_line);
-    s_speaker = SPEECH_TURRET;
+    if (s_voice_on) speak(TURRET, s_turret_line);
 }
 
 int sound_turret_said(char const** line) {
@@ -265,27 +295,19 @@ int sound_turret_said(char const** line) {
 }
 
 bool sound_saying(void) {
-    return say_busy() || s_next < s_n_pieces;
+    return say_busy(GLADOS) || s_next < s_n_pieces;
 }
 
 void sound_update(void) {
-    if (say_busy() || s_next >= s_n_pieces) return;
-    int                  n   = 0;
-    uint8_t const* const pcm = speech_render(s_pieces[s_next++], s_speaker, &n);  // frees the last piece's sound
-    if (pcm == NULL || n <= 0) return;
-    memset(&s_say, 0, sizeof(s_say));
-    s_say.base.render   = say_render;
-    s_say.base.shutdown = say_reaped;
-    s_say.base.group    = GROUP_FX;
-    s_say.pcm           = pcm;
-    s_say.n             = (uint32_t)n;
-    s_say.step          = (uint32_t)((float)SPEECH_RATE / SR * 65536.0f);
-    s_say.used          = audio_mixer_register_voice(&s_say.base);
+    if (!say_busy(GLADOS) && s_next < s_n_pieces) speak(GLADOS, s_pieces[s_next++]);
 }
 
 void sound_set_voice(bool on) {
     s_voice_on = on;
-    if (!on) sound_say(NULL);
+    if (!on) {
+        sound_say(NULL);
+        if (say_busy(TURRET)) audio_mixer_stop_voice(&s_say[TURRET].base);
+    }
 }
 
 // --- Music ----------------------------------------------------------------

@@ -108,7 +108,9 @@ static void mix(int16_t* out, size_t frames) {
 #define PACE_S     0.8f   // the player stands this long before each act, looking
 
 typedef struct {
-    float yaw, pitch, speed;
+    float yaw, pitch;
+    float vx, vy, vz;
+    bool  ground;
     int   ev;
 } view_t;
 
@@ -124,7 +126,7 @@ static void log_tick(game_t const* g, int ev, float now, void* ctx) {
     (void)now;
     if (ev & PL_EV_EXIT) ((plan_t*)ctx)->exited = true;
     if (s_n >= MAX_TICKS) return;
-    s_log[s_n++] = (view_t){g->pl.yaw, g->pl.pitch, sqrtf(g->pl.vel.x * g->pl.vel.x + g->pl.vel.z * g->pl.vel.z), ev};
+    s_log[s_n++] = (view_t){g->pl.yaw, g->pl.pitch, g->pl.vel.x, g->pl.vel.y, g->pl.vel.z, g->pl.on_ground, ev};
 }
 
 static void plan_camera(void) {
@@ -135,10 +137,30 @@ static void plan_camera(void) {
     static bool  aimed[MAX_TICKS];
     memset(aimed, 0, sizeof(aimed));
     for (int k = 0; k < s_n; k++) {
-        // Looking where it walks, not at its feet -- unless at work.
-        bool const walking = s_log[k].speed > 1.5f;
-        want[k][0]         = s_log[k].yaw;
-        want[k][1]         = walking ? WALK_PITCH : s_log[k].pitch;
+        view_t const* v = &s_log[k];
+        float const   h = sqrtf(v->vx * v->vx + v->vz * v->vz);
+        want[k][0]      = v->yaw;
+        want[k][1]      = v->pitch;
+        if (v->ground) {
+            // Walking: where it goes, not at its feet.
+            if (h > 1.5f) {
+                want[k][0] = atan2f(v->vx, v->vz);
+                want[k][1] = WALK_PITCH;
+            }
+        } else if (h > 1.0f || fabsf(v->vy) > 1.5f) {
+            // Carried, flung or falling: the way it goes, up or down --
+            // not backwards down a funnel, facing where the script last
+            // pointed.
+            if (h > 1.0f) want[k][0] = atan2f(v->vx, v->vz);
+            if (h <= 1.0f && k > 0) want[k][0] = want[k - 1][0];
+            float p    = -atanf(v->vy / fmaxf(h, 0.5f)) * 0.6f;
+            want[k][1] = p < -0.6f ? -0.6f : p > 0.9f ? 0.9f : p;
+        } else if (k > 0) {
+            // Hanging still in the air -- at a funnel's end: the same way,
+            // but looking down, for where to get off.
+            want[k][0] = want[k - 1][0];
+            want[k][1] = 0.7f;
+        }
     }
     // On the aim before each act, and a little after: the act's own view.
     for (int k = 0; k < s_n; k++) {
