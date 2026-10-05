@@ -15,20 +15,27 @@
 
 typedef enum {
     MAT_AIR = 0,
-    MAT_WHITE,     // portal-able panel
-    MAT_METAL,     // takes no portal
-    MAT_GOO,       // a floor that kills
-    MAT_EXIT,      // a floor that ends the chamber
-    MAT_DOOR,      // a door's cells: solid while it is shut (see door_t)
-    MAT_GLASS,     // solid and see-through; takes no portal, stops a shot
-    MAT_FIZZ,      // a fizzler: air that closes portals and destroys cubes
-    MAT_JUMP,      // a faith plate: a floor that launches (see jump_t)
-    MAT_PEDESTAL,  // a waist-high block a pedestal button stands on
-    MAT_DROPPER,   // a hatch in the ceiling that cubes drop out of
-    MAT_CUBEBASE,  // a floor a cube button stands on
-    MAT_EMITTER,   // a laser emitter: fires out of its one open side (see laser_t)
-    MAT_CATCHER,   // a laser catcher: a block whose button is down while lit
-    MAT_BRIDGE,    // a light bridge emitter: a walkable strip out of its open side
+    MAT_WHITE,        // portal-able panel
+    MAT_METAL,        // takes no portal
+    MAT_GOO,          // a floor that kills
+    MAT_EXIT,         // a floor that ends the chamber
+    MAT_DOOR,         // a door's cells: solid while it is shut (see door_t)
+    MAT_GLASS,        // solid and see-through; takes no portal, stops a shot
+    MAT_FIZZ,         // a fizzler: air that closes portals and destroys cubes
+    MAT_JUMP,         // a faith plate: a floor that launches (see jump_t)
+    MAT_PEDESTAL,     // a waist-high block a pedestal button stands on
+    MAT_DROPPER,      // a hatch in the ceiling that cubes drop out of
+    MAT_CUBEBASE,     // a floor a cube button stands on
+    MAT_EMITTER,      // a laser emitter: fires out of its one open side (see laser_t)
+    MAT_CATCHER,      // a laser catcher: a block whose button is down while lit
+    MAT_BRIDGE,       // a light bridge emitter: a walkable strip out of its open side
+    MAT_DISP_BLUE,    // gel dispensers, in a ceiling: they drip their gel
+    MAT_DISP_ORANGE,  // (see gel_src_t)
+    MAT_DISP_WHITE,
+    // Never in a cell: what a painted face is meshed and drawn as.
+    MAT_PAINT_BLUE,
+    MAT_PAINT_ORANGE,
+    MAT_PAINT_WHITE,
     MAT_COUNT,
 } material_t;
 
@@ -60,6 +67,22 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_JUMPS   4
 #define LV_MAX_LASERS  4
 #define LV_MAX_BRIDGES 2
+#define LV_MAX_GELS    4
+
+// Gel, as paint on a cell: blue bounces, orange speeds you up, white
+// takes portals. Only metal and white panels take paint.
+typedef enum {
+    GEL_NONE = 0,
+    GEL_BLUE,
+    GEL_ORANGE,
+    GEL_WHITE,
+} gel_t;
+
+// A gel dispenser: its ceiling cell, dripping `gel` out of its underside.
+typedef struct {
+    int x, y, z;
+    int gel;
+} gel_src_t;
 
 // A moving platform: the box [lo, hi) where it starts, and how far it
 // travels; it glides there and back, pausing at each end.
@@ -134,7 +157,10 @@ typedef struct {
     int        n_lasers;
     emitter_t  bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
     int        n_bridges;
-    platform_t platform;  // M cells and the N cell; none when n_platforms is 0
+    gel_src_t  gels[LV_MAX_GELS];
+    int        n_gels;
+    uint8_t    paint[LV_MAX_W * LV_MAX_H * LV_MAX_D];  // gel_t per cell: state, painted in play
+    platform_t platform;                               // M cells and the N cell; none when n_platforms is 0
     int        n_platforms;
 } level_t;
 
@@ -148,6 +174,11 @@ uint8_t level_get(level_t const* lv, int x, int y, int z);
 void    level_set(level_t* lv, int x, int y, int z, uint8_t m);
 // Solid to bodies and shots: anything but air, a fizzler and an open door.
 bool    level_solid(level_t const* lv, int x, int y, int z);
+// The gel on a cell, and painting it (a cell that takes no paint keeps none).
+int     level_paint(level_t const* lv, int x, int y, int z);
+bool    level_set_paint(level_t* lv, int x, int y, int z, int gel);
+// A portal sticks to it: a white panel, or anything painted white.
+bool    level_portalable(level_t const* lv, int x, int y, int z);
 // The door whose cells hold (x, y, z), or -1.
 int     level_door_at(level_t const* lv, int x, int y, int z);
 // A door counts as open, to walk or shoot through, from this far open.

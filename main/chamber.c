@@ -59,6 +59,9 @@ chamber_glyph_t const chamber_legend[] = {
     {'O', "laser catcher", GLYPH_CELL, MAT_CATCHER, 0, 'O', 0xFFD07020u},
     {'R', "reflection cube", GLYPH_REFLECT, MAT_AIR, 0, 'Y', 0xFFC8A0A0u},
     {'H', "light bridge emitter", GLYPH_CELL, MAT_BRIDGE, 0, 'H', 0xFF3C8CC8u},
+    {'U', "blue gel dispenser", GLYPH_CELL, MAT_DISP_BLUE, 0, 'U', 0xFF2E6CE0u},
+    {'Z', "orange gel dispenser", GLYPH_CELL, MAT_DISP_ORANGE, 0, 'Z', 0xFFE07A1Cu},
+    {'X', "white gel dispenser", GLYPH_CELL, MAT_DISP_WHITE, 0, 'X', 0xFFE8E8E0u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -194,6 +197,9 @@ static bool parse_step(ctx_t* c, char* line, step_t* st) {
         n      = 0;
     } else if (strcmp(verb, "grab") == 0) {
         st->op = OP_GRAB;
+        n      = 0;
+    } else if (strcmp(verb, "jump") == 0) {
+        st->op = OP_JUMP;
         n      = 0;
     } else {
         return fail(c, "unknown step \"%s\"", verb);
@@ -475,6 +481,19 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     lv->bridges[lv->n_bridges++] = (emitter_t){x, y, z, open};
                 }
             }
+    // Gel dispensers drip from their underside.
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                uint8_t const m = level_get(lv, x, y, z);
+                if (m != MAT_DISP_BLUE && m != MAT_DISP_ORANGE && m != MAT_DISP_WHITE) continue;
+                if (lv->n_gels >= LV_MAX_GELS) return fail(&c, "more than %d gel dispensers", LV_MAX_GELS);
+                uint8_t const under = y > 0 ? level_get(lv, x, y - 1, z) : MAT_METAL;
+                if (under != MAT_AIR && under != MAT_FIZZ)
+                    return fail(&c, "the gel dispenser at %d %d %d needs air under it", x, y, z);
+                int const gel          = m == MAT_DISP_BLUE ? GEL_BLUE : m == MAT_DISP_ORANGE ? GEL_ORANGE : GEL_WHITE;
+                lv->gels[lv->n_gels++] = (gel_src_t){x, y, z, gel};
+            }
     // A dropper's cube needs room to come out.
     for (int i = 0; i < lv->n_cubes; i++) {
         if (!lv->cube_drop[i]) continue;
@@ -618,6 +637,9 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
                     break;
                 case OP_GRAB:
                     put(&o, "grab\n");
+                    break;
+                case OP_JUMP:
+                    put(&o, "jump\n");
                     break;
                 default:
                     break;

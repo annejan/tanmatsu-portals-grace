@@ -9,7 +9,7 @@ static vec3_t face_center(int x, int y, int z, int face) {
 }
 
 static bool face_takes_portal(level_t const* lv, int x, int y, int z, int face) {
-    if (level_get(lv, x, y, z) != MAT_WHITE) return false;
+    if (!level_portalable(lv, x, y, z)) return false;
     int dx, dy, dz;
     dir_step(face, &dx, &dy, &dz);
     return !level_solid(lv, x + dx, y + dy, z + dz);

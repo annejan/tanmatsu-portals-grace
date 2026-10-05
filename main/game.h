@@ -19,6 +19,15 @@
 // Every solid box a body can meet besides the grid: the other cubes, the
 // player, the platform, and the pieces of the light bridges.
 #define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS)
+#define GEL_BLOBS      48     // gel in flight, at most
+#define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
+
+// A blob of gel in flight, from a dispenser: it paints where it lands.
+typedef struct {
+    vec3_t  pos, vel;
+    uint8_t gel;  // gel_t
+    bool    live;
+} gel_blob_t;
 
 typedef struct {
     body_t body;
@@ -47,6 +56,8 @@ typedef struct {
     float      burn_t;                             // seconds the player has stood in a beam
     beam_seg_t bridge[LV_MAX_BRIDGES][BEAM_SEGS];  // each light bridge's centre line, on its surface
     int        bridge_n[LV_MAX_BRIDGES];
+    gel_blob_t blobs[GEL_BLOBS];
+    float      drip_t[LV_MAX_GELS];  // each dispenser: seconds to its next blob
 } game_t;
 
 typedef struct {
@@ -75,6 +86,7 @@ enum {
     GAME_EV_PRESS       = 1 << 21,  // a pedestal button pressed by hand
     GAME_EV_DROPPER     = 1 << 22,  // a dropper let a new cube out
     GAME_EV_BURN        = 1 << 23,  // the player stepped into a laser beam
+    GAME_EV_PAINT       = 1 << 24,  // gel painted something new: re-mesh
 };
 
 void game_load(game_t* g, int chamber);

@@ -18,20 +18,26 @@ typedef struct {
 } material_info_t;
 
 static material_info_t s_mat[MAT_COUNT] = {
-    [MAT_WHITE]    = {"white.png", 0xFFD8D8D0u, 0, NULL},
-    [MAT_METAL]    = {"metal.png", 0xFF44484Cu, 0, NULL},
-    [MAT_GOO]      = {"goo.png", 0xFF5A4A18u, SE_TRI_EMISSIVE, NULL},
-    [MAT_EXIT]     = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
-    [MAT_GLASS]    = {"glass.png", 0xFF9ED8F0u, SE_TRI_BLEND, NULL},
-    [MAT_FIZZ]     = {"fizz.png", 0xFF60B0FFu, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
-    [MAT_JUMP]     = {"jump.png", 0xFFE08020u, 0, NULL},
+    [MAT_WHITE]        = {"white.png", 0xFFD8D8D0u, 0, NULL},
+    [MAT_METAL]        = {"metal.png", 0xFF44484Cu, 0, NULL},
+    [MAT_GOO]          = {"goo.png", 0xFF5A4A18u, SE_TRI_EMISSIVE, NULL},
+    [MAT_EXIT]         = {"exit.png", 0xFF30D060u, SE_TRI_EMISSIVE, NULL},
+    [MAT_GLASS]        = {"glass.png", 0xFF9ED8F0u, SE_TRI_BLEND, NULL},
+    [MAT_FIZZ]         = {"fizz.png", 0xFF60B0FFu, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
+    [MAT_JUMP]         = {"jump.png", 0xFFE08020u, 0, NULL},
     // Flat colours: the pedestal a light grey block, the dropper dark.
-    [MAT_PEDESTAL] = {NULL, 0xFF7A7E86u, 0, NULL},
-    [MAT_DROPPER]  = {NULL, 0xFF34363Bu, 0, NULL},
-    [MAT_CUBEBASE] = {NULL, 0xFF3E4A60u, 0, NULL},
-    [MAT_EMITTER]  = {NULL, 0xFF5A2A2Au, 0, NULL},
-    [MAT_CATCHER]  = {NULL, 0xFF6A5030u, 0, NULL},
-    [MAT_BRIDGE]   = {NULL, 0xFF2A4A6Au, 0, NULL},
+    [MAT_PEDESTAL]     = {NULL, 0xFF7A7E86u, 0, NULL},
+    [MAT_DROPPER]      = {NULL, 0xFF34363Bu, 0, NULL},
+    [MAT_CUBEBASE]     = {NULL, 0xFF3E4A60u, 0, NULL},
+    [MAT_EMITTER]      = {NULL, 0xFF5A2A2Au, 0, NULL},
+    [MAT_CATCHER]      = {NULL, 0xFF6A5030u, 0, NULL},
+    [MAT_BRIDGE]       = {NULL, 0xFF2A4A6Au, 0, NULL},
+    [MAT_DISP_BLUE]    = {NULL, 0xFF1E3E78u, 0, NULL},
+    [MAT_DISP_ORANGE]  = {NULL, 0xFF784012u, 0, NULL},
+    [MAT_DISP_WHITE]   = {NULL, 0xFF8A8A84u, 0, NULL},
+    [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
+    [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
+    [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -402,6 +408,14 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             submit_box(v3_sub(v3_add(lo, w), e), v3_add(v3_add(hi, w), up), cam, cs, NULL, 0xFFB8ECFFu,
                        SE_TRI_EMISSIVE);
         }
+    }
+    // Gel in flight.
+    static uint32_t const gel_argb[] = {0, 0xFF2E7BFFu, 0xFFFF8A1Cu, 0xFFF0F0EAu};
+    for (int i = 0; i < GEL_BLOBS; i++) {
+        gel_blob_t const* b = &g->blobs[i];
+        if (!b->live) continue;
+        vec3_t const h = v3(0.07f, 0.07f, 0.07f);
+        submit_box(v3_sub(b->pos, h), v3_add(b->pos, h), cam, cs, NULL, gel_argb[b->gel], SE_TRI_EMISSIVE);
     }
     // A reflection cube: a red lens on the side the beam leaves by.
     for (int i = 0; i < g->n_cubes; i++) {

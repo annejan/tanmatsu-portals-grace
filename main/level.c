@@ -31,6 +31,25 @@ bool level_solid(level_t const* lv, int x, int y, int z) {
     return true;
 }
 
+int level_paint(level_t const* lv, int x, int y, int z) {
+    if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return GEL_NONE;
+    return lv->paint[idx(lv, x, y, z)];
+}
+
+bool level_set_paint(level_t* lv, int x, int y, int z, int gel) {
+    uint8_t const m = level_get(lv, x, y, z);
+    if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return false;
+    if (m != MAT_WHITE && m != MAT_METAL) return false;
+    uint8_t* const p = &lv->paint[idx(lv, x, y, z)];
+    if (*p == gel) return false;
+    *p = (uint8_t)gel;
+    return true;
+}
+
+bool level_portalable(level_t const* lv, int x, int y, int z) {
+    return level_get(lv, x, y, z) == MAT_WHITE || level_paint(lv, x, y, z) == GEL_WHITE;
+}
+
 void level_set(level_t* lv, int x, int y, int z, uint8_t m) {
     if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return;
     lv->cells[idx(lv, x, y, z)] = m;
@@ -132,20 +151,23 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
             for (int j = 0; j < nv; j++) {
                 for (int i = 0; i < nu; i++) {
                     int c[3];
-                    c[a]                = s;
-                    c[ua]               = i;
-                    c[va]               = j;
-                    uint8_t const m     = level_get(lv, c[0], c[1], c[2]);
-                    int           e[3]  = {c[0], c[1], c[2]};
-                    e[a]               += sign;
+                    c[a]                      = s;
+                    c[ua]                     = i;
+                    c[va]                     = j;
+                    uint8_t const m           = level_get(lv, c[0], c[1], c[2]);
+                    int           e[3]        = {c[0], c[1], c[2]};
+                    e[a]                     += sign;
                     // Doors, glass and fizzlers are drawn by the game, not the
                     // mesh: their cells are open space here, so what is
                     // round and behind them shows.
-                    uint8_t const n     = level_get(lv, e[0], e[1], e[2]);
-                    bool const    vis   = m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ &&
-                                          (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ) &&
-                                          !is_hole(holes, n_holes, c[0], c[1], c[2], face);
-                    mask[j * nu + i]    = vis ? m : MAT_AIR;
+                    uint8_t const        n    = level_get(lv, e[0], e[1], e[2]);
+                    bool const           vis  = m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ &&
+                                                (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ) &&
+                                                !is_hole(holes, n_holes, c[0], c[1], c[2], face);
+                    // A painted face is meshed as its paint.
+                    static uint8_t const painted[] = {0, MAT_PAINT_BLUE, MAT_PAINT_ORANGE, MAT_PAINT_WHITE};
+                    int const            gel       = vis ? level_paint(lv, c[0], c[1], c[2]) : GEL_NONE;
+                    mask[j * nu + i]               = !vis ? MAT_AIR : gel != GEL_NONE ? painted[gel] : m;
                 }
             }
             for (int j = 0; j < nv; j++) {

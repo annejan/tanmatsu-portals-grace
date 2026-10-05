@@ -271,9 +271,16 @@ static int step_cube(game_t* g, int i, float dt) {
         }
     }
 
-    int          via   = -1;
-    aabb_t const start = body_aabb(b);
-    int const    pev   = body_move(b, &w, dt, &via, NULL);
+    int          via    = -1;
+    aabb_t const start  = body_aabb(b);
+    float        impact = 0.0f;
+    int const    pev    = body_move(b, &w, dt, &via, &impact);
+    // A cube down on blue gel, fast enough, bounces too.
+    if ((pev & PHYS_LANDED) && i != g->held && impact > 3.0f &&
+        level_paint(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z)) == GEL_BLUE) {
+        b->vel.y     = impact * 0.9f;
+        b->on_ground = false;
+    }
     if (pev & PHYS_TELEPORT) {
         if (i == g->held) g->held_via = g->held_via < 0 ? via : -1;
     }
@@ -432,6 +439,69 @@ static void trace_bridges(game_t* g) {
     }
 }
 
+// --- Gel --------------------------------------------------------------------
+
+// A blob lands on (x, y, z) through `face`: it paints that cell and the
+// ones round it in the face's plane, 3 x 3. True if anything changed.
+static bool splat(level_t* lv, int x, int y, int z, int face, int gel) {
+    int const a = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
+    bool      changed = false;
+    for (int j = -1; j <= 1; j++)
+        for (int i = -1; i <= 1; i++) {
+            int c[3]  = {x, y, z};
+            c[ua]    += i;
+            c[va]    += j;
+            changed   = level_set_paint(lv, c[0], c[1], c[2], gel) || changed;
+        }
+    return changed;
+}
+
+// Dispensers drip; blobs fall, through portals, and paint where they land.
+static int step_gel(game_t* g, float dt) {
+    int ev = 0;
+    for (int k = 0; k < g->lv.n_gels; k++) {
+        g->drip_t[k] -= dt;
+        if (g->drip_t[k] > 0.0f) continue;
+        g->drip_t[k] += GEL_DRIP;
+        for (int i = 0; i < GEL_BLOBS; i++) {
+            if (g->blobs[i].live) continue;
+            gel_src_t const* s = &g->lv.gels[k];
+            g->blobs[i] = (gel_blob_t){v3((float)s->x + 0.5f, (float)s->y - 0.05f, (float)s->z + 0.5f), v3(0, 0, 0),
+                                       (uint8_t)s->gel, true};
+            break;
+        }
+    }
+    for (int i = 0; i < GEL_BLOBS; i++) {
+        gel_blob_t* b = &g->blobs[i];
+        if (!b->live) continue;
+        b->vel.y  -= PHYS_GRAVITY * dt;
+        float len  = v3_len(b->vel) * dt;
+        if (len < 1e-6f) continue;
+        vec3_t d = v3_scale(b->vel, dt / len);
+        for (int hop = 0; hop < 3 && b->live; hop++) {
+            ray_hit_t const w = level_raycast(&g->lv, b->pos, d, len);
+            if (!w.hit) {
+                b->pos = v3_mad(b->pos, d, len);
+                break;
+            }
+            bool through = false;
+            for (int p = 0; p < 2 && !through; p++) {
+                if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[p], w.point)) continue;
+                d        = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
+                b->vel   = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], b->vel);
+                b->pos   = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], w.point), d, 0.01f);
+                len     -= w.dist;
+                through  = true;
+            }
+            if (through) continue;
+            if (splat(&g->lv, w.x, w.y, w.z, w.face, b->gel)) ev |= GAME_EV_PAINT;
+            b->live = false;
+        }
+        if (b->pos.y < -4.0f) b->live = false;
+    }
+    return ev;
+}
+
 // On top of a button: its base within the pad, resting on it.
 static bool on_button(button_t const* bt, aabb_t const* a) {
     float const top = (float)bt->y + 1.0f;
@@ -528,6 +598,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     move_platform(g, dt);
     trace_bridges(g);  // the portals may have moved
+    ev |= step_gel(g, dt);
 
     // The player, among the cubes.
     aabb_t               boxes[GAME_MAX_BOXES];

@@ -15,6 +15,7 @@ typedef enum {
     OP_USE,         // pick up / put down
     OP_FACE_POINT,  // look at (a, b, c), at once
     OP_GRAB,        // look at the nearest free cube and pick it up
+    OP_JUMP,        // jump, on the next tick (if on the ground then)
 } op_t;
 
 typedef struct {

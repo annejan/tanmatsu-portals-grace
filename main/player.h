@@ -30,6 +30,7 @@ typedef enum {
     PL_EV_DIED     = 1 << 1,
     PL_EV_EXIT     = 1 << 2,
     PL_EV_LANDED   = 1 << 3,
+    PL_EV_BOUNCE   = 1 << 4,  // off blue gel
 } player_event_t;
 
 void player_spawn(player_t* p, level_t const* lv);

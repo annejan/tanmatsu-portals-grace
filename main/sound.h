@@ -24,6 +24,7 @@ typedef enum {
     SND_TICK,     // a pedestal button's timer
     SND_DROPPER,  // a new cube out of a dropper
     SND_BURN,     // into a laser beam
+    SND_BOUNCE,   // off blue gel
     SND_COUNT,
 } sound_t;
 

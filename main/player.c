@@ -6,6 +6,13 @@
 #define WALK_SPEED   4.5f
 #define GROUND_ACCEL 40.0f
 #define AIR_ACCEL    8.0f
+// Gel underfoot: orange runs you up to a speed slowly, and lets go of it
+// as slowly; blue throws a jump higher, and a fall back up.
+#define ORANGE_SPEED 11.0f
+#define ORANGE_ACCEL 10.0f
+#define BLUE_JUMP    10.5f  // m/s: about 3.7 m up, at this gravity
+#define BLUE_BOUNCE  0.9f   // of the speed it came down at
+#define BOUNCE_FROM  3.0f   // m/s: slower than this, a landing does not bounce
 
 void player_spawn(player_t* p, level_t const* lv) {
     *p     = (player_t){0};
@@ -41,16 +48,20 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
     vec3_t      wish = v3(in->fwd * sy + in->strafe * cy, 0.0f, in->fwd * cy - in->strafe * sy);
     if (v3_len(wish) > 1.0f) wish = v3_norm(wish);
 
+    int const gel =
+        p->on_ground ? level_paint(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z))
+                     : GEL_NONE;
     if (p->on_ground) {
-        vec3_t const target = v3_scale(wish, WALK_SPEED);
+        bool const   orange = gel == GEL_ORANGE;
+        vec3_t const target = v3_scale(wish, orange ? ORANGE_SPEED : WALK_SPEED);
         vec3_t       dv     = v3(target.x - p->vel.x, 0.0f, target.z - p->vel.z);
         float const  l      = v3_len(dv);
-        float const  step   = GROUND_ACCEL * dt;
+        float const  step   = (orange ? ORANGE_ACCEL : GROUND_ACCEL) * dt;
         if (l > step) dv = v3_scale(dv, step / l);
         p->vel.x += dv.x;
         p->vel.z += dv.z;
         if (in->jump) {
-            p->vel.y     = JUMP_SPEED;
+            p->vel.y     = gel == GEL_BLUE ? BLUE_JUMP : JUMP_SPEED;
             p->on_ground = false;
         }
     } else {
@@ -88,6 +99,13 @@ int player_update_in(player_t* p, phys_world_t const* w, player_input_t const* i
         if (through) *through = via;
     }
     if ((pev & PHYS_LANDED) && impact > 3.0f) ev |= PL_EV_LANDED;
+    // Down on blue gel, fast enough: back up again.
+    if ((pev & PHYS_LANDED) && impact > BOUNCE_FROM &&
+        level_paint(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z)) == GEL_BLUE) {
+        p->vel.y      = impact * BLUE_BOUNCE;
+        p->on_ground  = false;
+        ev           |= PL_EV_BOUNCE;
+    }
     if (p->on_ground) {
         uint8_t const under =
             level_get(w->lv, (int)floorf(p->pos.x), (int)floorf(p->pos.y - 0.05f), (int)floorf(p->pos.z));

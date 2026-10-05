@@ -103,6 +103,7 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
     int   k       = 0;      // the step running
     float in_step = 0.0f;   // seconds into it
     bool  walked  = false;  // OP_STEP_OFF: has been walking on the ground
+    bool  jump    = false;  // OP_JUMP: on this tick
     for (float now = 0.0f; now + dt * 0.5f < t; now += dt) {
         game_input_t in = {0};
         // Instant steps take no time: run them all before this tick.
@@ -120,6 +121,8 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
                 if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
             } else if (st->op == OP_USE) {
                 s->events |= game_use(g);
+            } else if (st->op == OP_JUMP) {
+                jump = true;
             } else if (st->op == OP_GRAB) {
                 // The nearest cube not already carried: look at its middle
                 // and pick it up. Where a cube lands can shift by a few
@@ -176,6 +179,8 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
             default:
                 break;  // OP_END: stand still
         }
+        in.jump       = jump;
+        jump          = false;
         int const ev  = game_step(g, &in, dt);
         s->events    |= ev;
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;

@@ -743,6 +743,88 @@ static void test_bridges(void) {
           "a bridge emitter open only upwards is refused: %s", err);
 }
 
+// Gel (chamber 14): dispensers drip, blobs paint, paint does things.
+static void test_gel(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("14-repulsion"));
+    CHECK(c >= 0, "chamber 14 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_gels == 1 && g.lv.gels[0].gel == GEL_BLUE, "one blue dispenser");
+    // Left alone, it paints the floor under itself.
+    gel_src_t const* src = &g.lv.gels[0];
+    int              ev  = 0;
+    for (int i = 0; i < 150; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_PAINT) && level_paint(&g.lv, src->x, 0, src->z) == GEL_BLUE &&
+              level_paint(&g.lv, src->x + 1, 0, src->z + 1) == GEL_BLUE,
+          "it paints the floor under itself, 3 x 3");
+    // Through a floor portal under it and a ceiling portal by the ledge:
+    // the floor there.
+    game_load(&g, c);
+    CHECK(portal_place_at(&g.lv, 2, 0, 2, DIR_PY, v3(0, 0, 1), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 6, 7, 5, DIR_NY, v3(0, 0, 1), &g.portals[0], &g.portals[1]),
+          "floor and ceiling portals");
+    for (int i = 0; i < 150; i++) game_step(&g, &idle, 0.02f);
+    CHECK(level_paint(&g.lv, 6, 0, 6) == GEL_BLUE && level_paint(&g.lv, src->x, 0, src->z) == GEL_NONE,
+          "through the portals it paints the floor under the other one, and not its own");
+
+    // Blue: a fall comes back up; a jump goes high.
+    g.pl.pos       = v3(6.5f, 4.0f, 6.0f);
+    g.pl.vel       = v3(0, 0, 0);
+    g.pl.on_ground = false;
+    ev             = 0;
+    float vy_max   = 0.0f;
+    for (int i = 0; i < 60; i++) {
+        ev |= game_step(&g, &idle, 0.02f);
+        if (ev & PL_EV_BOUNCE) vy_max = fmaxf(vy_max, g.pl.vel.y);
+    }
+    CHECK((ev & PL_EV_BOUNCE) && vy_max > 7.0f, "a 3 m fall onto blue bounces back up (%.1f m/s)", vy_max);
+    game_load(&g, c);
+    level_set_paint(&g.lv, 6, 0, 3, GEL_BLUE);
+    g.pl.pos = v3(6.5f, 1.0f, 3.5f);
+    game_step(&g, &idle, 0.02f);
+    game_step(&g, &(game_input_t){.jump = true}, 0.02f);
+    float top = 0.0f;
+    for (int i = 0; i < 80; i++) game_step(&g, &idle, 0.02f), top = fmaxf(top, g.pl.pos.y);
+    CHECK(top > 4.3f, "a jump from blue clears 3 m (feet to %.2f)", top);
+    // A cube bounces too.
+    game_load(&g, c);
+    level_set_paint(&g.lv, 6, 0, 3, GEL_BLUE);
+    g.n_cubes  = 1;
+    g.cubes[0] = (cube_t){.body = {v3(6.5f, 4.0f, 3.5f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    float cube_up = 0.0f;
+    for (int i = 0; i < 60; i++) game_step(&g, &idle, 0.02f), cube_up = fmaxf(cube_up, g.cubes[0].body.vel.y);
+    CHECK(cube_up > 5.0f, "a cube dropped on blue bounces (%.1f m/s)", cube_up);
+
+    // Orange: a run goes well past walking pace.
+    game_load(&g, c);
+    for (int z = 1; z <= 6; z++)
+        for (int x = 4; x <= 10; x++) level_set_paint(&g.lv, x, 0, z, GEL_ORANGE);
+    g.pl.pos  = v3(4.5f, 1.0f, 3.5f);
+    g.pl.yaw  = 1.5707963f;  // east
+    float run = 0.0f;
+    for (int i = 0; i < 40; i++) {
+        game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+        run = fmaxf(run, sqrtf(g.pl.vel.x * g.pl.vel.x + g.pl.vel.z * g.pl.vel.z));
+    }
+    CHECK(run > 7.0f, "on orange the player runs at %.1f m/s", run);
+    // White: metal that takes a portal.
+    game_load(&g, c);
+    portal_t pt;
+    CHECK(!portal_place_at(&g.lv, 11, 1, 3, DIR_NX, v3(0, 1, 0), NULL, &pt), "bare metal takes no portal");
+    level_set_paint(&g.lv, 11, 1, 3, GEL_WHITE);
+    level_set_paint(&g.lv, 11, 2, 3, GEL_WHITE);
+    CHECK(portal_place_at(&g.lv, 11, 1, 3, DIR_NX, v3(0, 1, 0), NULL, &pt), "painted white, it does");
+    CHECK(!level_set_paint(&g.lv, 9, 3, 8, GEL_BLUE), "the exit takes no paint");
+
+    CHECK(!chamber_parse("size: 5 3 3\nlayer 1\n#####\n#SU.#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) &&
+              strstr(err, "air under it") != NULL,
+          "a dispenser with no air under it is refused: %s", err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1368,6 +1450,7 @@ int main(void) {
     test_pedestal_dropper();
     test_lasers();
     test_bridges();
+    test_gel();
     test_draft_save();
     test_glass();
     test_things();

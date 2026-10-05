@@ -122,6 +122,7 @@ cells are metal.
 | `O` | a laser catcher: a block, waist high. A button digit on top of it is down while a beam hits the block. |
 | `R` | a reflection cube, in the cell where it starts. A beam that hits it leaves it level, the way the cube faces. A carried cube faces where you look, in steps of 45°. |
 | `H` | a light bridge emitter: a solid cell that lays a walkable strip of hard light, 1 m wide, out of its one open side, which must face sideways. Its surface is level with the bottom of the emitter cell. It runs until a wall, through fizzlers and portal pairs; a portal that would stand it on end (a floor or ceiling portal) stops it. Players and cubes stand on it; shots and lasers pass through. |
+| `U` `Z` `X` | gel dispensers, in the ceiling, for blue, orange and white gel; the cell under one must be air. They drip all the time. A blob falls, through portals too, and paints a 3 x 3 patch where it lands, of metal and white panels only. Blue gel bounces back up whatever lands on it fast, and a jump from it goes about 3.7 m up. On orange gel you run at up to 11 m/s. White gel makes a surface take portals. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 
@@ -158,6 +159,7 @@ game time.
 | `wait seconds` | Stand still. |
 | `use` | Pick up a cube, or put it down. |
 | `grab` | Look at the nearest cube you are not carrying, and pick it up. |
+| `jump` | Jump, if you are on the ground; the next step goes on at once (`walk_to` steers in the air). |
 
 Lines that start with `//` are comments. You can write them anywhere except
 between the lines of a layer.

@@ -305,7 +305,7 @@ static void on_update(float dt, void* user) {
     };
     int const ev = game_step(&s_game, &gin, dt);
     sound_events(ev);
-    if (ev & GAME_EV_PORTAL) render_set_level(&s_game.lv, s_game.portals);
+    if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     if (s_mode == MODE_TEST) {
         if (ev & PL_EV_DIED) {
             start_playtest();
