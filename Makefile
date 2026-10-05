@@ -1,8 +1,14 @@
-# The P4's debug console. Empty: tools/p4port.sh finds it by the P4's USB
-# hub port, so the C6's tty (also an Espressif USB-serial/JTAG unit) is
-# never opened by mistake. Set it only to override that.
-PORT ?=
-CONSOLE = $(or $(PORT),$(shell tools/p4port.sh))
+# The P4's debug console: tools/p4port.sh finds it by the P4's USB hub
+# port, so the C6's tty (also an Espressif USB-serial/JTAG unit) is never
+# opened by mistake. P4_CONSOLE overrides it and is checked the same way;
+# an rfc2217:// URL (a badge forwarded over the network) is taken as given.
+# PORT is not read on purpose: other projects default it to /dev/ttyACM0,
+# which on a Tanmatsu is often the C6.
+P4_CONSOLE ?=
+P4_FIND = tools/p4port.sh $(if $(P4_CONSOLE),--check '$(P4_CONSOLE)')
+# In a recipe: the console into $$console, or stop.
+CONSOLE_SH = $(if $(PORT),echo "note: PORT is not used here; P4_CONSOLE picks the console" >&2;) \
+	console="$$($(P4_FIND))" || exit 1;
 # pyserial, from the badgelink checkout's virtualenv.
 PY := badgelink/tools/.venv/bin/python
 # Empty: badgelink talks to the P4 over USB directly (16d0:0f9a). On a
@@ -24,11 +30,6 @@ IDF_PATH ?= $(shell cat .IDF_PATH 2>/dev/null || echo `pwd`/esp-idf)
 IDF_TOOLS_PATH ?= $(shell cat .IDF_TOOLS_PATH 2>/dev/null || echo `pwd`/esp-idf-tools)
 IDF_VERSION ?= v6.0.2
 IDF_GITHUB_ASSETS ?= dl.espressif.com/github_assets
-
-# The ESP-IDF environment script. Only mode_badgelink needs it (for pyserial
-# out of the IDF python env -- the app build itself just needs the toolchain
-# via IDF_TOOLS_PATH). Honours an IDF_SOURCE already exported by the shell.
-IDF_SOURCE ?= $(shell cat .IDF_PATH 2>/dev/null && echo '$(IDF_PATH)/export.sh' || test -d `pwd`/esp-idf && echo '$(IDF_PATH)/export.sh' || echo '$(HOME)/.espressif/tools/activate_idf_$(IDF_VERSION).sh')
 
 export IDF_TOOLS_PATH
 export IDF_GITHUB_ASSETS
@@ -85,18 +86,21 @@ host_shot: chambers_c
 
 check: chambers_c host_shot
 	mkdir -p $(BUILD)
-	$(BUILD)/host_shot selftest
+	BUILD="$(BUILD)" $(BUILD)/host_shot selftest
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
-	$(BUILD)/host_test
+	BUILD="$(BUILD)" $(BUILD)/host_test
 	# input.c against the badge's own headers (after the system's, so they
 	# shadow nothing) and tests/shims for the ESP-IDF bits those want.
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Itests/shims $(HOST_ENGINE) -Imain -idirafter include tests/host_input.c -lm -o $(BUILD)/host_input
 	$(BUILD)/host_input
+	tests/p4port_test.sh
 
+# Needs Pillow for the PNGs. Each run's PPMs are converted and removed.
 shots: host_shot
 	mkdir -p $(BUILD)/shots
-	$(BUILD)/host_shot
-	python3 -c "from PIL import Image; import glob; [Image.open(f).save(f[:-4] + '.png') for f in glob.glob('$(BUILD)/shots/*.ppm')]"
+	rm -f $(BUILD)/shots/*.ppm
+	BUILD="$(BUILD)" $(BUILD)/host_shot
+	python3 -c "import glob, os; from PIL import Image; [(Image.open(f).save(f[:-4] + '.png'), os.remove(f)) for f in glob.glob('$(BUILD)/shots/*.ppm')]"
 
 textures:
 	python3 tools/make_textures.py
@@ -131,24 +135,25 @@ engine:
 #   make testrun TEST="..."                                 the app is already running, in debug mode
 #   make recover                                            after a crash or a hang
 #
-# install / run need BadgeLink mode; the console needs debug mode. `cycle`
-# switches between them: run, then `mode_debug`, then waits for the P4's
-# console to appear (tools/p4port.sh). The app runs the test and goes back
-# to the launcher by itself.
+# install / run need BadgeLink mode; the console needs debug mode. Starting
+# the app switches the badge to debug mode by itself, so `cycle` runs it and
+# then waits for the P4's console to appear (tools/p4port.sh, which learns
+# the P4's USB port during install). The app runs the test and goes back to
+# the launcher by itself.
 TEST ?=
 TESTFLAGS ?=
 
 .PHONY: testrun cycle testrefs testcompare recover wait_console
 wait_console:
-	for i in $$(seq 1 30); do tools/p4port.sh >/dev/null 2>&1 && exit 0; sleep 1; done; \
-	echo "the P4's console did not appear"; exit 1
+	for i in $$(seq 1 30); do $(P4_FIND) >/dev/null 2>&1 && exit 0; sleep 1; done; \
+	$(P4_FIND) >/dev/null || true; \
+	echo "the P4's console did not appear in 30 s"; exit 1
 
 testrun:
-	BADGELINKPORT="$(BADGELINKPORT)" $(PY) -u tools/testrun.py --port "$(CONSOLE)" $(TESTFLAGS) -- $(TEST)
+	$(CONSOLE_SH) BADGELINKPORT="$(BADGELINKPORT)" $(PY) -u tools/testrun.py --port "$$console" $(TESTFLAGS) -- $(TEST)
 
 cycle: build install run
 	sleep 4
-	$(MAKE) mode_debug
 	$(MAKE) wait_console
 	$(MAKE) testrun
 
@@ -159,7 +164,7 @@ testcompare:
 	$(MAKE) cycle TESTFLAGS="--compare"
 
 recover:
-	$(PY) tools/recover.py --port "$(CONSOLE)"
+	$(CONSOLE_SH) $(PY) tools/recover.py --port "$$console"
 
 # Badgelink
 .PHONY: badgelink
@@ -169,12 +174,15 @@ badgelink:
 	git clone https:///github.com/nullislandspace/esp32-component-badgelink.git badgelink
 	cd badgelink/tools; ./install.sh
 
-# Determine badgelink connection argument: --tcp for host:port, --port for serial devices
-BADGELINK_CONN := $(if $(BADGELINKPORT),$(if $(findstring :,$(BADGELINKPORT)),--tcp $(BADGELINKPORT),--port $(BADGELINKPORT)))
+# The badgelink connection: --tcp for host:port (a TCP proxy), --port for a
+# serial device -- whose /dev/serial/by-path name has colons in it too.
+BADGELINK_CONN := $(if $(BADGELINKPORT),$(if $(shell echo '$(BADGELINKPORT)' | grep -E '^[^/]+:[0-9]+$$'),--tcp,--port) $(BADGELINKPORT))
 
 .PHONY: install
 install: build
 	@echo "=== Installing to device ==="
+	# BadgeLink mode: the moment to learn the P4's USB port (tools/p4port.sh).
+	tools/p4port.sh --learn || true
 	@echo "Creating directory $(APP_INSTALL_PATH)..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH) || true
 	@echo "Uploading metadata.json..."
@@ -186,7 +194,7 @@ install: build
 	@echo "Uploading icon64.png..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/icon64.png ../../metadata/icon64.png
 	@echo "Uploading app.so..."
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/app.so ../../$(BUILD)/app.so
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload $(APP_INSTALL_PATH)/app.so $(abspath $(BUILD))/app.so
 	@echo "Uploading textures..."
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir $(APP_INSTALL_PATH)/textures || true
 	for t in $(TEXTURES); do \
@@ -212,13 +220,12 @@ run:
 # launcher listens for it (see ../tanmatsu-launcher/main/usb_device.c), so
 # this only works against firmware that implements the listener.
 #
-# PORT accepts either a local device path (e.g. /dev/ttyACM0) or an rfc2217://
-# URL pointing at ../tanmatsu-badgefs/rfc2217proxy when the device is
-# forwarded over the network.
+# The console is the P4's (tools/p4port.sh), or P4_CONSOLE: the P4's tty, or
+# an rfc2217:// URL pointing at ../tanmatsu-badgefs/rfc2217proxy when the
+# device is forwarded over the network.
 .PHONY: mode_badgelink
 mode_badgelink:
-	test -n "$(CONSOLE)"
-	$(PY) -c "import serial, sys; s=serial.serial_for_url('$(CONSOLE)', timeout=1, do_not_open=True); s.open(); s.rts=False; s.dtr=False; s.write(b'BADGELINK\n'); s.flush(); sys.stdout.write(s.read(128).decode(errors='replace')); s.close()"
+	$(CONSOLE_SH) $(PY) -c "import serial, sys; s=serial.serial_for_url(sys.argv[1], timeout=1, do_not_open=True); s.open(); s.rts=False; s.dtr=False; s.write(b'BADGELINK\n'); s.flush(); sys.stdout.write(s.read(128).decode(errors='replace')); s.close()" "$$console"
 
 # The other direction: ask the firmware (in BadgeLink mode) to switch its USB
 # back to flash/monitor mode, through BadgeLink's own `mode` command. Uses the

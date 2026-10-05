@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 """Get the badge back to the launcher after a crash or hang.
 
-Resets the chip over the debug console the way `make monitor` does
-(DTR/RTS). If the showreel comes up again and announces itself
+Resets the P4 over its debug console with RTS, as esptool does for a
+USB-Serial/JTAG chip. If the app comes up again and announces itself
 (READY/PONG), it is sent EXIT so it returns to the launcher. If nothing
 answers within the timeout, the badge is assumed to be in the launcher.
 
-From tanmatsu-idf6tests' tools/recover.py. Needs the ESP-IDF environment
-(esp_pylib, esp_idf_monitor): source $IDF_SOURCE first.
+From tanmatsu-idf6tests' tools/recover.py; plain pyserial (badgelink's
+virtualenv has it). The port must be the one tools/p4port.sh finds: on a
+Tanmatsu the other Espressif tty is the ESP32-C6's, and resetting that
+crashes the badge.
 
 Exit codes: 0 app answered and was sent EXIT, 4 reset done but no app
 answered (probably in the launcher), 1 could not reset.
@@ -18,24 +20,18 @@ import os
 import sys
 import time
 
-import serial
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from testrun import connect, parse_record, read_line  # noqa: E402
+from testrun import connect, open_console, parse_record, read_line  # noqa: E402
 
 
 def hard_reset(url):
-    from esp_idf_monitor.base.chip_specific_config import get_chip_config
-    from esp_pylib.serial_reset import hard_reset as pylib_hard_reset
-
-    port = serial.serial_for_url(url, baudrate=115200, timeout=1, do_not_open=True)
-    # Same order as esp_idf_monitor's SerialReader.open_serial(reset=True).
-    port.rts = False
-    port.dtr = False
-    port.open()
+    """RTS on while DTR is off holds a USB-Serial/JTAG chip in reset; RTS off
+    lets it boot, normally, as DTR is off (esptool's HardReset for USB)."""
+    port = open_console(url)  # checks the port; leaves RTS, then DTR, off
     port.rts = True
-    port.dtr = True
-    pylib_hard_reset(port, hold_delay=get_chip_config("esp32p4")["reset"])
+    time.sleep(0.2)
+    port.rts = False
     time.sleep(0.2)
     port.close()
 
@@ -73,7 +69,7 @@ def recover(url, timeout=60, log=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", default=os.environ.get("PORT"))
+    ap.add_argument("--port", required=True, help="the P4's debug console, from tools/p4port.sh; $PORT is not read")
     ap.add_argument("--timeout", type=float, default=60)
     args = ap.parse_args()
     return recover(args.port, args.timeout)

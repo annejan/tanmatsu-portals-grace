@@ -102,8 +102,8 @@ portal shots and real physics. A change that breaks a chamber fails the
 build.
 
 `make shots` draws the game's own `render.c` with a small software rasterizer
-(`tests/host_shot.c`) into `build/shots/*.png`. Use it to look at the portal
-passes without a badge.
+(`tests/host_shot.c`) into `build/shots/*.png` (needs Pillow). Use it to look
+at the portal passes without a badge.
 
 ## Device tests
 
@@ -118,8 +118,12 @@ make cycle TEST="shots scene=c1walk ms=1300,1500" TESTFLAGS=--fetch
 ```
 
 The tests talk to the ESP32-P4's debug console. `tools/p4port.sh` finds the
-console by the P4's USB hub port. It never opens the ESP32-C6's serial port,
-because opening that port crashes the badge.
+console by the P4's USB hub port, which it learns during `make install`
+(BadgeLink mode). The ESP32-C6's serial port is never opened, because opening
+it crashes the badge: every tool asks `p4port.sh` before it opens a port. To
+name the console yourself, set `P4_CONSOLE`; it is checked the same way.
+`PORT` is ignored on purpose, since other projects set it to `/dev/ttyACM0`,
+which on a Tanmatsu is often the C6.
 
 **Known problem:** the console sends nothing yet, even while the game is
 running, so these tests cannot connect. Use `make check` and `make shots` on

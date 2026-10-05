@@ -183,8 +183,9 @@ void scene_textured_tri(se_tex_vertex_t const tv[3], se_texture_t const* tex, ui
 // --- Shots ----------------------------------------------------------------
 
 static void save(char const* name) {
-    char path[128];
-    snprintf(path, sizeof(path), "build/shots/%s.ppm", name);
+    char        path[256];
+    char const* build = getenv("BUILD");  // the Makefile's $(BUILD)
+    snprintf(path, sizeof(path), "%s/shots/%s.ppm", build != NULL && build[0] ? build : "build", name);
     FILE* f = fopen(path, "wb");
     if (f == NULL) {
         perror(path);

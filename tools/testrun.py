@@ -44,7 +44,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import serial
 except ImportError:
-    print("pyserial missing (run inside the ESP-IDF environment: source $IDF_SOURCE)", file=sys.stderr)
+    print("pyserial missing: run this with badgelink's virtualenv (make badgelink), as the Makefile does", file=sys.stderr)
     sys.exit(5)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -100,6 +100,22 @@ def parse_record(line):
         return "CORRUPT", None
 
 
+class NotTheP4(Exception):
+    """A local port tools/p4port.sh does not vouch for as the P4's console."""
+
+
+def check_console(url):
+    """Refuse a local port unless tools/p4port.sh says it is the P4's debug
+    console. On a Tanmatsu the other Espressif tty is the ESP32-C6's, and
+    opening it resets the radio and crashes the running badge. A forwarded
+    console (rfc2217://...) is the far side's business."""
+    if "://" in url:
+        return
+    res = subprocess.run([os.path.join(HERE, "p4port.sh"), "--check", url], capture_output=True, text=True)
+    if res.returncode != 0:
+        raise NotTheP4(f"{url}: {res.stderr.strip() or 'not the P4 console'}")
+
+
 def open_console(url, timeout=1):
     """Open the debug console and leave it the way `idf.py monitor` does:
     DTR and RTS both deasserted. With pyserial's default (both asserted for
@@ -107,7 +123,9 @@ def open_console(url, timeout=1):
     session closed and the tty dropped the lines (F-16/F-18). Order matters:
     RTS off first, then DTR -- DTR off while RTS is still on resets a
     USB-Serial-JTAG chip. Setting them before open() gets that order wrong
-    (pyserial's rfc2217 open sends DTR first)."""
+    (pyserial's rfc2217 open sends DTR first). Only ever the P4's console:
+    check_console() first, every time."""
+    check_console(url)
     port = serial.serial_for_url(url, baudrate=115200, timeout=timeout, do_not_open=True)
     port.open()
     port.rts = False
@@ -234,7 +252,8 @@ def diff_images(ref_path, act_path, out_path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--port", default=os.environ.get("PORT"), help="debug console (rfc2217://... or device)")
+    ap.add_argument("--port", required=True,
+                    help="the P4's debug console, from tools/p4port.sh (or rfc2217://...); $PORT is not read")
     ap.add_argument("--badgelink-conn", default=None, help='e.g. "--tcp localhost:4003"')
     ap.add_argument("--out-dir", default=os.path.join(ROOT, "results"))
     ap.add_argument("--connect-timeout", type=float, default=12,
@@ -257,12 +276,19 @@ def main():
     if args.prefix != "SR":
         set_prefix(args.prefix)
 
-    if not args.port:
-        print("no --port and no $PORT", file=sys.stderr)
+    try:
+        check_console(args.port)
+    except NotTheP4 as exc:
+        print(f"refusing the console {exc}", file=sys.stderr)
         return EXIT_USAGE
     bl_port = os.environ.get("BADGELINKPORT", "")
     # No BADGELINKPORT: badgelink's own USB connection to the P4 (16d0:0f9a).
-    conn = args.badgelink_conn or (f"--tcp {bl_port}" if ":" in bl_port else f"--port {bl_port}" if bl_port else "")
+    # host:port is a TCP proxy; anything else a serial device, whose
+    # /dev/serial/by-path name has colons in it too.
+    if args.badgelink_conn or not bl_port:
+        conn = args.badgelink_conn or ""
+    else:
+        conn = f"--tcp {bl_port}" if re.fullmatch(r"[^/]+:\d+", bl_port) else f"--port {bl_port}"
 
     test_line = " ".join(args.test)
     kind_of_test = args.test[0]

@@ -512,6 +512,12 @@ static void test_chamber_dir(void) {
         bool const ok = chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err));
         CHECK(!ok && strstr(err, bad[i][1]) != NULL, "parse error %zu says \"%s\": got \"%s\"", i, bad[i][1], err);
     }
+    char const* const made[] = {"a-first.txt", "b-second.txt", "c-broken.txt"};
+    for (size_t i = 0; i < sizeof(made) / sizeof(made[0]); i++) {
+        char path[256];
+        snprintf(path, sizeof(path), "%s/%s", dir, made[i]);
+        remove(path);
+    }
 }
 
 // More than the renderer's buffers hold is refused when a chamber is
@@ -861,6 +867,7 @@ static void test_more_things(void) {
 }
 
 int main(void) {
+    setvbuf(stdout, NULL, _IOLBF, 0);  // every FAIL line out, even if a later test crashes
     test_solutions_fps();
     test_floor_portal();
     test_portal_back();
