@@ -1,6 +1,6 @@
 name: 19  Sentry
 hint: It cannot see straight up.
-story: This turret is a friend of the Enrichment Center. It is not a friend of yours. Please do not hurt its feelings. Or its shell.
+story: This turret is a friend of the Enrichment Center. It is not a friend of yours. Please do not hurt its feelings, or its casing.
 size: 9 8 14
 facing: north
 
