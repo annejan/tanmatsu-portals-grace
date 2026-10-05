@@ -79,7 +79,10 @@ static int   s_story_of = -2;
 static void personalise(char* story, size_t n) {
     static char const token[] = "[Subject-Name-here]";
     char* const       at      = strstr(story, token);
-    if (at == NULL || !nvs_settings_get_owner_nickname_configured()) return;
+    if (at == NULL) return;
+    // Read it straight: nvs_settings_get_owner_nickname_configured() says
+    // no on every badge (it asks with no buffer, which the helper behind it
+    // refuses), so the nickname's own read is the test.
     char name[64];
     if (nvs_settings_get_owner_nickname(name, sizeof(name), "") != ESP_OK || name[0] == '\0') return;
     char out[sizeof(s_game.lv.story)];
