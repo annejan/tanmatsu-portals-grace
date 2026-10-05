@@ -72,7 +72,7 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -108,6 +108,22 @@ shots: host_shot
 	rm -f $(BUILD)/shots/*.ppm
 	BUILD="$(BUILD)" $(BUILD)/host_shot
 	python3 -c "import glob, os; from PIL import Image; [(Image.open(f).save(f[:-4] + '.png'), os.remove(f)) for f in glob.glob('$(BUILD)/shots/*.ppm')]"
+
+# A chamber's solution as a film with sound (tools/make_movie.py; needs
+# Pillow and ffmpeg). DEMO is a chamber id; CHAMBERS a directory of
+# chamber files, as on the SD card. make movie DEMO=12-redirection
+DEMO     ?= 12-redirection
+MOVIE    ?= $(BUILD)/$(DEMO).mp4
+host_movie: chambers_c
+	mkdir -p $(BUILD)/movie
+	$(HOSTCC) -O2 -fcommon -w -Imain -Itests/movie_shims $(HOST_ENGINE) -Itests/shims $(ENGINE_DEFS) \
+		tests/host_movie.c main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
+		synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
+		third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
+		-lm -o $(BUILD)/movie/host_movie
+
+movie: host_movie
+	python3 tools/make_movie.py $(DEMO) $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))
 
 textures:
 	python3 tools/make_textures.py

@@ -26,3 +26,8 @@ void        demo_eval(int i, float t, demo_state_t* out);
 // The same stepped at `dt`, as the badge's frame rate would: the tests
 // check every solution at 15 to 50 fps.
 void        demo_eval_dt(int i, float t, float dt, demo_state_t* out);
+// The same, calling `tick` after every step with the state and that
+// step's events -- its shots and Use included: what a recording needs
+// (tools/make_movie.py).
+typedef void (*demo_tick_fn)(game_t const* g, int events, float now, void* ctx);
+void demo_run(int i, float t, float dt, demo_state_t* out, demo_tick_fn tick, void* ctx);

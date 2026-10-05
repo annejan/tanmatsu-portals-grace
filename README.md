@@ -138,6 +138,13 @@ build.
 (`tests/host_shot.c`) into `build/shots/*.png` (needs Pillow). Use it to look
 at the portal passes without a badge.
 
+`make movie DEMO=12-redirection` films a chamber's solution, with sound:
+the same renderer sampling the real textures, the camera eased between the
+script's turns, and the game's own sound -- effects, GLaDOS in SAM's voice,
+the music -- mixed offline (`tests/host_movie.c`, `tools/make_movie.py`;
+needs Pillow and ffmpeg). `CHAMBERS=dir` adds chambers as the SD card
+would, `GIF=file.gif` a GIF too.
+
 ## Device tests
 
 `main/testkit/` (from the template) runs the scripted demos on the badge.

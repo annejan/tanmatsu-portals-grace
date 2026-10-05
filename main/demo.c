@@ -86,6 +86,15 @@ void demo_eval(int i, float t, demo_state_t* s) {
 }
 
 void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
+    demo_run(i, t, dt, s, NULL, NULL);
+}
+
+// A shot's events, as game_step() reports one fired by a key.
+static int shot_events(bool ok, int which) {
+    return ok ? GAME_EV_PORTAL | (which == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE) : GAME_EV_SHOT_FAIL;
+}
+
+void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void* ctx) {
     memset(s, 0, sizeof(*s));
     if (i < 0 || i >= demo_count()) return;
     game_t* g = &s->g;
@@ -105,7 +114,8 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
     bool  walked  = false;  // OP_STEP_OFF: has been walking on the ground
     bool  jump    = false;  // OP_JUMP: on this tick
     for (float now = 0.0f; now + dt * 0.5f < t; now += dt) {
-        game_input_t in = {0};
+        game_input_t in      = {0};
+        int          instant = 0;  // events of this tick's instant steps
         // Instant steps take no time: run them all before this tick.
         for (;;) {
             step_t const* st = &steps[k];
@@ -116,11 +126,11 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
                 face_point(&g->pl, v3(st->a, st->b, st->c));
             } else if (st->op == OP_SHOOT) {
                 face_point(&g->pl, v3(st->a, st->b, st->c));
-                if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
+                instant |= shot_events(game_fire(g, st->which), st->which);
             } else if (st->op == OP_SHOOT_VIEW) {
-                if (game_fire(g, st->which)) s->events |= GAME_EV_PORTAL;
+                instant |= shot_events(game_fire(g, st->which), st->which);
             } else if (st->op == OP_USE) {
-                s->events |= game_use(g);
+                instant |= game_use(g);
             } else if (st->op == OP_JUMP) {
                 jump = true;
             } else if (st->op == OP_GRAB) {
@@ -140,7 +150,7 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
                 }
                 if (near >= 0) {
                     face_point(&g->pl, body_center(&g->cubes[near].body));
-                    s->events |= game_use(g);
+                    instant |= game_use(g);
                 }
             } else {
                 break;
@@ -181,8 +191,9 @@ void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
         }
         in.jump       = jump;
         jump          = false;
-        int const ev  = game_step(g, &in, dt);
+        int const ev  = game_step(g, &in, dt) | instant;
         s->events    |= ev;
+        if (tick != NULL) tick(g, ev, now + dt, ctx);
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
         in_step += dt;
         if (done) {

@@ -4,9 +4,11 @@
 //
 // What it mimics: the camera basis and pinhole projection, the near
 // clip, scene_begin() emptying the depth buffer but not the pixels, and
-// per-face lighting. What it does not: textures (a textured face draws
-// its flat colour with panel seams from the u, v), the PPA, half
-// resolution, timing.
+// per-face lighting. Textures: by default a textured face draws its flat
+// colour with panel seams from the u, v; with HOST_SHOT_TEXTURES naming a
+// directory of the textures as PPM files (tools/make_movie.py makes one),
+// it samples them, nearest texel, as the engine does. What it does not:
+// the PPA, half resolution, timing.
 
 #include <math.h>
 #include <stdio.h>
@@ -58,11 +60,44 @@ void se_light_set(se_light_t const* light) {
     if (light) s_light = *light;
 }
 
+// The texture as a PPM from HOST_SHOT_TEXTURES, if that is set and has it:
+// its texels, RGB565 as the engine keeps them.
+static bool load_ppm(char const* path, se_texture_t* t) {
+    char const* dir = getenv("HOST_SHOT_TEXTURES");
+    if (dir == NULL || dir[0] == '\0') return false;
+    char const* base = strrchr(path, '/');
+    base             = base != NULL ? base + 1 : path;
+    char ppm[256];
+    snprintf(ppm, sizeof(ppm), "%s/%.*s.ppm", dir, (int)(strcspn(base, ".")), base);
+    FILE* f = fopen(ppm, "rb");
+    if (f == NULL) return false;
+    int w = 0, h = 0, max = 0;
+    if (fscanf(f, "P6 %d %d %d", &w, &h, &max) != 3 || w <= 0 || h <= 0 || (w & (w - 1)) || (h & (h - 1)) ||
+        max != 255) {
+        fclose(f);
+        return false;
+    }
+    fgetc(f);
+    t->texels = calloc((size_t)(w * h), sizeof(uint16_t));
+    t->w      = w;
+    t->h      = h;
+    for (int i = 0; i < w * h; i++) {
+        uint8_t rgb[3] = {0};
+        if (fread(rgb, 1, 3, f) != 3) break;
+        t->texels[i] = (uint16_t)((rgb[0] >> 3) << 11 | (rgb[1] >> 2) << 5 | rgb[2] >> 3);
+    }
+    fclose(f);
+    while ((1 << t->w_log2) < w) t->w_log2++;
+    return true;
+}
+
 se_texture_t* se_texture_load(char const* path, uint32_t flags) {
     (void)flags;
     se_texture_t* t = calloc(1, sizeof(*t));
-    t->texels       = calloc(1, sizeof(uint16_t));
-    t->w = t->h  = 1;
+    if (!load_ppm(path, t)) {
+        t->texels = calloc(1, sizeof(uint16_t));
+        t->w = t->h = 1;
+    }
     t->mean_argb = strstr(path, "white")   ? 0xFFD8D8D0u
                    : strstr(path, "metal") ? 0xFF50545Au
                    : strstr(path, "goo")   ? 0xFF6A5A18u
@@ -88,6 +123,10 @@ static uint32_t shade(uint32_t argb, float k) {
 }
 
 static uint32_t s_blend;  // this triangle mixes 50/50 with what is there (SE_TRI_BLEND)
+
+// What a textured triangle samples, and how lit it is: set by submit().
+static se_texture_t const* s_tex;
+static float               s_lit;
 
 static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bool seams) {
     float       sx[3], sy[3], iz[3], uz[3], vz[3];
@@ -118,8 +157,19 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
             if (w0 < 0 || w1 < 0 || w2 < 0) continue;
             float const z = w0 * iz[0] + w1 * iz[1] + w2 * iz[2];
             if (z <= s_depth[y * W + x]) continue;
+            uint32_t out = col;
+            if (s_tex != NULL && s_tex->w > 1) {
+                float const    u  = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
+                float const    t  = (w0 * vz[0] + w1 * vz[1] + w2 * vz[2]) / z;
+                int const      tx = (int)floorf(u * (float)s_tex->w) & (s_tex->w - 1);
+                int const      ty = (int)floorf(t * (float)s_tex->h) & (s_tex->h - 1);
+                uint16_t const p  = s_tex->texels[ty * s_tex->w + tx];
+                if (p == SE_TEXEL_CUTOUT) continue;
+                uint32_t const r = (p >> 11) * 255 / 31, g = ((p >> 5) & 63) * 255 / 63, bl = (p & 31) * 255 / 31;
+                out   = shade(0xFF000000u | r << 16 | g << 8 | bl, s_lit);
+                seams = false;
+            }
             s_depth[y * W + x] = z;
-            uint32_t out       = col;
             if (seams) {
                 float const u  = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
                 float const t  = (w0 * vz[0] + w1 * vz[1] + w2 * vz[2]) / z;
@@ -140,12 +190,14 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
 static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32_t argb, uint32_t flags, bool seams) {
     // Per-face light, after se_light: a floor of fill plus a directional share.
     uint32_t col = argb;
+    s_lit        = 1.0f;
     if (s_light_on && !(flags & SE_TRI_EMISSIVE)) {
         vec3_t const n = v3_norm(v3_cross(v3_sub(w[1], w[0]), v3_sub(w[2], w[0])));
         vec3_t const c = v3_scale(v3_add(v3_add(w[0], w[1]), w[2]), 1.0f / 3.0f);
         vec3_t const l = v3_norm(v3_sub(v3(s_light.x, s_light.y, s_light.z), c));
         float const  d = fabsf(v3_dot(n, l));
-        col            = shade(argb, (1.0f - s_light.brightness) + s_light.brightness * d);
+        s_lit          = (1.0f - s_light.brightness) + s_light.brightness * d;
+        col            = shade(argb, s_lit);
     }
     // To camera space, then clip at the near plane.
     rv_t in[3], buf[2][8];
@@ -172,12 +224,14 @@ void scene_tri(float x0, float y0, float z0, float x1, float y1, float z1, float
                uint32_t flags) {
     vec3_t const w[3] = {v3(x0, y0, z0), v3(x1, y1, z1), v3(x2, y2, z2)};
     float const  u[3] = {0}, v[3] = {0};
+    s_tex = NULL;
     submit(w, u, v, argb, flags, false);
 }
 
 void scene_textured_tri(se_tex_vertex_t const tv[3], se_texture_t const* tex, uint32_t flags) {
     vec3_t const w[3] = {v3(tv[0].x, tv[0].y, tv[0].z), v3(tv[1].x, tv[1].y, tv[1].z), v3(tv[2].x, tv[2].y, tv[2].z)};
     float const  u[3] = {tv[0].u, tv[1].u, tv[2].u}, v[3] = {tv[0].v, tv[1].v, tv[2].v};
+    s_tex = tex;
     submit(w, u, v, tex->mean_argb, flags, true);
 }
 
