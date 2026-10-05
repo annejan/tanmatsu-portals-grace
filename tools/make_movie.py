@@ -108,6 +108,8 @@ def main():
         Image.open(f).convert("RGB").save(os.path.join(tex, os.path.basename(f)[:-4] + ".ppm"))
 
     env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0")
+    if a.tas:
+        env["HOST_MOVIE_TICK"] = "0.1"  # the badge's step: its TAS (tools/tas.py)
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)

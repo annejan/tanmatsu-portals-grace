@@ -2,7 +2,7 @@ walk_to 7.88 4.67
 grab
 walk_to 3.65 1.96
 look 3.49 1.40 2.80
-wait 0.05
+wait 0.00
 use
-walk_to 12.31 10.50
+walk_to 12.31 10.69
 walk_to 12.60 12.5

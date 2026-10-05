@@ -1,14 +1,14 @@
-walk_to 3.29 4.85
+walk_to 3.65 4.85
 look 2.5 1.3 6.5
 use
 walk_to 4.14 4.42
 look 3.5 1.3 3.5
-wait 0.04
+wait 0.00
 use
-walk_to 8.73 4.74
+walk_to 8.51 4.74
 look 9.5 1.3 6.5
 use
-walk_to 8.11 4.40
+walk_to 8.01 5.00
 look 8.5 1.3 3.5
 wait 0.02
 use

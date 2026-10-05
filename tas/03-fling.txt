@@ -1,6 +1,6 @@
 shoot blue 6.5 1.0 6.2
 shoot orange 1.0 8.9 5.5
 face 0 52
-step_off 0.60
+step_off 0.61
 wait 1.50
 walk_to 20 4.5

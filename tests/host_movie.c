@@ -18,15 +18,17 @@
 #include "sound.h"
 
 #define FPS        10
-#define TICK       (1.0f / 50.0f)
-#define STORY_CPS  30.0f  // as main.c types the story line ...
-#define STORY_HOLD 5.0f   // ... and holds it
-#define TURRET_SUB 2.5f   // ... and a turret's words
-#define MESSAGE_S  2.5f   // ... and "Chamber complete": then the next chamber
-#define TAS_HOLD   1.2f   // a TAS cuts that short: the timer has stopped
-#define OPEN_S     4.0f   // the opening and closing titles
+#define TICK       s_tick  // a step: 1/50 s, or HOST_MOVIE_TICK -- a TAS's, the badge's 0.1
+#define STORY_CPS  30.0f   // as main.c types the story line ...
+#define STORY_HOLD 5.0f    // ... and holds it
+#define TURRET_SUB 2.5f    // ... and a turret's words
+#define MESSAGE_S  2.5f    // ... and "Chamber complete": then the next chamber
+#define TAS_HOLD   1.2f    // a TAS cuts that short: the timer has stopped
+#define OPEN_S     4.0f    // the opening and closing titles
 #define CLOSE_S    4.5f
 #define MAX_TICKS  (200 * 50)
+
+static float s_tick = 1.0f / 50.0f;
 
 // --- The mixer --------------------------------------------------------------
 
@@ -351,7 +353,9 @@ int main(int argc, char** argv) {
     sound_set_effects(true);
     sound_set_voice(true);
 
-    float const cap = (float)atof(argv[1]);
+    float const cap  = (float)atof(argv[1]);
+    char const* tick = getenv("HOST_MOVIE_TICK");
+    if (tick != NULL && atof(tick) > 0.0) s_tick = (float)atof(tick);
     char const* tas = getenv("HOST_MOVIE_TAS");
     r.tas           = tas != NULL && tas[0] == '1';
     titles(&r, "C", OPEN_S);
