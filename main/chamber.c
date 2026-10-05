@@ -66,6 +66,7 @@ chamber_glyph_t const chamber_legend[] = {
     {'Q', "pellet receiver", GLYPH_CELL, MAT_RECEIVER, 0, 'C', 0xFF6A6E2Au},
     {'|', "laser relay", GLYPH_CELL, MAT_RELAY, 0, 'G', 0xFFA06060u},
     {'*', "laser field", GLYPH_CELL, MAT_FIELD, 0, ';', 0xFFD03020u},
+    {'Y', "crusher", GLYPH_CELL, MAT_CRUSHER, 0, '[', 0xFF8A3A3Au},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -505,6 +506,50 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     lv->bridges[lv->n_bridges++] = (emitter_t){x, y, z, open};
                 }
             }
+    // Crushers: each connected group of Y cells is one, a box; the cells go
+    // back to air (the game moves the box), and it drops to the floor.
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                if (level_get(lv, x, y, z) != MAT_CRUSHER) continue;
+                if (lv->n_crushers >= LV_MAX_CRUSHERS) return fail(&c, "more than %d crushers", LV_MAX_CRUSHERS);
+                static int16_t stack[LV_MAX_W * LV_MAX_H * LV_MAX_D][3];
+                int            top = 0, cells = 0, lo[3] = {x, y, z}, hi[3] = {x, y, z};
+                stack[top][0] = (int16_t)x, stack[top][1] = (int16_t)y, stack[top][2] = (int16_t)z, top++;
+                level_set(lv, x, y, z, MAT_AIR);
+                while (top > 0) {
+                    top--;
+                    int const p[3] = {stack[top][0], stack[top][1], stack[top][2]};
+                    cells++;
+                    for (int a = 0; a < 3; a++) {
+                        if (p[a] < lo[a]) lo[a] = p[a];
+                        if (p[a] > hi[a]) hi[a] = p[a];
+                    }
+                    for (int dir = 0; dir < 6; dir++) {
+                        int dx, dy, dz;
+                        dir_step(dir, &dx, &dy, &dz);
+                        int const q[3] = {p[0] + dx, p[1] + dy, p[2] + dz};
+                        if (level_get(lv, q[0], q[1], q[2]) != MAT_CRUSHER) continue;
+                        level_set(lv, q[0], q[1], q[2], MAT_AIR);
+                        stack[top][0] = (int16_t)q[0], stack[top][1] = (int16_t)q[1], stack[top][2] = (int16_t)q[2],
+                        top++;
+                    }
+                }
+                if (cells != (hi[0] - lo[0] + 1) * (hi[1] - lo[1] + 1) * (hi[2] - lo[2] + 1))
+                    return fail(&c, "the crusher at %d %d %d is not a box", x, y, z);
+                // How far it can fall: to the first solid cell under any part of it.
+                int drop = 1 << 20;
+                for (int zz = lo[2]; zz <= hi[2]; zz++)
+                    for (int xx = lo[0]; xx <= hi[0]; xx++) {
+                        int k = 0;
+                        while (lo[1] - k - 1 >= 0 && !level_solid(lv, xx, lo[1] - k - 1, zz)) k++;
+                        if (k < drop) drop = k;
+                    }
+                if (drop < 1) return fail(&c, "the crusher at %d %d %d has no room under it", x, y, z);
+                lv->crushers[lv->n_crushers++] =
+                    (crusher_t){v3((float)lo[0], (float)lo[1], (float)lo[2]),
+                                v3((float)hi[0] + 1, (float)hi[1] + 1, (float)hi[2] + 1), (float)drop};
+            }
     // Gel dispensers drip from their underside.
     for (int y = 0; y < lv->h; y++)
         for (int z = 0; z < lv->d; z++)
@@ -568,6 +613,12 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
             return char_of(lv->cube_reflect[i] ? GLYPH_REFLECT : GLYPH_CUBE, 0, 0);
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
         return char_of(GLYPH_START, 0, 0);
+    for (int i = 0; i < lv->n_crushers; i++) {
+        crusher_t const* k = &lv->crushers[i];
+        if ((float)x >= k->lo.x && (float)x < k->hi.x && (float)y >= k->lo.y && (float)y < k->hi.y &&
+            (float)z >= k->lo.z && (float)z < k->hi.z)
+            return char_of(GLYPH_CELL, MAT_CRUSHER, 0);
+    }
     if (lv->n_platforms) {
         platform_t const* p = &lv->platform;
         if ((float)x >= p->lo.x && (float)x < p->hi.x && (float)y >= p->lo.y && (float)y < p->hi.y &&

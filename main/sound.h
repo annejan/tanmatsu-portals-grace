@@ -27,6 +27,7 @@ typedef enum {
     SND_BOUNCE,   // off blue gel
     SND_PELLET,   // an energy pellet fired, or bouncing
     SND_CAUGHT,   // a receiver caught a pellet
+    SND_CRUSH,    // a crusher hits the floor
     SND_COUNT,
 } sound_t;
 

@@ -1,0 +1,38 @@
+name: 17  Gauntlet
+hint: They fall in turn. Walk with them.
+story: These crushers are on a strict schedule. So are you. One of you will keep it.
+size: 14 5 5
+facing: east
+
+layer 0
+##############
+##############
+############E#
+##############
+##############
+
+layer 1
+##############
+#............#
+#S...........#
+#............#
+##############
+
+layer 2
+##############
+#............#
+#............#
+#............#
+##############
+
+layer 3
+##############
+#...Y..Y..Y..#
+#...Y..Y..Y..#
+#...Y..Y..Y..#
+##############
+
+solution
+// Off as the first one lifts: the others follow on.
+wait 3.0
+walk_to 12.5 2.5

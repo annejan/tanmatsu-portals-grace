@@ -18,7 +18,14 @@
 #define BEAM_BURN      0.5f  // seconds in a laser beam a player survives
 // Every solid box a body can meet besides the grid: the other cubes, the
 // player, the platform, and the pieces of the light bridges.
-#define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS + LV_MAX_BUTTONS)
+#define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS + LV_MAX_BUTTONS + LV_MAX_CRUSHERS)
+// A crusher's cycle, in seconds: up, the slam, down, the rise. Several in
+// a chamber run a quarter cycle apart, each after the one before it.
+#define CRUSH_UP       1.5f
+#define CRUSH_SLAM     0.25f
+#define CRUSH_DOWN     0.5f
+#define CRUSH_RISE     0.75f
+#define CRUSH_CYCLE    (CRUSH_UP + CRUSH_SLAM + CRUSH_DOWN + CRUSH_RISE)
 #define GEL_BLOBS      48     // gel in flight, at most
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
 
@@ -73,6 +80,7 @@ typedef struct {
     gel_blob_t blobs[GEL_BLOBS];
     float      drip_t[LV_MAX_GELS];      // each dispenser: seconds to its next blob
     pellet_t   pellets[LV_MAX_PELLETS];  // one per launcher
+    float      crush_t;                  // the crushers' clock
 } game_t;
 
 typedef struct {
@@ -104,6 +112,7 @@ enum {
     GAME_EV_PAINT       = 1 << 24,  // gel painted something new: re-mesh
     GAME_EV_PELLET      = 1 << 25,  // a launcher fired, or a pellet bounced
     GAME_EV_CAUGHT      = 1 << 26,  // a receiver caught a pellet
+    GAME_EV_CRUSH       = 1 << 27,  // a crusher hit the floor
 };
 
 void game_load(game_t* g, int chamber);
@@ -117,5 +126,7 @@ bool game_fire(game_t* g, int which);
 int  game_use(game_t* g);
 
 aabb_t cube_aabb(cube_t const* c);
+// Crusher `k` where it is now.
+aabb_t crusher_aabb(game_t const* g, int k);
 // The moving platform where it is now (only if lv.n_platforms).
 aabb_t platform_aabb(game_t const* g);

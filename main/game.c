@@ -52,6 +52,26 @@ aabb_t cube_aabb(cube_t const* c) {
     return body_aabb(&c->body);
 }
 
+// How far down crusher k is at time t: up, a fast slam, a pause, a slower rise.
+static float crush_depth(crusher_t const* c, float t, int k) {
+    // Each lags the one before it (in the order the file lists them) by a
+    // quarter cycle: a green wave for whoever times it right.
+    float u = fmodf(t - (float)k * CRUSH_CYCLE * 0.25f + CRUSH_CYCLE * 4.0f, CRUSH_CYCLE);
+    if (u < CRUSH_UP) return 0.0f;
+    u -= CRUSH_UP;
+    if (u < CRUSH_SLAM) return c->drop * u / CRUSH_SLAM;
+    u -= CRUSH_SLAM;
+    if (u < CRUSH_DOWN) return c->drop;
+    u -= CRUSH_DOWN;
+    return c->drop * (1.0f - u / CRUSH_RISE);
+}
+
+aabb_t crusher_aabb(game_t const* g, int k) {
+    crusher_t const* c = &g->lv.crushers[k];
+    vec3_t const     d = v3(0, crush_depth(c, g->crush_t, k), 0);
+    return (aabb_t){v3_sub(c->lo, d), v3_sub(c->hi, d)};
+}
+
 aabb_t platform_aabb(game_t const* g) {
     platform_t const* p = &g->lv.platform;
     return (aabb_t){v3_add(p->lo, g->plat_at), v3_add(p->hi, g->plat_at)};
@@ -180,6 +200,7 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
         float const x = (float)bt->x, y = (float)bt->y, z = (float)bt->z, r = bt->pedestal ? 0.25f : 0.2f;
         out[n++] = (aabb_t){v3(x + 0.5f - r, y, z + 0.5f - r), v3(x + 0.5f + r, y + 1.0f, z + 0.5f + r)};
     }
+    for (int k = 0; k < g->lv.n_crushers; k++) out[n++] = crusher_aabb(g, k);
     // A light bridge: a slab 1 m wide and a few cm thick under its line.
     for (int k = 0; k < g->lv.n_bridges; k++)
         for (int i = 0; i < g->bridge_n[k]; i++) {
@@ -719,6 +740,25 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     if (in->use) ev |= game_use(g);
 
     move_platform(g, dt);
+    // Crushers: down on whoever is under them.
+    if (g->lv.n_crushers) {
+        float const t0 = g->crush_t;
+        g->crush_t     = fmodf(g->crush_t + dt, CRUSH_CYCLE * 4.0f);
+        for (int k = 0; k < g->lv.n_crushers; k++) {
+            crusher_t const* c  = &g->lv.crushers[k];
+            float const      d0 = crush_depth(c, t0, k), d1 = crush_depth(c, g->crush_t, k);
+            if (d1 <= d0) continue;  // only coming down crushes
+            aabb_t const box = crusher_aabb(g, k), pa = player_aabb(&g->pl);
+            if (aabb_overlap(&box, &pa)) ev |= PL_EV_DIED;
+            for (int i = 0; i < g->n_cubes; i++) {
+                aabb_t const cb = cube_aabb(&g->cubes[i]);
+                if (!aabb_overlap(&box, &cb)) continue;
+                if (i == g->held) drop(g);
+                ev |= cube_respawn(g, i) | GAME_EV_FIZZLE;
+            }
+            if (d1 >= c->drop && d0 < c->drop) ev |= GAME_EV_CRUSH;
+        }
+    }
     trace_bridges(g);  // the portals may have moved
     ev |= step_gel(g, dt);
     ev |= step_pellets(g, dt);

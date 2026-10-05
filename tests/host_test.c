@@ -944,6 +944,65 @@ static void test_relays(void) {
               "refused (%s): %s", bad[i][1], err);
 }
 
+// Crushers (chamber 17): boxes in the ceiling that slam down in turn.
+static void test_crushers(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("17-gauntlet"));
+    CHECK(c >= 0, "chamber 17 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_crushers == 3 && g.lv.crushers[0].drop == 2.0f && g.lv.crushers[0].lo.x == 4.0f &&
+              g.lv.crushers[0].hi.z - g.lv.crushers[0].lo.z == 3.0f && level_get(&g.lv, 4, 3, 2) == MAT_AIR,
+          "three crushers, 3 wide, 2 m to fall; their cells are air to the grid");
+    // Standing under one: crushed within a cycle.
+    g.pl.pos = v3(4.5f, 1.0f, 2.5f);
+    int ev   = 0;
+    for (int i = 0; i < (int)(CRUSH_CYCLE / 0.02f) && !(ev & PL_EV_DIED); i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(ev & PL_EV_DIED, "a player under a crusher is crushed");
+    // Down, it is as solid as a wall: walking into it stops you.
+    game_load(&g, c);
+    g.crush_t = CRUSH_UP + CRUSH_SLAM + 0.05f;  // the first one just landed
+    g.pl.pos  = v3(3.0f, 1.0f, 2.5f);
+    g.pl.yaw  = 1.5707963f;
+    for (int i = 0; i < 15; i++) game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+    CHECK(g.pl.pos.x < 4.0f - PL_HALF_W + 0.01f, "a crusher that is down stops you (x %.2f)", g.pl.pos.x);
+    // A cube under one goes back where it came from.
+    game_load(&g, c);
+    g.n_cubes     = 1;
+    g.lv.cubes[0] = v3(1.5f, 1.0f, 1.5f);
+    g.cubes[0] = (cube_t){.body = {v3(7.5f, 1.0f, 2.5f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    ev         = 0;
+    for (int i = 0; i < (int)(2.0f * CRUSH_CYCLE / 0.02f); i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_CRUSH) && g.cubes[0].body.pos.x < 2.0f, "a cube under a crusher is crushed (back at x %.2f)",
+          g.cubes[0].body.pos.x);
+    // The gauntlet: off on the beat, through; off 0.8 s late, right under
+    // the first crusher as it falls. (Later still, you bump into its edge
+    // and wait: only what is under a crusher as it falls is crushed.)
+    for (int late = 0; late < 2; late++) {
+        game_load(&g, c);
+        for (int i = 0; i < (int)((late ? 0.8f : 0.0f) / 0.02f); i++) game_step(&g, &idle, 0.02f);
+        g.pl.yaw = 1.5707963f;
+        ev       = 0;
+        for (int i = 0; i < 200 && !(ev & (PL_EV_DIED | PL_EV_EXIT)); i++)
+            ev |= game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+        if (late)
+            CHECK((ev & PL_EV_DIED) && g.pl.pos.x < 5.0f, "0.8 s late, crushed (at x %.2f)", g.pl.pos.x);
+        else
+            CHECK((ev & PL_EV_EXIT) && !(ev & PL_EV_DIED), "on the beat, straight through");
+    }
+    char const* const bad[][2] = {
+        {"size: 5 4 3\nlayer 1\n#####\n#S..#\n#####\nlayer 2\n#####\n#.Y.#\n#####\nlayer 3\n#####\n#.YY#\n#####\n",
+         "not a box"},
+        {"size: 5 3 3\nlayer 1\n#####\n#SY.#\n#####\n", "no room under it"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK(!chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err)) && strstr(err, bad[i][1]) != NULL,
+              "refused (%s): %s", bad[i][1], err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1583,6 +1642,7 @@ int main(void) {
     test_gel();
     test_pellets();
     test_relays();
+    test_crushers();
     test_draft_save();
     test_glass();
     test_things();

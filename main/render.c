@@ -553,6 +553,13 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
                        SE_TRI_EMISSIVE);
         }
     }
+    // Crushers: a metal block with a band of warning light round its foot.
+    for (int k = 0; k < g->lv.n_crushers; k++) {
+        aabb_t const b = crusher_aabb(g, k);
+        submit_box(b.lo, b.hi, cam, cs, &s_mat[MAT_METAL], s_mat[MAT_METAL].argb, 0);
+        submit_box(v3(b.lo.x - 0.01f, b.lo.y, b.lo.z - 0.01f), v3(b.hi.x + 0.01f, b.lo.y + 0.08f, b.hi.z + 0.01f), cam,
+                   cs, NULL, 0xFFFF8A1Cu, SE_TRI_EMISSIVE);
+    }
     // Gel in flight.
     static uint32_t const gel_argb[] = {0, 0xFF2E7BFFu, 0xFFFF8A1Cu, 0xFFF0F0EAu};
     for (int i = 0; i < GEL_BLOBS; i++) {

@@ -36,6 +36,7 @@ typedef enum {
     MAT_RECEIVER,  // a pellet receiver: a block whose button latches when a pellet arrives
     MAT_RELAY,     // a laser relay: a slim post a beam passes through, lighting its button
     MAT_FIELD,     // a laser field: a red sheet like a fizzler, deadly to touch
+    MAT_CRUSHER,   // while parsing only: a crusher's cells (then crusher_t, and air)
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -65,14 +66,22 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
     *dz            = (int)v.z;
 }
 
-#define LV_MAX_DOORS   8
-#define LV_MAX_BUTTONS 8
-#define LV_MAX_CUBES   4
-#define LV_MAX_JUMPS   4
-#define LV_MAX_LASERS  4
-#define LV_MAX_BRIDGES 2
-#define LV_MAX_GELS    4
-#define LV_MAX_PELLETS 2
+#define LV_MAX_DOORS    8
+#define LV_MAX_BUTTONS  8
+#define LV_MAX_CUBES    4
+#define LV_MAX_JUMPS    4
+#define LV_MAX_LASERS   4
+#define LV_MAX_BRIDGES  2
+#define LV_MAX_GELS     4
+#define LV_MAX_PELLETS  2
+#define LV_MAX_CRUSHERS 4
+
+// A crusher: a block hanging in the ceiling, [lo, hi), that slams down
+// `drop` metres onto the floor under it and rises again, over and over.
+typedef struct {
+    vec3_t lo, hi;
+    float  drop;
+} crusher_t;
 
 // Gel, as paint on a cell: blue bounces, orange speeds you up, white
 // takes portals. Only metal and white panels take paint.
@@ -164,6 +173,8 @@ typedef struct {
     int        n_lasers;
     emitter_t  bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
     int        n_bridges;
+    crusher_t  crushers[LV_MAX_CRUSHERS];
+    int        n_crushers;
     emitter_t  launchers[LV_MAX_PELLETS];  // energy pellet launchers
     int        n_launchers;
     gel_src_t  gels[LV_MAX_GELS];
