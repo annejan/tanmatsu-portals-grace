@@ -9,6 +9,7 @@ static bool s_half  = true;
 static int  s_depth = 2;
 static bool s_music = true;
 static bool s_fx    = true;
+static bool s_leds  = true;
 
 static uint8_t get(nvs_handle_t h, char const* key, uint8_t fallback) {
     uint8_t v = fallback;
@@ -34,6 +35,7 @@ void settings_load(void) {
         s_depth = get(h, "depth", (uint8_t)s_depth);
         s_music = get(h, "music", s_music) != 0;
         s_fx    = get(h, "sfx", s_fx) != 0;
+        s_leds  = get(h, "leds", s_leds) != 0;
         nvs_close(h);
     }
     render_set_portal_depth(s_depth);
@@ -65,6 +67,15 @@ bool settings_effects(void) {
 void settings_set_effects(bool on) {
     s_fx = on;
     put("sfx", on);
+}
+
+bool settings_leds(void) {
+    return s_leds;
+}
+
+void settings_set_leds(bool on) {
+    s_leds = on;
+    put("leds", on);
 }
 
 bool settings_half_res(void) {

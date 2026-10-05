@@ -17,6 +17,7 @@ set(APP_SOURCES
     main/editor.c
     main/game.c
     main/input.c
+    main/leds.c
     main/level.c
     main/menu.c
     main/physics.c

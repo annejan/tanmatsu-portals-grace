@@ -13,8 +13,10 @@
 #include "esp_timer.h"
 #include "graceloader.h"
 #include "input.h"
+#include "leds.h"
 #include "level.h"
 #include "menu.h"
+#include "nvs_settings_owner.h"
 #include "pax_fonts.h"
 #include "pax_gfx.h"
 #include "pax_text.h"
@@ -72,10 +74,24 @@ static void message(char const* text) {
 static float s_story_t  = 0.0f;
 static int   s_story_of = -2;
 
+// "[Subject-Name-here]" in a story line is the badge owner's nickname, if
+// they have set one in the launcher; otherwise the joke stands as written.
+static void personalise(char* story, size_t n) {
+    static char const token[] = "[Subject-Name-here]";
+    char* const       at      = strstr(story, token);
+    if (at == NULL || !nvs_settings_get_owner_nickname_configured()) return;
+    char name[64];
+    if (nvs_settings_get_owner_nickname(name, sizeof(name), "") != ESP_OK || name[0] == '\0') return;
+    char out[sizeof(s_game.lv.story)];
+    snprintf(out, sizeof(out), "%.*s%s%s", (int)(at - story), story, name, at + strlen(token));
+    snprintf(story, n, "%s", out);
+}
+
 static void load_chamber(int index) {
     if (index != s_story_of) s_story_t = 0.0f;
     s_story_of = index;
     game_load(&s_game, index);
+    personalise(s_game.lv.story, sizeof(s_game.lv.story));
     render_set_level(&s_game.lv, s_game.portals);
     ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
 }
@@ -165,6 +181,7 @@ static void on_init(void* user) {
 static void start_playtest(void) {
     s_pending_chamber = -1;
     game_load_level(&s_game, editor_level());
+    personalise(s_game.lv.story, sizeof(s_game.lv.story));
     s_story_t  = 0.0f;
     s_story_of = -1;
     render_set_level(&s_game.lv, s_game.portals);
@@ -224,6 +241,7 @@ static void menu_frame(void) {
             s_mode = MODE_EDIT;
             break;
         case MENU_CMD_QUIT:
+            leds_release();          // the system LEDs back to the coprocessor
             audio_mixer_shutdown();  // se_audio.h: before the restart, or the speaker buzzes
             bsp_device_restart_to_launcher();
             break;
@@ -237,6 +255,11 @@ static void menu_frame(void) {
 static void on_update(float dt, void* user) {
     (void)user;
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
+    // The portals on LEDs A and B, while playing and if wanted.
+    if (settings_leds() && s_mode != MODE_EDIT)
+        leds_portals(s_game.portals[0].open, s_game.portals[1].open);
+    else
+        leds_release();
     static float clock = 0.0f;
     clock              = fmodf(clock + dt, 3600.0f);  // the goo and fizzlers move by it
     render_set_time(clock);

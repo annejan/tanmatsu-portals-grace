@@ -85,7 +85,7 @@ Write each line as `key: value`.
 | `hint` | One line under the name, up to 79 characters. |
 | `size` | The width (x), height (y) and depth (z) in cells. One cell is 1 m. The maximum is 24 16 24. |
 | `facing` | The direction the player faces at the start: `north` (+z), `east` (+x), `south`, `west`, or degrees. |
-| `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. |
+| `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. `[Subject-Name-here]` in it becomes the nickname set under Owner in the launcher, if there is one. |
 | `timer` | Optional. How many seconds a pedestal button stays down, from 0.5 to 60. The default is 4. |
 
 ## Layers

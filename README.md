@@ -56,7 +56,10 @@ The menu has:
 
 - **Chamber select**.
 - **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), music,
-  sound effects, volume, screen brightness, keyboard light.
+  sound effects, portal LEDs, volume, screen brightness, keyboard light.
+  With Portal LEDs on, the badge's user LEDs show the portals while you
+  play: A orange while the orange portal is open, B blue for the blue one.
+  The system LEDs are dark meanwhile, and come back when you quit.
 - **Controls**.
 
 Settings are kept in NVS.
