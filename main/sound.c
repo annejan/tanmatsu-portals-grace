@@ -188,8 +188,9 @@ void sound_events(int ev) {
 typedef struct {
     sfx_voice_t    base;  // first
     uint8_t const* pcm;
-    uint32_t       n;          // samples
-    uint32_t       pos, step;  // 16.16 fixed point, in SAM's samples
+    uint32_t       n;     // samples
+    uint64_t       pos;   // 16.16 fixed point, in SAM's samples: 64-bit, as 32 bits
+    uint32_t       step;  // overflow after 65536 samples -- 3 s -- and the piece starts over
     bool           used;
     volatile bool  reaped;
 } say_t;
@@ -202,7 +203,7 @@ static int   s_n_pieces, s_next;
 static void say_render(sfx_voice_t* self, int16_t* out, size_t frames) {
     say_t* v = (say_t*)self;
     for (size_t i = 0; i < frames; i++) {
-        uint32_t const k = v->pos >> 16;
+        uint64_t const k = v->pos >> 16;
         if (k >= v->n) {
             self->finished = true;
             return;
