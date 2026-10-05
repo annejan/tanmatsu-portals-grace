@@ -434,18 +434,13 @@ static int draw_story(pax_buf_t* fb) {
     int shown = (int)(s_story_t * STORY_CPS);
     if (shown > len) shown = len;
     enum {
-        MAX_W = 96,
-        LINES = 4
+        WIDTH = 70,
+        LINES = 3
     };
-    // As many letters as fit across the screen: 70 did not, at this size,
-    // and the end of a long line was cut off at the edge.
-    int width = (int)((float)(DISPLAY_LOG_W - 32) / pax_text_size(pax_font_sky_mono, 14, "M").x);
-    if (width > MAX_W) width = MAX_W;
-    if (width < 20) width = 20;
-    char line[LINES][MAX_W + 1];
+    char line[LINES][WIDTH + 1];
     int  n = 0, at = 0;
     while (at < shown && n < LINES) {
-        int end = at + width < len ? at + width : len;
+        int end = at + WIDTH < len ? at + WIDTH : len;
         if (end < len)  // break at the last space that fits
             for (int k = end; k > at; k--)
                 if (story[k] == ' ') {
