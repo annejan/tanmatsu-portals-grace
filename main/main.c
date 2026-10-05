@@ -91,6 +91,8 @@ static void personalise(char* story, size_t n) {
     // refuses), so the nickname's own read is the test.
     char name[64];
     if (nvs_settings_get_owner_nickname(name, sizeof(name), "") != ESP_OK || name[0] == '\0') return;
+    // A long nickname in a long line would push its end off: the joke stands.
+    if (strlen(story) - strlen(token) + strlen(name) >= n) return;
     char out[sizeof(s_game.lv.story)];
     snprintf(out, sizeof(out), "%.*s%s%s", (int)(at - story), story, name, at + strlen(token));
     snprintf(story, n, "%s", out);
