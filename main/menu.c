@@ -18,6 +18,7 @@ typedef enum {
     SCR_SETTINGS,
     SCR_CONTROLS,
     SCR_CHAMBERS,
+    SCR_RECORDINGS,
     SCR_COUNT
 } screen_t;
 
@@ -29,6 +30,10 @@ static int64_t  s_opened_us;
 
 #define CHAMBERS_MAX CHAMBER_MAX
 static char s_names[CHAMBERS_MAX][32];  // chamber names, read once when the list opens
+// The recordings on the card, read when their list opens.
+static char s_rec_ids[RECORDINGS_MAX][CHAMBER_ID_N];
+static char s_rec_names[RECORDINGS_MAX][RECORDING_NAME_N];
+static int  s_n_recs;
 
 enum {
     A_UP    = 1,
@@ -41,6 +46,10 @@ enum {
 
 static void go(screen_t s) {
     s_scr = s;
+    if (s == SCR_RECORDINGS) {
+        s_cursor[s] = 0;
+        s_n_recs    = recording_list(RECORDING_DIR, s_rec_ids, s_rec_names);
+    }
     if (s == SCR_CHAMBERS) {
         s_cursor[s] = s_chamber;
         // Each name means parsing a whole chamber file: once, not every frame.
@@ -142,8 +151,8 @@ void menu_event(bsp_input_event_t const* ev) {
 
 #define PAUSE_ROWS 8
 static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
-    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"}, {.label = "Chamber editor"},
-    {.label = "Settings"}, {.label = "Controls"},        {.label = "Watch the TAS"},  {.label = "Quit to launcher"},
+    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"},    {.label = "Chamber editor"},
+    {.label = "Settings"}, {.label = "Controls"},        {.label = "Watch a recording"}, {.label = "Quit to launcher"},
 };
 
 enum {
@@ -165,6 +174,7 @@ enum {
 static se_menu_row_t s_set_rows[SET_ROWS];
 static se_menu_row_t s_ctl_rows[CONTROLS_ROWS];
 static se_menu_row_t s_ch_rows[CHAMBERS_MAX + 1];
+static se_menu_row_t s_rec_rows[RECORDINGS_MAX + 1];
 static char          s_depth_text[8];
 
 static void draw_key(pax_buf_t* fb, float x, float y, float h, pax_col_t col, void* ctx) {
@@ -262,6 +272,17 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             def->row_count = n + 1;
             return n + 1;
         }
+        case SCR_RECORDINGS: {
+            for (int i = 0; i < s_n_recs; i++) s_rec_rows[i] = (se_menu_row_t){.label = s_rec_names[i]};
+            s_rec_rows[s_n_recs] = (se_menu_row_t){.label = "Back"};
+            def->title           = "RECORDINGS";
+            def->subtitle =
+                s_n_recs > 0 ? "Played back as this badge plays them, timed" : "None on the card: " RECORDING_DIR;
+            def->rows      = s_rec_rows;
+            def->row_count = s_n_recs + 1;
+            def->hint      = "Enter: watch   Esc: stop watching";
+            return s_n_recs + 1;
+        }
         default:
             return 0;
     }
@@ -321,8 +342,7 @@ menu_cmd_t menu_update(void) {
                         go(SCR_CONTROLS);
                         break;
                     case 6:
-                        s_scr    = SCR_NONE;
-                        cmd.kind = MENU_CMD_TAS;
+                        go(SCR_RECORDINGS);
                         break;
                     case 7:
                         cmd.kind = MENU_CMD_QUIT;
@@ -393,6 +413,16 @@ menu_cmd_t menu_update(void) {
                 s_scr       = SCR_NONE;
                 cmd.kind    = MENU_CMD_CHAMBER;
                 cmd.chamber = cur;
+            }
+            break;
+
+        case SCR_RECORDINGS:
+            if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
+                go(SCR_PAUSE);
+            } else if (r == SE_MENU_RESULT_ACTIVATED) {
+                s_scr         = SCR_NONE;
+                cmd.kind      = MENU_CMD_WATCH;
+                cmd.recording = s_rec_ids[cur];
             }
             break;
 

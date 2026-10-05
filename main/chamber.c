@@ -947,6 +947,15 @@ static int list_dir(char const* dir) {
 }
 #endif
 
+int chamber_list_dir(char const* dir, char const** names, int max) {
+    init();
+    int const n = list_dir(dir);
+    int       k = 0;
+    for (; k < n && k < max; k++) names[k] = s_found[k];
+    qsort(names, (size_t)k, sizeof(names[0]), by_name);
+    return k;
+}
+
 int chamber_builtin_n(void) {
     return chamber_builtin_count < CHAMBER_MAX ? chamber_builtin_count : CHAMBER_MAX;
 }

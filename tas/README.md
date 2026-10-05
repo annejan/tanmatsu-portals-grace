@@ -7,11 +7,12 @@ On the PC, `make tas` plays each at 50 steps a second against the
 chamber's own solution, and `make tas TASFILM=tas.mp4` films them one after
 the other, with a timer.
 
-On the badge, `make tas-upload` puts them on the card in
-`/sd/portals/tas/`, and Esc -> Watch the TAS plays every chamber by its
-route as the badge's frames come -- each step as long as its frame, as a
-player at the keys -- and times it by the game's own clock. The times go
-to `/sd/portals/tas-result.txt`; `make tas-result` fetches them.
+On the badge, `make tas-upload` puts them on the card as one recording,
+`/sd/portals/recordings/tas.txt` (`main/recording.h`), and Esc -> Watch a
+recording plays it back as the badge's frames come -- each step as long as
+its frame, as a player at the keys -- and times it by the game's own clock.
+The times go to `/sd/portals/tas-times.txt`; `make tas-result` fetches
+them. Any recording in that directory can be watched the same way.
 
 The routes were found by trimming the solutions, then by random search: a
 step dropped, nudged, a jump put in, kept only if the run still reaches

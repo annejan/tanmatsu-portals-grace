@@ -13,6 +13,7 @@ set(APP_SOURCES
     main/crt0.c
     main/chamber.c
     main/demo.c
+    main/recording.c
     main/draft.c
     main/editor.c
     main/game.c

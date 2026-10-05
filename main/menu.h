@@ -6,6 +6,7 @@
 #include <stdbool.h>
 #include "bsp/input.h"
 #include "pax_gfx.h"
+#include "recording.h"
 
 typedef enum {
     MENU_CMD_NONE = 0,
@@ -13,13 +14,14 @@ typedef enum {
     MENU_CMD_RESTART,
     MENU_CMD_CHAMBER,  // load menu_cmd_t.chamber
     MENU_CMD_EDITOR,   // open the chamber editor on the chamber in play
-    MENU_CMD_TAS,      // watch the tool-assisted run, every chamber
+    MENU_CMD_WATCH,    // play back the recording menu_cmd_t.recording
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;
 
 typedef struct {
     menu_cmd_kind_t kind;
     int             chamber;
+    char const*     recording;  // its id: until the menu next opens
 } menu_cmd_t;
 
 void       menu_open(int current_chamber);

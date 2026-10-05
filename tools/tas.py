@@ -12,6 +12,7 @@ after the other, with a timer (tools/make_movie.py).
 
 import argparse
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -25,7 +26,7 @@ def main():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     build = os.path.join(root, "build", "tas")
     os.makedirs(build, exist_ok=True)
-    for f in glob.glob(os.path.join(build, "*.txt")):
+    for f in glob.glob(os.path.join(build, "tas-*.txt")):
         os.remove(f)
 
     # Each run as a chamber of its own: the map from chambers/, the route
@@ -43,6 +44,16 @@ def main():
         with open(os.path.join(build, "tas-%s.txt" % cid), "w") as f:
             f.write(chamber + "\nsolution\n" + steps)
         ids.append(cid)
+
+    # And all of them as one recording, for the badge (main/recording.h):
+    # make tas-upload puts it on the card.
+    with open(os.path.join(root, "metadata", "metadata.json")) as f:
+        version = json.load(f)["version"]
+    with open(os.path.join(build, "recording.txt"), "w") as f:
+        f.write("name: TAS, Portals %s\n" % version)
+        for c in ids:
+            with open(os.path.join(root, "tas", c + ".txt")) as r:
+                f.write("\nchamber: %s\n%s" % (c, r.read()))
 
     env = dict(os.environ, PORTALS_CHAMBERS=build)
     tool = os.path.join(root, "build", "host_tas")

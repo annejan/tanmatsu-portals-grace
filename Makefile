@@ -67,7 +67,7 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c \
+HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c \
                $(BUILD)/generated/chambers_builtin.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
@@ -238,19 +238,17 @@ install: build
 
 GRACELOADER_SLUG ?= at.cavac.graceloader
 
-# The TAS routes onto the card, for Esc -> Watch the TAS; and the times the
-# badge played them in, back (tas/README.md).
+# The TAS onto the card as a recording, for Esc -> Watch a recording; and
+# the times the badge played it in, back (tas/README.md).
 .PHONY: tas-upload tas-result
-tas-upload:
+tas-upload: tas
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/tas || true
-	for t in tas/[0-9]*.txt; do \
-	  (cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/$$t ../../$$t) || exit 1; \
-	done
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/tas.txt $(abspath $(BUILD))/tas/recording.txt
 
 tas-result:
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-result.txt $(abspath $(BUILD))/tas-result.txt
-	cat $(BUILD)/tas-result.txt
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt
+	cat $(BUILD)/tas-times.txt
 
 .PHONY: run
 run:
