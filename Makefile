@@ -123,7 +123,7 @@ host_movie: chambers_c
 		-lm -o $(BUILD)/movie/host_movie
 
 movie: host_movie
-	python3 tools/make_movie.py $(DEMO) $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))
+	python3 tools/make_movie.py $(DEMO) --mp4 $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))
 
 textures:
 	python3 tools/make_textures.py

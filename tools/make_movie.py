@@ -2,7 +2,7 @@
 """A chamber's solution as a film: frames from the game's own renderer with
 its textures, its own sound, the HUD's story line, a title and an end card.
 
-    tools/make_movie.py DEMO OUT.mp4 [--chambers DIR] [--title T] [--gif OUT.gif]
+    tools/make_movie.py DEMO [--mp4 OUT.mp4] [--gif OUT.gif] [--chambers DIR] [--work DIR]
 
 DEMO is a demo name (a chamber file's id, such as 12-redirection); a
 chamber from DIR, as the badge reads them from the SD card, needs its
@@ -71,15 +71,19 @@ def fade(im, k):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("demo")
-    ap.add_argument("out")
+    ap.add_argument("--mp4", help="the film, with sound")
+    ap.add_argument("--gif", help="a GIF of it, without sound")
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
     ap.add_argument("--title", help="the title card's name (default: the chamber's)")
-    ap.add_argument("--gif", help="also a GIF, without sound")
     ap.add_argument("--seconds", type=float, default=120.0, help="at most this long")
+    ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
     a = ap.parse_args()
+    if not a.mp4 and not a.gif:
+        ap.error("--mp4 and/or --gif")
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    build = os.path.join(root, "build", "movie")
+    recorder = os.path.join(root, "build", "movie", "host_movie")
+    build = os.path.abspath(a.work) if a.work else os.path.join(root, "build", "movie")
     shots = os.path.join(build, "shots")
     tex = os.path.join(build, "tex")
     shutil.rmtree(shots, ignore_errors=True)
@@ -91,10 +95,11 @@ def main():
     env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build)
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
-    subprocess.run([os.path.join(build, "host_movie"), a.demo, str(a.seconds)], env=env, check=True,
+    subprocess.run([recorder, a.demo, str(a.seconds)], env=env, check=True,
                    stdout=subprocess.DEVNULL)
 
     with open(os.path.join(build, "movie.txt")) as f:
+        chamber = f.readline().rstrip("\n")
         story = f.readline().rstrip("\n")
         hud = [line.rstrip("\n").split("\t", 1) for line in f]
     frames = sorted(glob.glob(os.path.join(shots, "movie_*.ppm")))
@@ -103,10 +108,13 @@ def main():
     f_big = font(["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf"], 46 * SCALE)
     f_small = font(["DejaVuSans.ttf", "/usr/share/fonts/truetype/DejaVuSans.ttf"], 14 * SCALE)
 
-    name = a.title
-    if name is None:
-        name = a.demo.split("-", 1)[-1].replace("-", " ").title()
-    title = card(w, h, name.upper(), ["a test chamber for Portals", "on the Tanmatsu"], f_big, f_small)
+    # "07  The grill": a built-in chamber's number, then its name.
+    number, _, rest = chamber.partition(" ")
+    if number.isdigit() and rest.strip():
+        name, under = rest.strip(), ["chamber %d" % int(number), "Portals, on the Tanmatsu"]
+    else:
+        name, under = chamber, ["a test chamber for Portals", "on the Tanmatsu"]
+    title = card(w, h, (a.title or name).upper(), under, f_big, f_small)
     end = card(w, h, "PORTALS", ["for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big, f_small)
 
     out = os.path.join(build, "film")
@@ -116,7 +124,7 @@ def main():
 
     def put(im):
         nonlocal n
-        im.save(os.path.join(out, "f_%05d.png" % n))
+        im.save(os.path.join(out, "f_%05d.png" % n), compress_level=1)
         n += 1
 
     t_title, t_end = int(TITLE_S * FPS), int(END_S * FPS)
@@ -146,17 +154,18 @@ def main():
         dst.setframerate(rate)
         dst.writeframes(pad(TITLE_S) + pcm + pad(END_S))
 
-    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS), "-i",
-                    os.path.join(out, "f_%05d.png"), "-i", os.path.join(build, "film.wav"), "-c:v", "libx264",
-                    "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a",
-                    "160k", "-shortest", "-movflags", "+faststart", a.out], check=True)
+    if a.mp4:
+        subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS), "-i",
+                        os.path.join(out, "f_%05d.png"), "-i", os.path.join(build, "film.wav"), "-c:v", "libx264",
+                        "-preset", "slow", "-crf", "18", "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a",
+                        "160k", "-shortest", "-movflags", "+faststart", a.mp4], check=True)
     if a.gif:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-framerate", str(FPS), "-i",
                         os.path.join(out, "f_%05d.png"), "-vf",
                         "scale=360:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];"
                         "[b][p]paletteuse=dither=none:diff_mode=rectangle",
                         a.gif], check=True)
-    print("%s: %d frames, %.1f s" % (a.out, n, n / FPS))
+    print("%s: %d frames, %.1f s" % (a.mp4 or a.gif, n, n / FPS))
 
 
 if __name__ == "__main__":

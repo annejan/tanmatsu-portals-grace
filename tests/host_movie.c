@@ -3,7 +3,8 @@
 //   host_movie DEMO SECONDS
 //
 // writes $BUILD/shots/movie_NNNNN.ppm at 10 frames a second, $BUILD/movie.wav
-// and $BUILD/movie.txt (per frame: what the HUD shows). The frames come
+// and $BUILD/movie.txt (the chamber's name and story, then per frame what
+// the HUD shows). The frames come
 // from host_shot's rasterizer, included below, with the camera eased
 // between the script's sudden turns; the sound is the game's own --
 // sound.c, speech.c with SAM, the engine's music -- mixed here offline as
@@ -200,7 +201,7 @@ int main(int argc, char** argv) {
     static game_t g;
     game_load(&g, demo_chamber(i));
     r.story = g.lv.story;
-    fprintf(r.txt, "%s\n", r.story);
+    fprintf(r.txt, "%s\n%s\n", g.lv.name, r.story);
     uint8_t hdr[44] = {0};
     fwrite(hdr, 1, sizeof(hdr), r.wav);  // filled in at the end
 
