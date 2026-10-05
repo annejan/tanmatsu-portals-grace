@@ -70,6 +70,7 @@ typedef enum {
     GLYPH_DOOR,          // a cell of door `link`
     GLYPH_BUTTON,        // a button for door `link`, above a solid cell
     GLYPH_DROPPER,       // a ceiling hatch (MAT_DROPPER) with its own cube
+    GLYPH_REFLECT,       // a reflection cube, in the cell where it starts
 } glyph_kind_t;
 
 typedef struct {

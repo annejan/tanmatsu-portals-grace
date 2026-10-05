@@ -55,6 +55,9 @@ chamber_glyph_t const chamber_legend[] = {
     {'I', "pedestal", GLYPH_CELL, MAT_PEDESTAL, 0, 'I', 0xFF7A7E86u},
     {'V', "cube dropper", GLYPH_DROPPER, MAT_DROPPER, 0, 'V', 0xFF50402Au},
     {'K', "cube button base", GLYPH_CELL, MAT_CUBEBASE, 0, 'K', 0xFF4A5A78u},
+    {'L', "laser emitter", GLYPH_CELL, MAT_EMITTER, 0, 'L', 0xFFB02020u},
+    {'O', "laser catcher", GLYPH_CELL, MAT_CATCHER, 0, 'O', 0xFFD07020u},
+    {'R', "reflection cube", GLYPH_REFLECT, MAT_AIR, 0, 'Y', 0xFFC8A0A0u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -278,8 +281,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         spawns++;
                         break;
                     case GLYPH_CUBE:
+                    case GLYPH_REFLECT:
                         if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
-                        lv->cubes[lv->n_cubes++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
+                        lv->cube_reflect[lv->n_cubes] = gl->kind == GLYPH_REFLECT;
+                        lv->cubes[lv->n_cubes++]      = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
                     case GLYPH_DROPPER:
                         // Its cube appears under it (checked below: air there).
@@ -438,9 +443,28 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             return fail(&c, "button '%c' has nothing under it", chamber_button_char(b->link));
         lv->buttons[i].pedestal  = m == MAT_PEDESTAL;
         lv->buttons[i].cube_only = m == MAT_CUBEBASE;
+        lv->buttons[i].laser     = m == MAT_CATCHER;
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
+    // Laser emitters: each fires out of its one open side.
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                if (level_get(lv, x, y, z) != MAT_EMITTER) continue;
+                if (lv->n_lasers >= LV_MAX_LASERS) return fail(&c, "more than %d laser emitters", LV_MAX_LASERS);
+                int open = -1, n_open = 0;
+                for (int dir = 0; dir < 6; dir++) {
+                    int dx, dy, dz;
+                    dir_step(dir, &dx, &dy, &dz);
+                    uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
+                    if (nb == MAT_AIR || nb == MAT_FIZZ) open = dir, n_open++;
+                }
+                if (n_open != 1)
+                    return fail(&c, "the laser emitter at %d %d %d needs exactly one open side, has %d", x, y, z,
+                                n_open);
+                lv->lasers[lv->n_lasers++] = (laser_t){x, y, z, open};
+            }
     // A dropper's cube needs room to come out.
     for (int i = 0; i < lv->n_cubes; i++) {
         if (!lv->cube_drop[i]) continue;
@@ -488,7 +512,7 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_cubes; i++)
         if (!lv->cube_drop[i] && (int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y &&
             (int)floorf(lv->cubes[i].z) == z)
-            return char_of(GLYPH_CUBE, 0, 0);
+            return char_of(lv->cube_reflect[i] ? GLYPH_REFLECT : GLYPH_CUBE, 0, 0);
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
         return char_of(GLYPH_START, 0, 0);
     if (lv->n_platforms) {

@@ -615,6 +615,74 @@ static void test_pedestal_dropper(void) {
     CHECK(best_z < 6.0f, "on foot, the door is shut before you get there (got to z %.2f)", best_z);
 }
 
+// Lasers: emitters, catchers, reflection cubes, burns, and portals.
+static void test_lasers(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("12-redirection"));
+    CHECK(c >= 0, "chamber 12 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_lasers == 1 && g.lv.lasers[0].dir == DIR_NX && g.lv.buttons[0].laser && g.lv.cube_reflect[0],
+          "one emitter firing west, a catcher button, a reflection cube");
+    game_step(&g, &idle, 0.02f);
+    CHECK(g.beam_n[0] == 1 && fabsf(g.beam[0][0].b.x - 1.0f) < 0.01f && !g.lv.buttons[0].pressed,
+          "the beam runs to the west wall (%d pieces, to x %.2f)", g.beam_n[0], g.beam[0][0].b.x);
+    // Glass in the way: the beam goes through.
+    level_set(&g.lv, 10, 1, 2, MAT_GLASS);
+    game_step(&g, &idle, 0.02f);
+    CHECK(g.beam_n[0] == 1 && fabsf(g.beam[0][0].b.x - 1.0f) < 0.01f, "through glass (to x %.2f)", g.beam[0][0].b.x);
+    level_set(&g.lv, 10, 1, 2, MAT_AIR);
+    // The reflection cube in the beam, facing north: the catcher lights,
+    // and the door opens.
+    g.cubes[0].body.pos = v3(3.5f, 1.0f, 2.5f);
+    g.cubes[0].yaw      = 0.0f;
+    for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.beam_n[0] == 2 && g.lv.buttons[0].pressed && g.lv.doors[0].open == 1.0f,
+          "turned north by the cube, it lights the catcher (%d pieces) and the door opens (%.2f)", g.beam_n[0],
+          g.lv.doors[0].open);
+    // A plain cube just stops it.
+    g.lv.cube_reflect[0] = false;
+    game_step(&g, &idle, 0.02f);
+    CHECK(g.beam_n[0] == 1 && !g.lv.buttons[0].pressed, "a plain cube stops the beam");
+    // Standing in it: a burn, and soon death.
+    game_load(&g, c);
+    g.pl.pos  = v3(8.5f, 1.0f, 2.5f);
+    int ev    = 0;
+    int steps = 0;
+    while (!(ev & PL_EV_DIED) && steps < 100) ev |= game_step(&g, &idle, 0.02f), steps++;
+    CHECK((ev & GAME_EV_BURN) && (ev & PL_EV_DIED) && steps * 0.02f > BEAM_BURN - 0.05f &&
+              steps * 0.02f < BEAM_BURN + 0.1f,
+          "in the beam: burnt, dead after %.2f s", steps * 0.02f);
+
+    // Through a portal pair: in at the west wall, out of the north wall,
+    // south onto a catcher.
+    char const* text =
+        "size: 9 4 10\n"
+        "layer 0\n#########\n#WWWWWWW#\n#WWWWWWW#\n#WWWWWWW#\n#WWWWWWW#\n#WWWWWWW#\n#WWWWWWW#\n"
+        "#WWWWWWW#\n#WWWWWWW#\n#########\n"
+        "layer 1\n####W#a##\n#.......#\n#.......#\n#.......#\n#.S.....#\n#.......#\n#.......#\n"
+        "W.......L\n#...O...#\n#########\n"
+        "layer 2\n####W#a##\n#.......#\n#.......#\n#.......#\n#.......#\n#.......#\n#.......#\n"
+        "W.......#\n#...1...#\n#########\n";
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)), "the portal room: %s", err);
+    game_load_level(&g, &lv);
+    CHECK(portal_place_at(&g.lv, 0, 1, 2, DIR_PX, v3(0, 1, 0), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 4, 1, 9, DIR_NZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]),
+          "portals on the west and north walls");
+    game_step(&g, &idle, 0.02f);
+    CHECK(g.beam_n[0] == 2 && g.lv.buttons[0].pressed,
+          "through the portals onto the catcher (%d pieces, to %.2f %.2f %.2f)", g.beam_n[0],
+          g.beam[0][g.beam_n[0] - 1].b.x, g.beam[0][g.beam_n[0] - 1].b.y, g.beam[0][g.beam_n[0] - 1].b.z);
+
+    // An emitter fires out of exactly one open side.
+    CHECK(!chamber_parse("size: 5 3 3\nlayer 1\n#####\n#SL.#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) &&
+              strstr(err, "one open side") != NULL,
+          "an emitter open on two sides is refused: %s", err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1238,6 +1306,7 @@ int main(void) {
     test_draft_keeps();
     test_parse_rules();
     test_pedestal_dropper();
+    test_lasers();
     test_draft_save();
     test_glass();
     test_things();

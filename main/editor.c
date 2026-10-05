@@ -577,9 +577,9 @@ void editor_draw(pax_buf_t* fb) {
         chamber_glyph_t const* g = &chamber_legend[i];
         if (g->key == 0) continue;
         char const  ch  = g->kind == GLYPH_DOOR ? s_door : g->kind == GLYPH_BUTTON ? s_button : g->ch;
-        float const y   = 86.0f + (float)row++ * 14.0f;
+        float const y   = 86.0f + (float)row++ * 12.0f;
         bool const  sel = s_brush == ch;
-        pax_simple_rect(fb, cell_colour(ch, true), tx, y, 12, 12);
+        pax_simple_rect(fb, cell_colour(ch, true), tx, y + 1, 10, 10);
         snprintf(line, sizeof(line), "%c %s", g->key, brush_name(ch));
         pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y, line);
     }
@@ -588,7 +588,8 @@ void editor_draw(pax_buf_t* fb) {
         "R       turn start", "P       play-test",    "F       save",       "Esc     menu",
     };
     for (int i = 0; i < 8; i++)
-        pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 334.0f + (float)i * 16.0f, help[i]);
+        pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 94.0f + (float)row * 12.0f + (float)i * 15.0f,
+                      help[i]);
     if (s_msg_t > 0.0f) pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
 
     if (s_menu) {

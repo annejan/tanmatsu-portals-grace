@@ -29,6 +29,8 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_PEDESTAL] = {NULL, 0xFF7A7E86u, 0, NULL},
     [MAT_DROPPER]  = {NULL, 0xFF34363Bu, 0, NULL},
     [MAT_CUBEBASE] = {NULL, 0xFF3E4A60u, 0, NULL},
+    [MAT_EMITTER]  = {NULL, 0xFF5A2A2Au, 0, NULL},
+    [MAT_CATCHER]  = {NULL, 0xFF6A5030u, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -305,10 +307,37 @@ static void submit_box(vec3_t lo, vec3_t hi, cam_t const* cam, clipset_t const* 
     }
 }
 
+// A piece of laser beam: a thin glowing strip from a to b, turned to face
+// the eye (both ways round, whichever way the engine culls).
+static void beam_strip(vec3_t a, vec3_t b, cam_t const* cam, clipset_t const* cs) {
+    vec3_t const along = v3_sub(b, a);
+    vec3_t const to    = v3_sub(cam->pos, v3_scale(v3_add(a, b), 0.5f));
+    vec3_t       side  = v3_cross(along, to);
+    float const  len   = v3_len(side);
+    if (v3_len(along) < 1e-3f || len < 1e-6f) return;
+    side               = v3_scale(side, 0.025f / len);
+    vec3_t const  n    = v3_scale(to, 1.0f / v3_len(to));
+    cvert_t const q[4] = {
+        {v3_sub(a, side), 0, 0}, {v3_sub(b, side), 1, 0}, {v3_add(b, side), 1, 1}, {v3_add(a, side), 0, 1}};
+    cvert_t const r[4] = {q[3], q[2], q[1], q[0]};
+    submit_quad(q, n, cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
+    submit_quad(r, n, cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
+}
+
+// A small glowing square on a face: centre c, facing along axis direction d.
+static void lens(vec3_t c, vec3_t d, float half, cam_t const* cam, clipset_t const* cs) {
+    vec3_t const h =
+        v3(fabsf(d.x) > 0.5f ? 0.005f : half, fabsf(d.y) > 0.5f ? 0.005f : half, fabsf(d.z) > 0.5f ? 0.005f : half);
+    submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
-        submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
+        if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
+            submit_box(b.lo, b.hi, cam, cs, NULL, 0xFFA48A8Au, 0);
+        else
+            submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
     }
     // The moving platform: a metal slab with a glowing edge.
     if (g->lv.n_platforms) {
@@ -341,6 +370,24 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             submit_box(v3(x + 0.1f, top, z + 0.06f), v3(x + 0.1f + len, top + 0.05f, z + 0.14f), cam, cs, NULL,
                        0xFF2C8CFFu, SE_TRI_EMISSIVE);
         }
+    }
+    // Lasers: the emitter's lens, and the beam as traced last step.
+    for (int k = 0; k < g->lv.n_lasers; k++) {
+        laser_t const* L = &g->lv.lasers[k];
+        vec3_t const   d = dir_vec(L->dir);
+        lens(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.505f), d, 0.25f, cam, cs);
+        for (int i = 0; i < g->beam_n[k]; i++) beam_strip(g->beam[k][i].a, g->beam[k][i].b, cam, cs);
+    }
+    // A reflection cube: a red lens on the side the beam leaves by.
+    for (int i = 0; i < g->n_cubes; i++) {
+        if (!g->lv.cube_reflect[i]) continue;
+        body_t const* b = &g->cubes[i].body;
+        vec3_t const  f = v3(sinf(g->cubes[i].yaw), 0.0f, cosf(g->cubes[i].yaw));
+        // Out along f to the surface: further on a diagonal, to the edge.
+        float const   t = CUBE_HALF / fmaxf(fabsf(f.x), fabsf(f.z)) + 0.01f;
+        vec3_t const  c = v3_mad(v3(b->pos.x, b->pos.y + CUBE_HALF, b->pos.z), f, t);
+        submit_box(v3(c.x - 0.08f, c.y - 0.08f, c.z - 0.08f), v3(c.x + 0.08f, c.y + 0.08f, c.z + 0.08f), cam, cs, NULL,
+                   0xFFFF3A28u, SE_TRI_EMISSIVE);
     }
     // Droppers: a dark hatch under the ceiling cell, with a light round
     // its edge where the cube comes out.

@@ -240,9 +240,12 @@ static int step_cube(game_t* g, int i, float dt) {
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
 
     if (i == g->held) {
+        // A reflection cube turns with you, in eighths of a turn: a beam
+        // can be aimed with the keys of a badge.
+        g->cubes[i].yaw = roundf(g->pl.yaw / 0.78539816f) * 0.78539816f;
         // Pulled to a point in front of the eye -- on the far side of a
         // portal when it went through one ahead of the player.
-        vec3_t target = v3_mad(player_eye(&g->pl), player_view(&g->pl).fwd, CUBE_HOLD);
+        vec3_t target   = v3_mad(player_eye(&g->pl), player_view(&g->pl).fwd, CUBE_HOLD);
         if (g->held_via >= 0) target = portal_map_point(&g->portals[g->held_via], &g->portals[g->held_via ^ 1], target);
         vec3_t pull = v3_scale(v3_sub(target, body_center(b)), CUBE_PULL);
         if (v3_len(pull) > CUBE_MAX_PULL) pull = v3_scale(v3_norm(pull), CUBE_MAX_PULL);
@@ -291,6 +294,93 @@ static int step_cube(game_t* g, int i, float dt) {
         ev           |= GAME_EV_LAUNCH;
     }
     return ev;
+}
+
+// --- Lasers ---------------------------------------------------------------
+
+// Whether `at`, on the wall a portal hangs on, is inside its oval.
+static bool in_hole(portal_t const* p, vec3_t at) {
+    vec3_t const l = portal_local(p, at);
+    float const  u = l.x / PORTAL_HALF_W, v = l.y / PORTAL_HALF_H;
+    return fabsf(l.z) < 0.02f && u * u + v * v <= 1.0f;
+}
+
+// Trace laser `k` from its emitter into g->beam: through glass, fizzlers
+// and portals, turned by reflection cubes, stopped by anything else.
+// Sets lit[b] for each catcher button whose block it ends on, and
+// *player if it ends on the player.
+static void trace_beam(game_t* g, int k, bool lit[LV_MAX_BUTTONS], bool* player) {
+    laser_t const* L    = &g->lv.lasers[k];
+    vec3_t         d    = dir_vec(L->dir);
+    vec3_t         o    = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.501f);
+    float          left = 64.0f;
+    int            skip = -1;  // the cube it just came out of
+    g->beam_n[k]        = 0;
+    for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
+        // The wall it reaches, looking past glass.
+        ray_hit_t w    = {0};
+        vec3_t    from = o;
+        for (int i = 0; i < 32; i++) {
+            float const gone = v3_dot(v3_sub(from, o), d);
+            w                = level_raycast(&g->lv, from, d, left - gone);
+            if (!w.hit) break;
+            w.dist += gone;
+            if (level_get(&g->lv, w.x, w.y, w.z) != MAT_GLASS) break;
+            from  = v3_mad(o, d, w.dist + 1e-3f);
+            w.hit = false;
+        }
+        float t    = w.hit ? w.dist : left;
+        int   cube = -1;
+        bool  pl = false, blocked = false;
+        for (int i = 0; i < g->n_cubes; i++) {
+            if (i == skip) continue;
+            aabb_t const b  = cube_aabb(&g->cubes[i]);
+            float const  tc = ray_aabb(o, d, &b);
+            if (tc >= 0.0f && tc < t) t = tc, cube = i;
+        }
+        if (g->lv.n_platforms) {
+            aabb_t const p  = platform_aabb(g);
+            float const  tp = ray_aabb(o, d, &p);
+            if (tp >= 0.0f && tp < t) t = tp, cube = -1, blocked = true;
+        }
+        aabb_t const pa = player_aabb(&g->pl);
+        float const  tp = ray_aabb(o, d, &pa);
+        if (tp >= 0.0f && tp < t) t = tp, cube = -1, blocked = false, pl = true;
+
+        vec3_t const end            = v3_mad(o, d, t);
+        g->beam[k][g->beam_n[k]++]  = (beam_seg_t){o, end};
+        left                       -= t;
+        if (pl) {
+            *player = true;
+            return;
+        }
+        if (cube >= 0) {
+            if (!g->lv.cube_reflect[cube]) return;
+            // Out of the reflection cube's middle, the way it faces.
+            body_t const* b = &g->cubes[cube].body;
+            o               = v3(b->pos.x, b->pos.y + CUBE_HALF, b->pos.z);
+            d               = v3(sinf(g->cubes[cube].yaw), 0.0f, cosf(g->cubes[cube].yaw));
+            skip            = cube;
+            continue;
+        }
+        if (blocked || !w.hit) return;
+        // A portal: on, out of the other one.
+        bool through = false;
+        for (int p = 0; p < 2 && !through; p++) {
+            if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[p], end)) continue;
+            d       = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
+            o       = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], end), d, 0.01f);
+            skip    = -1;
+            through = true;
+        }
+        if (through) continue;
+        if (level_get(&g->lv, w.x, w.y, w.z) == MAT_CATCHER)
+            for (int b = 0; b < g->lv.n_buttons; b++)
+                if (g->lv.buttons[b].laser && g->lv.buttons[b].x == w.x && g->lv.buttons[b].y == w.y &&
+                    g->lv.buttons[b].z == w.z)
+                    lit[b] = true;
+        return;
+    }
 }
 
 // On top of a button: its base within the pad, resting on it.
@@ -422,13 +512,26 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);
 
+    // Lasers: what they light, and whom they burn.
+    bool lit[LV_MAX_BUTTONS] = {false}, burnt = false;
+    for (int k = 0; k < g->lv.n_lasers; k++) trace_beam(g, k, lit, &burnt);
+    if (burnt) {
+        if (g->burn_t == 0.0f) ev |= GAME_EV_BURN;
+        g->burn_t += dt;
+        if (g->burn_t > BEAM_BURN) ev |= PL_EV_DIED;
+    } else {
+        g->burn_t = 0.0f;
+    }
+
     // Buttons: down under the player or a cube that is not being carried;
     // a pedestal button while its time runs, ticking each second.
     aabb_t const pa = player_aabb(&g->pl);
     for (int b = 0; b < g->lv.n_buttons; b++) {
         button_t* bt   = &g->lv.buttons[b];
         bool      down = false;
-        if (bt->pedestal) {
+        if (bt->laser) {
+            down = lit[b];
+        } else if (bt->pedestal) {
             float const before = bt->timer_left;
             bt->timer_left     = fmaxf(0.0f, bt->timer_left - dt);
             down               = bt->timer_left > 0.0f;

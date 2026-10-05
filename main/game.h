@@ -14,23 +14,34 @@
 #define CUBE_REACH 2.0f  // picked up from no further than this
 #define CUBE_LETGO 2.5f  // dropped when this far from where it should be ...
 #define CUBE_STUCK 0.4f  // ... for this long: stuck, not merely swinging round
+#define BEAM_SEGS  8     // pieces of one laser beam: bounces and portals
+#define BEAM_BURN  0.5f  // seconds in a laser beam a player survives
 
 typedef struct {
     body_t body;
+    float  yaw;  // where a reflection cube sends a laser: it faces this way
 } cube_t;
 
+// A piece of a laser beam, from a to b.
 typedef struct {
-    level_t  lv;
-    player_t pl;
-    portal_t portals[2];
-    cube_t   cubes[LV_MAX_CUBES];
-    int      n_cubes;
-    int      held;      // the cube carried, or -1
-    int      held_via;  // -1, or the portal i such that the cube is beyond it: see game.c
-    float    held_far;  // seconds the carried cube has been too far from the hold point
-    int      chamber;
-    float    plat_t;   // the moving platform's clock: where it is in its trip
-    vec3_t   plat_at;  // ... and how far from where it started
+    vec3_t a, b;
+} beam_seg_t;
+
+typedef struct {
+    level_t    lv;
+    player_t   pl;
+    portal_t   portals[2];
+    cube_t     cubes[LV_MAX_CUBES];
+    int        n_cubes;
+    int        held;      // the cube carried, or -1
+    int        held_via;  // -1, or the portal i such that the cube is beyond it: see game.c
+    float      held_far;  // seconds the carried cube has been too far from the hold point
+    int        chamber;
+    float      plat_t;                          // the moving platform's clock: where it is in its trip
+    vec3_t     plat_at;                         // ... and how far from where it started
+    beam_seg_t beam[LV_MAX_LASERS][BEAM_SEGS];  // each laser's beam, as traced last step
+    int        beam_n[LV_MAX_LASERS];
+    float      burn_t;  // seconds the player has stood in a beam
 } game_t;
 
 typedef struct {
@@ -58,6 +69,7 @@ enum {
     GAME_EV_TICK        = 1 << 20,  // a pedestal button's timer: another second gone
     GAME_EV_PRESS       = 1 << 21,  // a pedestal button pressed by hand
     GAME_EV_DROPPER     = 1 << 22,  // a dropper let a new cube out
+    GAME_EV_BURN        = 1 << 23,  // the player stepped into a laser beam
 };
 
 void game_load(game_t* g, int chamber);

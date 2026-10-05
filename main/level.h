@@ -26,6 +26,8 @@ typedef enum {
     MAT_PEDESTAL,  // a waist-high block a pedestal button stands on
     MAT_DROPPER,   // a hatch in the ceiling that cubes drop out of
     MAT_CUBEBASE,  // a floor a cube button stands on
+    MAT_EMITTER,   // a laser emitter: fires out of its one open side (see laser_t)
+    MAT_CATCHER,   // a laser catcher: a block whose button is down while lit
     MAT_COUNT,
 } material_t;
 
@@ -55,6 +57,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_BUTTONS 8
 #define LV_MAX_CUBES   4
 #define LV_MAX_JUMPS   4
+#define LV_MAX_LASERS  4
 
 // A moving platform: the box [lo, hi) where it starts, and how far it
 // travels; it glides there and back, pausing at each end.
@@ -76,18 +79,27 @@ typedef struct {
 // while the player or a cube stands on it. On a pedestal (MAT_PEDESTAL
 // under it) it is pressed with Use, and stays down for the level's
 // `timer` seconds. On a cube base (MAT_CUBEBASE) only a cube presses it.
+// On a laser catcher (MAT_CATCHER) it is down while a beam hits the block.
 typedef struct {
     int   x, y, z;
     int   link;
     bool  pressed;     // state, set by the game
     bool  pedestal;    // on a pedestal: pressed by hand, for a while
     bool  cube_only;   // on a cube base: the player does not press it
+    bool  laser;       // on a laser catcher: down while a beam hits it
     float timer_left;  // state: a pedestal button's seconds still to go
 } button_t;
 
 #define LV_TIMER_S    4.0f  // a pedestal button's time, unless a chamber says
 // A dropper's cube appears with its base this far under the hatch.
 #define LV_DROP_DEPTH 0.7f
+
+// A laser emitter: the MAT_EMITTER cell (x, y, z), and the side it fires
+// out of (a dir_t), its only open one.
+typedef struct {
+    int x, y, z;
+    int dir;
+} laser_t;
 
 // A faith plate: the MAT_JUMP cell (x, y, z), and where it lands what
 // stands on it.
@@ -107,13 +119,16 @@ typedef struct {
     int        n_doors;
     button_t   buttons[LV_MAX_BUTTONS];
     int        n_buttons;
-    vec3_t     cubes[LV_MAX_CUBES];      // where each cube starts, its base
-    bool       cube_drop[LV_MAX_CUBES];  // ... out of a dropper's hatch
+    vec3_t     cubes[LV_MAX_CUBES];         // where each cube starts, its base
+    bool       cube_drop[LV_MAX_CUBES];     // ... out of a dropper's hatch
+    bool       cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
     int        n_cubes;
     char       story[160];  // shown as the chamber starts
     float      timer;       // seconds a pedestal button stays down
     jump_t     jumps[LV_MAX_JUMPS];
     int        n_jumps;
+    laser_t    lasers[LV_MAX_LASERS];
+    int        n_lasers;
     platform_t platform;  // M cells and the N cell; none when n_platforms is 0
     int        n_platforms;
 } level_t;

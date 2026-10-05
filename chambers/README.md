@@ -118,6 +118,9 @@ cells are metal.
 | `M` | a moving platform: a box of `M` cells where it starts. It is solid, and what stands on it rides along. |
 | `I` | a pedestal: a solid block, waist high. A button digit on top of it is a pedestal button. You press it with Use, and it stays down for `timer` seconds, ticking. Standing on it or putting a cube on it does nothing. |
 | `K` | a cube button base: floor that takes no portal. A button digit on top of it is a cube button, drawn blue: only a cube presses it, not the player. |
+| `L` | a laser emitter: a solid cell that fires a beam out of its one open side (exactly one side must be open). The beam goes through glass, fizzlers and portals. Walls, closed doors, cubes, the platform and the player stop it. Half a second in it kills you. |
+| `O` | a laser catcher: a block, waist high. A button digit on top of it is down while a beam hits the block. |
+| `R` | a reflection cube, in the cell where it starts. A beam that hits it leaves it level, the way the cube faces. A carried cube faces where you look, in steps of 45°. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

@@ -5,7 +5,7 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Eleven chambers are included:
+out of the other, keeping your momentum. Twelve chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
@@ -23,6 +23,8 @@ out of the other, keeping your momentum. Eleven chambers are included:
 11. **Against the clock**: a pedestal button holds the door for three
     seconds, and the door is four seconds' walk away. A dropper supplies
     the cube for the other button.
+12. **Redirection**: a laser, a catcher out of its line, and a reflection
+    cube to turn the beam.
 
 Cubes can be picked up, stood on and carried through portals. A cube
 that falls in the goo comes back where it started. A door stays open while
@@ -77,6 +79,7 @@ far side.
 | 0 - = T | select a brush: glass, fizzler, faith plate, plate target |
 | M N | select a brush: moving platform, where it goes |
 | I V K | select a brush: pedestal (put a button on top), cube dropper, cube button base (likewise) |
+| L O Y | select a brush: laser emitter, laser catcher (a button on top), reflection cube |
 | Space | paint. Hold it while you move to paint a line. |
 | B | press it at one corner, then at the other corner, to fill a rectangle |
 | Backspace | erase (set the cell to air) |
