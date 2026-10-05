@@ -153,9 +153,10 @@ static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
     float const my = fmaxf(0.0f, PORTAL_HALF_H - half_along(b, o->up) - 0.002f);
     l.x            = clampf(l.x, -mx, mx);
     l.y            = clampf(l.y, -my, my);
-    vec3_t const c = v3_add(o->center, v3_add(v3_add(v3_scale(o->right, l.x), v3_scale(o->up, l.y)), v3_scale(o->n, l.z)));
-    b->vel         = portal_map_dir(a, o, b->vel);
-    b->pos         = v3(c.x, c.y - b->h * 0.5f, c.z);
+    vec3_t const c =
+        v3_add(o->center, v3_add(v3_add(v3_scale(o->right, l.x), v3_scale(o->up, l.y)), v3_scale(o->n, l.z)));
+    b->vel = portal_map_dir(a, o, b->vel);
+    b->pos = v3(c.x, c.y - b->h * 0.5f, c.z);
 
     float const vn   = v3_dot(b->vel, o->n);
     float const vmin = o->n.y > 0.5f ? EXIT_MIN_UP : EXIT_MIN_OTHER;
@@ -189,17 +190,17 @@ static void unstick(body_t* b, phys_world_t const* w) {
     if (linked(w->portals))
         for (int i = 0; i < 2; i++) st.open[i] = fits(b, &w->portals[i]);
     if (!embedded(b, &st)) return;
-    float  best = 1e9f;
-    vec3_t to   = b->pos;
+    float            best       = 1e9f;
+    vec3_t           to         = b->pos;
     static int const dirs[6][2] = {{1, 1}, {0, 1}, {0, -1}, {2, 1}, {2, -1}, {1, -1}};  // axis, sign
     for (int k = 0; k < 6; k++) {
         int const   a    = dirs[k][0];
         float const sign = (float)dirs[k][1];
         float const cost = k == 0 ? 0.8f : 1.0f;  // up wins a near tie
         for (float d = 0.05f; d <= 2.0f && d * cost < best; d += 0.05f) {
-            body_t t = *b;
+            body_t t             = *b;
             *axis_of(&t.pos, a) += sign * d;
-            step_t ts = {w, {false, false}};
+            step_t ts            = {w, {false, false}};
             if (linked(w->portals))
                 for (int i = 0; i < 2; i++) ts.open[i] = fits(&t, &w->portals[i]);
             if (embedded(&t, &ts)) continue;

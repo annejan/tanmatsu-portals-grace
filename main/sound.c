@@ -1,7 +1,6 @@
 #include "sound.h"
 #include <math.h>
 #include <string.h>
-#include "esp_timer.h"
 #include "game.h"
 #include "synthengine3d.h"
 
@@ -55,10 +54,10 @@ typedef struct {
     sfx_voice_t    base;  // the mixer's contract; first
     recipe_t       r;
     bool           used;
-    int64_t        free_us;  // reusable from then: finished, and surely reaped by the mixer
-    uint32_t       t, n;     // samples played of this note, and its length
-    int            note;     // jingle: which note
-    float          inc, k;   // phase increment, and its factor per sample (the sweep)
+    volatile bool  reaped;  // the mixer has dropped it from its table (fx_reaped)
+    uint32_t       t, n;    // samples played of this note, and its length
+    int            note;    // jingle: which note
+    float          inc, k;  // phase increment, and its factor per sample (the sweep)
     uint32_t       phase, noise;
     audio_biquad_t lp;
 } fx_t;
@@ -119,28 +118,31 @@ static void fx_render(sfx_voice_t* self, int16_t* out, size_t frames) {
     }
 }
 
+// Called by the mixer, under its lock, as it drops a finished voice from
+// its table: only then may the voice be registered again.
+static void fx_reaped(sfx_voice_t* self) {
+    ((fx_t*)self)->reaped = true;
+}
+
 void sound_play(sound_t s) {
     if (!s_fx_on || s < 0 || s >= SND_COUNT) return;
-    // A voice the mixer has not yet dropped from its table must not be
-    // registered again: it would sit in two slots and play twice as
-    // fast. Finished, and its whole length plus a margin gone by, it
-    // surely has been.
-    int64_t const now = esp_timer_get_time();
-    fx_t*         v   = NULL;
+    // A voice the mixer still holds must not be registered again: it
+    // would sit in two slots and play twice as fast. A voice is free once
+    // the mixer has said it dropped it -- not when it looks finished,
+    // which a voice muted by the effects switch never is.
+    fx_t* v = NULL;
     for (int i = 0; i < POOL && v == NULL; i++)
-        if (!s_pool[i].used || (s_pool[i].base.finished && now > s_pool[i].free_us)) v = &s_pool[i];
+        if (!s_pool[i].used || s_pool[i].reaped) v = &s_pool[i];
     if (v == NULL) return;  // all busy: this one goes unheard
     memset(v, 0, sizeof(*v));
-    v->base.render = fx_render;
-    v->base.group  = GROUP_FX;
-    v->r           = s_recipe[s];
-    v->noise       = 0x9E3779B9u ^ (uint32_t)s;
+    v->base.render   = fx_render;
+    v->base.shutdown = fx_reaped;
+    v->base.group    = GROUP_FX;
+    v->r             = s_recipe[s];
+    v->noise         = 0x9E3779B9u ^ (uint32_t)s;
     if (v->r.lowpass > 0) audio_biquad_lpf(&v->lp, v->r.lowpass, 0.707f);
     start_note(v);
-    int notes = 1;
-    while (v->r.notes[0] > 0 && notes < 4 && v->r.notes[notes] > 0) notes++;
-    v->free_us = now + (int64_t)(v->r.dur * (float)notes * 1e6f) + 100000;
-    v->used    = audio_mixer_register_voice(&v->base);
+    v->used = audio_mixer_register_voice(&v->base);
 }
 
 void sound_events(int ev) {

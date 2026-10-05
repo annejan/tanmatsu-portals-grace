@@ -47,9 +47,9 @@ typedef enum {
     MODE_TEST
 } app_mode_t;
 static app_mode_t s_mode;
-static int        s_play_chamber;  // where play goes back to after the editor
-static bool       s_test_back;     // Esc in a play-test: back to the editor
-static float      s_test_done;     // the play-test reached the exit: back after a moment
+static char       s_play_id[64];  // the chamber play goes back to after the editor
+static bool       s_test_back;    // Esc in a play-test: back to the editor
+static float      s_test_done;    // the play-test reached the exit: back after a moment
 static float      s_fps;
 static int        s_frames;
 static float      s_period_t, s_period_ms;
@@ -154,6 +154,7 @@ static void on_init(void* user) {
 }
 
 static void start_playtest(void) {
+    s_pending_chamber = -1;
     game_load_level(&s_game, editor_level());
     render_set_level(&s_game.lv, s_game.portals);
     s_mode      = MODE_TEST;
@@ -176,6 +177,7 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
     }
     if (s_mode == MODE_TEST) {
         if (menu_is_open_key(ev)) s_test_back = true;
+        input_event(ev);
         return;
     }
     // A menu that is showing has the keyboard, all of it.
@@ -183,6 +185,8 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         menu_event(ev);
     } else if (menu_is_open_key(ev)) {
         menu_open(s_game.chamber);
+    } else {
+        input_event(ev);
     }
 }
 
@@ -191,6 +195,7 @@ static void menu_frame(void) {
     menu_cmd_t const cmd = menu_update();
     switch (cmd.kind) {
         case MENU_CMD_RESTART:
+            s_pending_chamber = -1;
             load_chamber(s_game.chamber);
             message(s_game.lv.name);
             break;
@@ -200,11 +205,15 @@ static void menu_frame(void) {
             message(s_game.lv.name);
             break;
         case MENU_CMD_EDITOR:
-            s_play_chamber = s_game.chamber;
+            // By name: saving in the editor re-reads the SD card, and the
+            // list's order -- its indices -- may change.
+            snprintf(s_play_id, sizeof(s_play_id), "%s", chamber_id(s_game.chamber));
+            s_pending_chamber = -1;
             editor_open(s_game.chamber, CHAMBER_DIR);
             s_mode = MODE_EDIT;
             break;
         case MENU_CMD_QUIT:
+            audio_mixer_shutdown();  // se_audio.h: before the restart, or the speaker buzzes
             bsp_device_restart_to_launcher();
             break;
         default:
@@ -227,8 +236,9 @@ static void on_update(float dt, void* user) {
         editor_cmd_t const c = editor_update(dt);
         if (c == EDITOR_CMD_PLAYTEST) start_playtest();
         if (c == EDITOR_CMD_QUIT) {
-            s_mode = MODE_PLAY;
-            load_chamber(s_play_chamber < level_count() ? s_play_chamber : 0);
+            s_mode       = MODE_PLAY;
+            int const at = chamber_find(s_play_id);
+            load_chamber(at >= 0 ? at : 0);
             message(s_game.lv.name);
             input_resync();
         }
@@ -254,12 +264,16 @@ static void on_update(float dt, void* user) {
         if (s_mode == MODE_TEST) {
             start_playtest();
         } else {
+            s_pending_chamber = -1;
             load_chamber(s_game.chamber);
             message(s_game.lv.name);
         }
     }
 
     if (s_msg_t > 0.0f) s_msg_t -= dt;
+    // The next chamber, once "Chamber complete" has been read: in play
+    // only, never in the editor's play-test.
+    if (s_mode != MODE_PLAY) s_pending_chamber = -1;
     if (s_pending_chamber >= 0 && s_msg_t <= 0.0f) {
         load_chamber(s_pending_chamber);
         s_pending_chamber = -1;

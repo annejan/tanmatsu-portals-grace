@@ -71,19 +71,30 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c
+.PHONY: check shots textures icons chambers_c host_shot
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
 
-check: chambers_c
+# The game's own render.c through a small software rasterizer: `make shots`
+# draws with it, and `make check` runs its self-test (portal views not
+# painted over, no frame left with holes).
+host_shot: chambers_c
 	mkdir -p $(BUILD)
+	$(HOSTCC) -O2 -Wall -Wextra $(HOST_ENGINE) -Imain $(ENGINE_DEFS) tests/host_shot.c main/render.c $(HOST_SRCS) -lm -o $(BUILD)/host_shot
+
+check: chambers_c host_shot
+	mkdir -p $(BUILD)
+	$(BUILD)/host_shot selftest
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
 	$(BUILD)/host_test
+	# input.c against the badge's own headers (after the system's, so they
+	# shadow nothing) and tests/shims for the ESP-IDF bits those want.
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Itests/shims $(HOST_ENGINE) -Imain -idirafter include tests/host_input.c -lm -o $(BUILD)/host_input
+	$(BUILD)/host_input
 
-shots: chambers_c
+shots: host_shot
 	mkdir -p $(BUILD)/shots
-	$(HOSTCC) -O2 -Wall -Wextra $(HOST_ENGINE) -Imain $(ENGINE_DEFS) tests/host_shot.c main/render.c $(HOST_SRCS) -lm -o $(BUILD)/host_shot
 	$(BUILD)/host_shot
 	python3 -c "from PIL import Image; import glob; [Image.open(f).save(f[:-4] + '.png') for f in glob.glob('$(BUILD)/shots/*.ppm')]"
 

@@ -38,8 +38,7 @@ static int     s_nquads;
 // What is seen through: glass faces and fizzler sheets. Drawn after
 // everything solid, since a half-transparent triangle mixes with what is
 // already there.
-#define MAX_CLEAR 512
-static mquad_t s_clear[MAX_CLEAR];
+static mquad_t s_clear[LV_MAX_CLEAR];  // level_clear_faces() counts these the same way
 static int     s_nclear;
 static int     s_depth = 2;
 static int     s_stat_passes, s_stat_tris;
@@ -59,7 +58,7 @@ void render_init(char const* texture_dir) {
 }
 
 static void add_clear(vec3_t o, vec3_t du, vec3_t dv, vec3_t n, uint8_t m) {
-    if (s_nclear < MAX_CLEAR) s_clear[s_nclear++] = (mquad_t){o, du, dv, n, 1.0f, 1.0f, m};
+    if (s_nclear < LV_MAX_CLEAR) s_clear[s_nclear++] = (mquad_t){o, du, dv, n, 1.0f, 1.0f, m};
 }
 
 static void build_clear(level_t const* lv) {
@@ -112,6 +111,7 @@ void render_set_level(level_t const* lv, portal_t const portals[2]) {
                 (hole_t){portals[i].cell[c][0], portals[i].cell[c][1], portals[i].cell[c][2], portals[i].face};
     }
     s_nquads = level_mesh(lv, holes, nh, s_quads, LV_MAX_QUADS);
+    if (s_nquads > LV_MAX_QUADS) s_nquads = LV_MAX_QUADS;  // the parser refuses such chambers
     build_clear(lv);
     // Far off, so it is a direction: the engine lights each triangle on
     // its own, and a near light shades the two halves of a big merged
@@ -152,17 +152,51 @@ static void emit_poly(cvert_t const* v, int n, material_info_t const* m, uint32_
     }
 }
 
+// What this pass must not draw: for each portal whose opening it leaves
+// empty, for the view through it drawn earlier to show, the room behind
+// that portal as the eye sees it through the opening (portal_behind).
+static clipset_t s_cut[2];
+static int       s_ncut;
+
+typedef struct {
+    material_info_t const* m;
+    uint32_t               argb, flags;
+} paint_t;
+
+static void emit_cut1(cvert_t const* v, int n, void* ctx) {
+    paint_t const* p = ctx;
+    emit_poly(v, n, p->m, p->argb, p->flags);
+}
+
+static void emit_cut0(cvert_t const* v, int n, void* ctx) {
+    if (s_ncut > 1) {
+        clip_subtract(&s_cut[1], v, n, 1, emit_cut1, ctx);
+    } else {
+        emit_cut1(v, n, ctx);
+    }
+}
+
+// emit_poly, less the regions in s_cut.
+static void emit(cvert_t const* v, int n, material_info_t const* m, uint32_t argb, uint32_t flags) {
+    if (s_ncut == 0) {
+        emit_poly(v, n, m, argb, flags);
+        return;
+    }
+    paint_t p = {m, argb, flags};
+    clip_subtract(&s_cut[0], v, n, 0, emit_cut0, &p);
+}
+
 // A quad, if it faces the eye, clipped to `cs` when there is one.
 static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
                         uint32_t argb, uint32_t flags) {
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
     if (cs == NULL) {
-        emit_poly(q, 4, m, argb, flags);
+        emit(q, 4, m, argb, flags);
         return;
     }
     cvert_t   out[CLIP_MAX_VERTS];
     int const k = clip_polygon(cs, q, 4, out);
-    if (k >= 3) emit_poly(out, k, m, argb, flags);
+    if (k >= 3) emit(out, k, m, argb, flags);
 }
 
 static void submit_level(cam_t const* cam, clipset_t const* cs) {
@@ -194,12 +228,12 @@ static void portal_tri(portal_t const* p, vec3_t a, vec3_t b, vec3_t c, float li
     }
     if (v3_dot(v3_sub(cam->pos, w[0]), p->n) <= 0.0f) return;
     if (cs == NULL) {
-        emit_poly(v, 3, m, argb, flags);
+        emit(v, 3, m, argb, flags);
         return;
     }
     cvert_t   out[CLIP_MAX_VERTS];
     int const k = clip_polygon(cs, v, 3, out);
-    if (k >= 3) emit_poly(out, k, m, argb, flags);
+    if (k >= 3) emit(out, k, m, argb, flags);
 }
 
 // The wall between the oval and the two cell faces the mesh left out:
@@ -222,8 +256,11 @@ static void portal_frame(portal_t const* p, cam_t const* cam, clipset_t const* c
 
 // The opening as a flat oval: a portal with nothing to show through it.
 static void portal_disc(portal_t const* p, cam_t const* cam, clipset_t const* cs, uint32_t argb) {
+    // Only to the rim's inner edge: overlapping it, the two were 2 mm
+    // apart, less than one step of depth beyond a few metres, and the
+    // rim flickered away.
     vec3_t o[PORTAL_OVAL_N];
-    portal_oval(p, 1.0f, o);
+    portal_oval(p, 0.92f, o);
     for (int i = 0; i < PORTAL_OVAL_N; i++)
         portal_tri(p, p->center, o[i], o[(i + 1) % PORTAL_OVAL_N], 0.002f, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
@@ -327,15 +364,26 @@ static void set_camera(cam_t const* cam) {
 static game_t const* s_game;  // the frame being drawn
 
 static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, portal_t const portals[2], int fill,
-                      uint32_t const fill_argb[2]) {
+                      int cut, uint32_t const fill_argb[2]) {
     scene_begin(target);
     set_camera(cam);
     se_light_set(&(se_light_t){.x = s_light.x, .y = s_light.y, .z = s_light.z, .brightness = 0.55f});
+    s_ncut = 0;
+    for (int i = 0; i < 2; i++)
+        if (cut & (1 << i)) portal_behind(&portals[i], cam->pos, &s_cut[s_ncut++]);
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
-    // Last: glass and fizzlers, which mix with what is behind them. Not
-    // drawn at all without their texture -- the engine blends textured
-    // triangles only, and an opaque one would look like a wall.
+    for (int i = 0; i < 2; i++) {
+        if (!portals[i].open) continue;
+        portal_frame(&portals[i], cam, cs);
+        if (fill & (1 << i)) portal_disc(&portals[i], cam, cs, fill_argb[i]);
+        portal_rim(&portals[i], i, cam, cs);
+    }
+    // Last: glass and fizzlers, which mix with what is behind them, so all
+    // of that must be drawn first -- the depth-order pass (render_frame)
+    // then puts them far to near. Not drawn at all without their texture:
+    // the engine blends textured triangles only, and an opaque one would
+    // look like a wall.
     for (int i = 0; i < s_nclear; i++) {
         mquad_t const*         q = &s_clear[i];
         material_info_t const* m = &s_mat[q->mat];
@@ -348,13 +396,8 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         };
         submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
     }
-    for (int i = 0; i < 2; i++) {
-        if (!portals[i].open) continue;
-        portal_frame(&portals[i], cam, cs);
-        if (fill & (1 << i)) portal_disc(&portals[i], cam, cs, fill_argb[i]);
-        portal_rim(&portals[i], i, cam, cs);
-    }
     scene_render(SE_RENDER_ZBUFFER);
+    s_ncut = 0;
     s_stat_passes++;
 }
 
@@ -382,7 +425,9 @@ static void view_frustum(cam_t const* cam, clipset_t* out) {
 
 // Whether any of portal `p`'s opening is in view of `cam` within `cs`.
 static bool portal_visible(portal_t const* p, cam_t const* cam, clipset_t const* cs) {
-    if (v3_dot(v3_sub(cam->pos, p->center), p->n) <= 0.001f) return false;
+    // In front of it at all: an eye a millimetre from the plane, about to
+    // go through, must still see the view, or the frame is left undrawn.
+    if (v3_dot(v3_sub(cam->pos, p->center), p->n) <= 0.0f) return false;
     static clipset_t all;  // static: off the task's stack
     view_frustum(cam, &all);
     if (cs != NULL)
@@ -408,7 +453,7 @@ static void draw_through(pax_buf_t* target, portal_t const portals[2], int which
     // From beyond `out` the only portal that can be in view is `in`.
     bool const deeper = depth + 1 < s_depth && portal_visible(in, &v, cs);
     if (deeper) draw_through(target, portals, which, &v, cs, depth + 1);
-    draw_pass(target, &v, cs, portals, deeper ? 0 : 1 << which, s_deep);
+    draw_pass(target, &v, cs, portals, deeper ? 0 : 1 << which, deeper ? 1 << which : 0, s_deep);
 }
 
 void render_frame(pax_buf_t* target, game_t const* g) {
@@ -418,7 +463,11 @@ void render_frame(pax_buf_t* target, game_t const* g) {
     s_stat_tris             = 0;
     cam_t const cam         = {player_eye(&g->pl), player_view(&g->pl)};
 
-    int fill = 0;
+    // Glass and fizzlers blend, and only come out right drawn after
+    // everything solid and far to near: the engine's depth-order pass.
+    scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = s_nclear > 0});
+
+    int fill = 0, cut = 0;
     if (portals[0].open && portals[1].open) {
         // The farther portal's views first: where the two openings
         // overlap on screen, the nearer one is in front.
@@ -427,10 +476,13 @@ void render_frame(pax_buf_t* target, game_t const* g) {
             order[0] = 1;
             order[1] = 0;
         }
-        for (int k = 0; k < 2; k++)
-            if (portal_visible(&portals[order[k]], &cam, NULL)) draw_through(target, portals, order[k], &cam, NULL, 0);
+        for (int k = 0; k < 2; k++) {
+            if (!portal_visible(&portals[order[k]], &cam, NULL)) continue;
+            draw_through(target, portals, order[k], &cam, NULL, 0);
+            cut |= 1 << order[k];
+        }
     } else {
         fill = (portals[0].open ? 1 : 0) | (portals[1].open ? 2 : 0);
     }
-    draw_pass(target, &cam, NULL, portals, fill, s_shut);
+    draw_pass(target, &cam, NULL, portals, fill, cut, s_shut);
 }

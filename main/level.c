@@ -98,6 +98,24 @@ static bool is_hole(hole_t const* holes, int n, int x, int y, int z, int face) {
     return false;
 }
 
+int level_clear_faces(level_t const* lv) {
+    int n = 0;
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                uint8_t const m = level_get(lv, x, y, z);
+                if (m == MAT_FIZZ) n += 2;  // a sheet, seen from both sides
+                if (m != MAT_GLASS) continue;
+                for (int face = 0; face < 6; face++) {
+                    int dx, dy, dz;
+                    dir_step(face, &dx, &dy, &dz);
+                    uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
+                    if (nb == MAT_AIR || nb == MAT_DOOR || nb == MAT_FIZZ) n++;
+                }
+            }
+    return n;
+}
+
 int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out) {
     int const dims[3] = {lv->w, lv->h, lv->d};
     int       n       = 0;
@@ -152,7 +170,7 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
                     for (int jj = 0; jj < h; jj++)
                         for (int k = 0; k < w; k++) mask[(j + jj) * nu + i + k] = MAT_AIR;
 
-                    if (n < max_out) {
+                    if (out != NULL && n < max_out) {
                         float o[3], du[3] = {0}, dv[3] = {0};
                         o[a]   = (float)(s + (sign > 0 ? 1 : 0));
                         o[ua]  = (float)i;
@@ -168,8 +186,8 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
                             .sv     = (float)h,
                             .mat    = m,
                         };
-                        n++;
                     }
+                    n++;
                     i += w;
                 }
             }

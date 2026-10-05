@@ -92,3 +92,16 @@ typedef struct {
 #define CLIP_MAX_VERTS (4 + PORTAL_MAX_PLANES)
 
 int clip_polygon(clipset_t const* cs, cvert_t const* in, int n, cvert_t* out);
+
+// What an eye sees of the room BEHIND portal `p` through its opening: the
+// part of the oval's cone from `eye` that lies behind the portal's plane.
+// A pass that leaves the opening empty, for the view through the portal
+// drawn earlier to show, must not draw anything there: with a wall one
+// cell thick, what is behind it was painted over that view.
+void portal_behind(portal_t const* p, vec3_t eye, clipset_t* out);
+
+// A convex polygon minus the convex region `r`: the pieces outside it,
+// each handed to `emit`. `level` (0 or 1) picks the scratch buffers, so
+// an `emit` may subtract a second region at level + 1.
+typedef void (*poly_fn)(cvert_t const* v, int n, void* ctx);
+void clip_subtract(clipset_t const* r, cvert_t const* in, int n, int level, poly_fn emit, void* ctx);

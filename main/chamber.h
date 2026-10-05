@@ -78,7 +78,8 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z);
 // The list: built-ins first, then what chamber_load_dir() added.
 int         chamber_count(void);
 char const* chamber_id(int i);
-char const* chamber_text(int i);  // the file as it was read
+char const* chamber_text(int i);           // the file as it was read
+int         chamber_find(char const* id);  // its index in the list, or -1
 bool        chamber_build(int i, level_t* lv, step_t* steps, int* n_steps);
 // Add every *.txt in `dir` that parses, in name order. Returns how many;
 // a file that does not parse is skipped, and logged.

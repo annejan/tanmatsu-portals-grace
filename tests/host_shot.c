@@ -24,6 +24,8 @@
 #define H DISPLAY_LOG_H
 
 static uint32_t s_px[W * H];
+static uint8_t  s_owner[W * H];  // which pass of the frame last painted each pixel
+static int      s_pass;
 static float    s_depth[W * H];  // 1/z, 0 = empty
 static basis_t  s_basis;
 static vec3_t   s_eye;
@@ -39,6 +41,7 @@ void render_set_camera_6dof(float x, float y, float z, float yaw, float pitch, f
 
 void scene_begin(pax_buf_t* fb) {
     (void)fb;
+    s_pass++;
     memset(s_depth, 0, sizeof(s_depth));
 }
 
@@ -127,7 +130,8 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
                 out = 0xFF000000u | ((((o >> 16) & 255) + ((out >> 16) & 255)) / 2) << 16 |
                       ((((o >> 8) & 255) + ((out >> 8) & 255)) / 2) << 8 | (((o & 255) + (out & 255)) / 2);
             }
-            s_px[y * W + x] = out;
+            s_px[y * W + x]    = out;
+            s_owner[y * W + x] = (uint8_t)s_pass;
         }
     }
 }
@@ -342,11 +346,93 @@ static int fuzz(int n) {
     return 0;
 }
 
+// --- Self-test: make check runs it -------------------------------------
+
+// Whether pixel (x, y)'s ray meets portal `p` inside its opening.
+static bool in_opening(portal_t const* p, player_t const* pl, int x, int y) {
+    basis_t const b = player_view(pl);
+    vec3_t const  e = player_eye(pl);
+    vec3_t const  d = v3_add(b.fwd, v3_add(v3_scale(b.right, ((float)x + 0.5f - RENDER_HALF_W) / RENDER_FOCAL_LEN),
+                                          v3_scale(b.up, -((float)y + 0.5f - RENDER_HORIZON_Y) / RENDER_FOCAL_LEN)));
+    float const den = v3_dot(d, p->n);
+    if (fabsf(den) < 1e-6f) return false;
+    float const t = v3_dot(v3_sub(p->center, e), p->n) / den;
+    if (t <= 0.0f) return false;
+    vec3_t const l = portal_local(p, v3_mad(e, d, t));
+    // Inside the rim: 0.9 of the oval, clear of the rim's own pixels.
+    float const u = l.x / (PORTAL_HALF_W * 0.9f), v = l.y / (PORTAL_HALF_H * 0.9f);
+    return u * u + v * v < 1.0f;
+}
+
+// Draw `g`; count the pixels in portal `which`'s opening that the last
+// pass -- the room -- painted, over the view through the portal, and
+// the pixels nothing painted at all.
+static void frame_check(char const* what, game_t* g, int which, int* fails) {
+    for (int i = 0; i < W * H; i++) s_px[i] = 0xFFFF00FFu;
+    memset(s_owner, 0, sizeof(s_owner));
+    s_pass = 0;
+    render_set_level(&g->lv, g->portals);
+    render_frame(NULL, g);
+    int over = 0, inside = 0, holes = 0;
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            if (s_px[y * W + x] == 0xFFFF00FFu) holes++;
+            if (!in_opening(&g->portals[which], &g->pl, x, y)) continue;
+            inside++;
+            if (s_owner[y * W + x] == s_pass) over++;
+        }
+    bool const ok = inside > 0 && over == 0 && holes == 0;
+    printf("%-34s %6d px in the opening, %5d painted over by the room, %d never painted: %s\n", what, inside, over,
+           holes, ok ? "ok" : "FAIL");
+    if (!ok) (*fails)++;
+}
+
+static int selftest(void) {
+    static game_t  g;
+    static level_t thin;
+    char           err[96];
+    int            fails = 0;
+
+    // Chamber 09: a floor portal on the start ledge, its far end by the goo
+    // pit; below the floor is open space.
+    game_load(&g, demo_chamber(demo_find("09-the-ferry")));
+    portal_place_at(&g.lv, 2, 1, 3, DIR_PY, v3(1, 0, 0), NULL, &g.portals[0]);
+    portal_place_at(&g.lv, 13, 1, 1, DIR_PY, v3(1, 0, 0), &g.portals[0], &g.portals[1]);
+    g.pl.pos   = v3(1.4f, 2.0f, 3.5f);
+    g.pl.yaw   = 1.5707963f;
+    g.pl.pitch = 0.75f;
+    frame_check("floor portal over open space", &g, 0, &fails);
+
+    // A wall one cell thick, as the editor makes them, with a room behind.
+    if (!chamber_parse("size: 8 5 9\nlayer 0\n########\n#WWWWWW#\n#WWEEWW#\n#WWWWWW#\n#WWWWWW#\n#WWWWWW#\n"
+                       "#WWWWWW#\n#WWWWWW#\n########\n"
+                       "layer 1\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#...S..#\n########\n"
+                       "layer 2\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#......#\n########\n"
+                       "layer 3\n########\n#......#\n#......#\n#......#\n########\n#......#\n#......#\n#......#\n########\n",
+                       &thin, NULL, NULL, err, sizeof(err))) {
+        printf("thin wall chamber: %s\n", err);
+        return 1;
+    }
+    game_load_level(&g, &thin);
+    portal_place_at(&g.lv, 3, 1, 4, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]);
+    portal_place_at(&g.lv, 1, 0, 1, DIR_PY, v3(0, 0, 1), &g.portals[0], &g.portals[1]);
+    g.pl.pos   = v3(3.5f, 1.0f, 1.5f);
+    g.pl.yaw   = 0.0f;
+    g.pl.pitch = 0.05f;
+    frame_check("portal in a wall one cell thick", &g, 0, &fails);
+
+    // The eye half a millimetre in front of an opening, about to go through.
+    g.pl.pos = v3(3.5f, 1.0f, 4.0f - 0.0005f);
+    frame_check("eye half a millimetre from a portal", &g, 0, &fails);
+    return fails ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
     render_init("textures");
     // More chambers, as the badge reads them from the SD card.
     char const* extra = getenv("PORTALS_CHAMBERS");
     if (extra != NULL) chamber_load_dir(extra);
+    if (argc > 1 && strcmp(argv[1], "selftest") == 0) return selftest();
     if (argc > 2 && strcmp(argv[1], "fuzz") == 0) return fuzz(atoi(argv[2]));
     if (argc > 2 && strcmp(argv[1], "demo") == 0) return demo_shots(argc, argv);
     level_t  lv;

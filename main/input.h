@@ -4,6 +4,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "bsp/input.h"
 
 typedef enum {
     ACT_FORWARD = 0,
@@ -36,6 +37,8 @@ typedef struct {
 
 void input_init(void);  // after the engine is up: loads the bindings
 void input_poll(input_frame_t* out, float dt, bool gyro_on);
+// Every key event while playing: catches a tap too quick for the poll.
+void input_event(bsp_input_event_t const* ev);
 // Forget what was held, so a key still down when a menu closes does not
 // count as pressed again.
 void input_resync(void);

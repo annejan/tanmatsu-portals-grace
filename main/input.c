@@ -141,16 +141,55 @@ static void gyro(float dt, float* dyaw, float* dpitch) {
 // --- Polling ---------------------------------------------------------
 
 static bool s_last[ACT_COUNT];
+static bool s_latch[ACT_COUNT];  // pressed since the last poll, seen in an event
 
+// A press is an edge in the held state between two polls -- or a key
+// event in between. At 15 fps a frame is 66 ms, and a quick tap went down
+// and up again between two polls without either seeing it.
 static bool pressed(action_t a) {
     bool const now = held(a);
     bool const was = s_last[a];
     s_last[a]      = now;
-    return now && !was;
+    bool const hit = (now && !was) || s_latch[a];
+    s_latch[a]     = false;
+    return hit;
+}
+
+void input_event(bsp_input_event_t const* ev) {
+    uint16_t sc = 0;
+    if (ev->type == INPUT_EVENT_TYPE_SCANCODE) {
+        sc = ev->args_scancode.scancode;
+        if (sc & BSP_INPUT_SCANCODE_RELEASE_MODIFIER) return;
+    } else if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state) {
+        // The built-in keyboard's cursor keys, as the scancodes a binding holds.
+        switch (ev->args_navigation.key) {
+            case BSP_INPUT_NAVIGATION_KEY_UP:
+                sc = BSP_INPUT_SCANCODE_ESCAPED_GREY_UP;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_DOWN:
+                sc = BSP_INPUT_SCANCODE_ESCAPED_GREY_DOWN;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_LEFT:
+                sc = BSP_INPUT_SCANCODE_ESCAPED_GREY_LEFT;
+                break;
+            case BSP_INPUT_NAVIGATION_KEY_RIGHT:
+                sc = BSP_INPUT_SCANCODE_ESCAPED_GREY_RIGHT;
+                break;
+            default:
+                return;
+        }
+    } else {
+        return;
+    }
+    for (int i = 0; i < ACT_COUNT; i++)
+        if (se_bindings_get(i) == sc) s_latch[i] = true;
 }
 
 void input_resync(void) {
-    for (int i = 0; i < ACT_COUNT; i++) s_last[i] = held((action_t)i);
+    for (int i = 0; i < ACT_COUNT; i++) {
+        s_last[i]  = held((action_t)i);
+        s_latch[i] = false;
+    }
 }
 
 void input_poll(input_frame_t* out, float dt, bool gyro_on) {

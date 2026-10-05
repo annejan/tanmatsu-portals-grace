@@ -21,15 +21,13 @@
 // --- The legend -----------------------------------------------------------
 
 chamber_glyph_t const chamber_legend[] = {
-    {'#', "metal"},         {'W', "white panel"},  {'.', "air"},           {' ', "air"},
-    {'~', "goo"},           {'E', "exit"},         {'G', "glass"},         {'F', "fizzler"},
-    {'J', "faith plate"},   {'T', "plate target"}, {'M', "platform"},      {'N', "platform end"},
-    {'S', "start"},         {'C', "cube"},         {'a', "door a"},        {'b', "door b"},
-    {'c', "door c"},        {'d', "door d"},       {'e', "door e"},        {'f', "door f"},
-    {'g', "door g"},        {'h', "door h"},       {'1', "button for a"},  {'2', "button for b"},
-    {'3', "button for c"},  {'4', "button for d"}, {'5', "button for e"},  {'6', "button for f"},
-    {'7', "button for g"},  {'8', "button for h"}, {'A', "old button 1"},  {'B', "old button 2"},
-    {'D', "old button 4"},
+    {'#', "metal"},        {'W', "white panel"},  {'.', "air"},          {' ', "air"},          {'~', "goo"},
+    {'E', "exit"},         {'G', "glass"},        {'F', "fizzler"},      {'J', "faith plate"},  {'T', "plate target"},
+    {'M', "platform"},     {'N', "platform end"}, {'S', "start"},        {'C', "cube"},         {'a', "door a"},
+    {'b', "door b"},       {'c', "door c"},       {'d', "door d"},       {'e', "door e"},       {'f', "door f"},
+    {'g', "door g"},       {'h', "door h"},       {'1', "button for a"}, {'2', "button for b"}, {'3', "button for c"},
+    {'4', "button for d"}, {'5', "button for e"}, {'6', "button for f"}, {'7', "button for g"}, {'8', "button for h"},
+    {'A', "old button 1"}, {'B', "old button 2"}, {'D', "old button 4"},
 };
 int const chamber_legend_n = (int)(sizeof(chamber_legend) / sizeof(chamber_legend[0]));
 
@@ -358,6 +356,12 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
+    // More than the renderer holds: refused here, not drawn with holes.
+    int const quads = level_mesh(lv, NULL, 0, NULL, 0);
+    if (quads > LV_MAX_QUADS) return fail(&c, "too detailed: %d wall faces to draw, at most %d", quads, LV_MAX_QUADS);
+    int const clear = level_clear_faces(lv);
+    if (clear > LV_MAX_CLEAR)
+        return fail(&c, "too much glass and fizzler: %d faces to draw, at most %d", clear, LV_MAX_CLEAR);
     if (steps != NULL) {
         steps[ns] = (step_t){0};
         if (n_steps) *n_steps = ns;
@@ -534,6 +538,13 @@ int chamber_count(void) {
 char const* chamber_id(int i) {
     init();
     return i >= 0 && i < s_n ? s_list[i].id : "?";
+}
+
+int chamber_find(char const* id) {
+    init();
+    for (int i = 0; i < s_n; i++)
+        if (strcmp(s_list[i].id, id) == 0) return i;
+    return -1;
 }
 
 char const* chamber_text(int i) {

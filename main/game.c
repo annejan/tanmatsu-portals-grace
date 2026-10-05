@@ -362,12 +362,12 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     // The player, among the cubes.
     aabb_t               boxes[LV_MAX_CUBES + 2];
-    int const            n    = gather_boxes(g, -1, boxes);
-    phys_world_t const   w    = {&g->lv, g->portals, boxes, n};
-    player_input_t const pin  = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
-    int                  via   = -1;
-    aabb_t const         start = player_aabb(&g->pl);
-    ev                        |= player_update_in(&g->pl, &w, &pin, dt, &via);
+    int const            n      = gather_boxes(g, -1, boxes);
+    phys_world_t const   w      = {&g->lv, g->portals, boxes, n};
+    player_input_t const pin    = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
+    int                  via    = -1;
+    aabb_t const         start  = player_aabb(&g->pl);
+    ev                         |= player_update_in(&g->pl, &w, &pin, dt, &via);
     if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
 
     // A fizzler: the portals close, and a cube carried in goes.
@@ -419,7 +419,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             n++;
             if (!g->lv.buttons[b].pressed) want = false;
         }
-        want = want && n > 0;
+        want            = want && n > 0;
         float const was = dr->open;
         if (want) {
             dr->open = fminf(1.0f, dr->open + DOOR_SPEED * dt);

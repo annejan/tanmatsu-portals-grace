@@ -160,6 +160,62 @@ void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye
     out->p[out->n++] = (plane_t){exit->n, -v3_dot(exit->n, exit->center) - 0.002f};
 }
 
+void portal_behind(portal_t const* p, vec3_t eye, clipset_t* out) {
+    out->n           = 0;
+    // Behind the plane, by a hair: the wall the portal hangs on, in the
+    // plane itself, stays.
+    out->p[out->n++] = (plane_t){v3_scale(p->n, -1.0f), v3_dot(p->n, p->center) - 0.002f};
+    vec3_t c[PORTAL_OVAL_N];
+    portal_oval(p, 1.0f, c);
+    vec3_t const inside = v3_mad(p->center, v3_sub(p->center, eye), 0.1f);
+    for (int i = 0; i < PORTAL_OVAL_N && out->n < PORTAL_MAX_PLANES; i++)
+        out->p[out->n++] = plane_through(eye, c[i], c[(i + 1) % PORTAL_OVAL_N], inside);
+}
+
+// Split `in` by plane `pl`: the part where n . x + d >= 0 to `keep`, the
+// rest to `drop`. Returns the two counts.
+static void split(plane_t const* pl, cvert_t const* in, int n, cvert_t* keep, int* nk, cvert_t* drop, int* nd) {
+    *nk = *nd = 0;
+    for (int i = 0; i < n; i++) {
+        cvert_t const* a  = &in[i];
+        cvert_t const* b  = &in[(i + 1) % n];
+        float const    da = v3_dot(pl->n, a->p) + pl->d;
+        float const    db = v3_dot(pl->n, b->p) + pl->d;
+        if (da >= 0.0f) {
+            if (*nk < CLIP_MAX_VERTS) keep[(*nk)++] = *a;
+        } else {
+            if (*nd < CLIP_MAX_VERTS) drop[(*nd)++] = *a;
+        }
+        if ((da >= 0.0f) != (db >= 0.0f)) {
+            float const   t = da / (da - db);
+            cvert_t const m = {v3_lerp(a->p, b->p, t), a->u + (b->u - a->u) * t, a->v + (b->v - a->v) * t};
+            if (*nk < CLIP_MAX_VERTS) keep[(*nk)++] = m;
+            if (*nd < CLIP_MAX_VERTS) drop[(*nd)++] = m;
+        }
+    }
+}
+
+void clip_subtract(clipset_t const* r, cvert_t const* in, int n, int level, poly_fn emit, void* ctx) {
+    // Static, one set per level: an emit may subtract again at level + 1.
+    static cvert_t buf[2][3][CLIP_MAX_VERTS];
+    cvert_t*       cur  = buf[level][0];
+    cvert_t*       next = buf[level][1];
+    cvert_t*       out  = buf[level][2];
+    memcpy(cur, in, (size_t)n * sizeof(cvert_t));
+    // Peel off, plane by plane, what lies outside the region; what is left
+    // after the last plane is inside it, and goes.
+    for (int k = 0; k < r->n; k++) {
+        int nk, nd;
+        split(&r->p[k], cur, n, next, &nk, out, &nd);
+        if (nd >= 3) emit(out, nd, ctx);
+        if (nk < 3) return;
+        cvert_t* const t = cur;
+        cur              = next;
+        next             = t;
+        n                = nk;
+    }
+}
+
 int clip_polygon(clipset_t const* cs, cvert_t const* in, int n, cvert_t* out) {
     static cvert_t buf[2][CLIP_MAX_VERTS];  // static: off the task's stack
     memcpy(buf[0], in, (size_t)n * sizeof(cvert_t));

@@ -139,11 +139,19 @@ typedef struct {
     uint8_t mat;
 } mquad_t;
 
+// What one chamber may need drawn, at most: rectangles of wall, and faces
+// of glass and fizzler (drawn on their own, see render.c). A chamber
+// needing more is refused when it is read, rather than drawn with holes.
 #define LV_MAX_QUADS 1024
+#define LV_MAX_CLEAR 512
 
 // A face the mesh leaves out, because a portal sits on it.
 typedef struct {
     int x, y, z, face;
 } hole_t;
 
+// Returns how many rectangles the chamber needs, writing at most `max_out`
+// of them (`out` may be NULL to only count).
 int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out);
+// The faces of glass and fizzler a chamber needs drawn.
+int level_clear_faces(level_t const* lv);

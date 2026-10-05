@@ -634,7 +634,9 @@ void editor_draw(pax_buf_t* fb) {
         pax_simple_rect(fb, cell_colour(ch, true), tx, y, 14, 14);
         snprintf(line, sizeof(line), "%c %s%s%c", palette[i].key, brush_name(ch),
                  chamber_is_door(ch) || chamber_is_button(ch) ? " " : "",
-                 chamber_is_door(ch) ? ch : chamber_is_button(ch) ? chamber_door_char(ch - '1') : ' ');
+                 chamber_is_door(ch)     ? ch
+                 : chamber_is_button(ch) ? chamber_door_char(ch - '1')
+                                         : ' ');
         pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y + 1, line);
     }
     static char const* const help[] = {

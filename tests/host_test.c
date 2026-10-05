@@ -493,6 +493,8 @@ static void test_chamber_dir(void) {
     CHECK(chamber_count() == before + 2, "they join the list");
     CHECK(strcmp(chamber_id(before), "a-first") == 0 && strcmp(chamber_id(before + 1), "b-second") == 0,
           "in name order, after the built-in ones");
+    CHECK(chamber_find("b-second") == before + 1 && chamber_find(chamber_id(0)) == 0 && chamber_find("no-such") == -1,
+          "found by id: %d %d %d", chamber_find("b-second"), chamber_find(chamber_id(0)), chamber_find("no-such"));
     level_t lv;
     CHECK(level_load(&lv, before) && strcmp(lv.name, "First") == 0 && fabsf(lv.spawn_yaw - 1.5707963f) < 1e-4f,
           "and play: name and facing read");
@@ -509,6 +511,40 @@ static void test_chamber_dir(void) {
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
         bool const ok = chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err));
         CHECK(!ok && strstr(err, bad[i][1]) != NULL, "parse error %zu says \"%s\": got \"%s\"", i, bad[i][1], err);
+    }
+}
+
+// More than the renderer's buffers hold is refused when a chamber is
+// read, not drawn on the badge with walls missing.
+static void test_caps(void) {
+    static level_t lv;
+    static char    text[8192];
+    char           err[96];
+    // `fill` on layer 1 (and on layer 2 if two), every other cell, over a
+    // metal floor; the start in a corner.
+    for (int k = 0; k < 2; k++) {
+        int const  size = k == 0 ? 20 : 16;
+        char const fill = k == 0 ? '#' : 'G';
+        int        n    = snprintf(text, sizeof(text), "size: %d 4 %d\nlayer 0\n", size, size);
+        for (int z = 0; z < size; z++) n += snprintf(text + n, sizeof(text) - n, "%.*s\n", size, "########################");
+        for (int y = 1; y <= (k == 0 ? 1 : 2); y++) {
+            n += snprintf(text + n, sizeof(text) - n, "layer %d\n", y);
+            for (int z = 0; z < size; z++) {
+                for (int x = 0; x < size; x++)
+                    text[n++] = y == 1 && x == 0 && z == 0 ? 'S' : (x + z + y) % 2 ? fill : '.';
+                text[n++] = '\n';
+            }
+        }
+        text[n] = 0;
+        bool const ok = chamber_parse(text, &lv, NULL, NULL, err, sizeof(err));
+        CHECK(!ok && strstr(err, k == 0 ? "too detailed" : "too much glass") != NULL, "a %s chamber: \"%s\"",
+              k == 0 ? "pillared" : "glass-filled", ok ? "read" : err);
+    }
+    // Every chamber that comes with the game fits.
+    for (int i = 0; i < chamber_count(); i++) {
+        if (!level_load(&lv, i)) continue;
+        CHECK(level_mesh(&lv, NULL, 0, NULL, 0) <= LV_MAX_QUADS && level_clear_faces(&lv) <= LV_MAX_CLEAR,
+              "%s: %d faces, %d clear", chamber_id(i), level_mesh(&lv, NULL, 0, NULL, 0), level_clear_faces(&lv));
     }
 }
 
@@ -834,6 +870,7 @@ int main(void) {
     test_more_things();
     test_legend();
     test_two_buttons();
+    test_caps();
     test_glass();
     test_things();
     test_frame_rates();
