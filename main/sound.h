@@ -25,6 +25,8 @@ typedef enum {
     SND_DROPPER,  // a new cube out of a dropper
     SND_BURN,     // into a laser beam
     SND_BOUNCE,   // off blue gel
+    SND_PELLET,   // an energy pellet fired, or bouncing
+    SND_CAUGHT,   // a receiver caught a pellet
     SND_COUNT,
 } sound_t;
 

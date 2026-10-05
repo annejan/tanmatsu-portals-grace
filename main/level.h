@@ -32,6 +32,8 @@ typedef enum {
     MAT_DISP_BLUE,    // gel dispensers, in a ceiling: they drip their gel
     MAT_DISP_ORANGE,  // (see gel_src_t)
     MAT_DISP_WHITE,
+    MAT_LAUNCHER,  // an energy pellet launcher: fires out of its one open side
+    MAT_RECEIVER,  // a pellet receiver: a block whose button latches when a pellet arrives
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -68,6 +70,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_LASERS  4
 #define LV_MAX_BRIDGES 2
 #define LV_MAX_GELS    4
+#define LV_MAX_PELLETS 2
 
 // Gel, as paint on a cell: blue bounces, orange speeds you up, white
 // takes portals. Only metal and white panels take paint.
@@ -112,6 +115,7 @@ typedef struct {
     bool  pedestal;    // on a pedestal: pressed by hand, for a while
     bool  cube_only;   // on a cube base: the player does not press it
     bool  laser;       // on a laser catcher: down while a beam hits it
+    bool  receiver;    // on a pellet receiver: down for good once a pellet arrives
     float timer_left;  // state: a pedestal button's seconds still to go
 } button_t;
 
@@ -157,6 +161,8 @@ typedef struct {
     int        n_lasers;
     emitter_t  bridges[LV_MAX_BRIDGES];  // a bridge's surface is level with its cell's bottom
     int        n_bridges;
+    emitter_t  launchers[LV_MAX_PELLETS];  // energy pellet launchers
+    int        n_launchers;
     gel_src_t  gels[LV_MAX_GELS];
     int        n_gels;
     uint8_t    paint[LV_MAX_W * LV_MAX_H * LV_MAX_D];  // gel_t per cell: state, painted in play

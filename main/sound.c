@@ -52,6 +52,8 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_DROPPER]     = {W_NOISE, 900, 200, 0.30f, 0.01f, 0.35f, 1200, {0}},
     [SND_BURN]        = {W_NOISE, 4000, 3000, 0.45f, 0.005f, 0.30f, 6000, {0}},
     [SND_BOUNCE]      = {W_SINE, 180, 640, 0.22f, 0.003f, 0.45f, 0, {0}},
+    [SND_PELLET]      = {W_TRI, 900, 300, 0.10f, 0.002f, 0.25f, 0, {0}},
+    [SND_CAUGHT]      = {W_TRI, 0, 0, 0.12f, 0.005f, 0.35f, 0, {392.0f, 523.25f, 783.99f, 0}},
 };
 
 typedef struct {
@@ -168,6 +170,8 @@ void sound_events(int ev) {
     if (ev & GAME_EV_DROPPER) sound_play(SND_DROPPER);
     if (ev & GAME_EV_BURN) sound_play(SND_BURN);
     if (ev & PL_EV_BOUNCE) sound_play(SND_BOUNCE);
+    if (ev & GAME_EV_PELLET) sound_play(SND_PELLET);
+    if (ev & GAME_EV_CAUGHT) sound_play(SND_CAUGHT);
 }
 
 // --- Music ----------------------------------------------------------------

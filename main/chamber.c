@@ -62,6 +62,8 @@ chamber_glyph_t const chamber_legend[] = {
     {'U', "blue gel dispenser", GLYPH_CELL, MAT_DISP_BLUE, 0, 'U', 0xFF2E6CE0u},
     {'Z', "orange gel dispenser", GLYPH_CELL, MAT_DISP_ORANGE, 0, 'Z', 0xFFE07A1Cu},
     {'X', "white gel dispenser", GLYPH_CELL, MAT_DISP_WHITE, 0, 'X', 0xFFE8E8E0u},
+    {'P', "pellet launcher", GLYPH_CELL, MAT_LAUNCHER, 0, 'J', 0xFF8A5A2Au},
+    {'Q', "pellet receiver", GLYPH_CELL, MAT_RECEIVER, 0, 'C', 0xFF6A6E2Au},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -451,6 +453,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         lv->buttons[i].pedestal  = m == MAT_PEDESTAL;
         lv->buttons[i].cube_only = m == MAT_CUBEBASE;
         lv->buttons[i].laser     = m == MAT_CATCHER;
+        lv->buttons[i].receiver  = m == MAT_RECEIVER;
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
@@ -459,8 +462,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         for (int z = 0; z < lv->d; z++)
             for (int x = 0; x < lv->w; x++) {
                 uint8_t const m = level_get(lv, x, y, z);
-                if (m != MAT_EMITTER && m != MAT_BRIDGE) continue;
-                char const* const what = m == MAT_EMITTER ? "laser emitter" : "light bridge emitter";
+                if (m != MAT_EMITTER && m != MAT_BRIDGE && m != MAT_LAUNCHER) continue;
+                char const* const what = m == MAT_EMITTER  ? "laser emitter"
+                                         : m == MAT_BRIDGE ? "light bridge emitter"
+                                                           : "pellet launcher";
                 int               open = -1, n_open = 0;
                 for (int dir = 0; dir < 6; dir++) {
                     int dx, dy, dz;
@@ -470,7 +475,11 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                 }
                 if (n_open != 1)
                     return fail(&c, "the %s at %d %d %d needs exactly one open side, has %d", what, x, y, z, n_open);
-                if (m == MAT_EMITTER) {
+                if (m == MAT_LAUNCHER) {
+                    if (lv->n_launchers >= LV_MAX_PELLETS)
+                        return fail(&c, "more than %d pellet launchers", LV_MAX_PELLETS);
+                    lv->launchers[lv->n_launchers++] = (emitter_t){x, y, z, open};
+                } else if (m == MAT_EMITTER) {
                     if (lv->n_lasers >= LV_MAX_LASERS) return fail(&c, "more than %d laser emitters", LV_MAX_LASERS);
                     lv->lasers[lv->n_lasers++] = (emitter_t){x, y, z, open};
                 } else {

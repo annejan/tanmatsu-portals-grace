@@ -35,6 +35,8 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_DISP_BLUE]    = {NULL, 0xFF1E3E78u, 0, NULL},
     [MAT_DISP_ORANGE]  = {NULL, 0xFF784012u, 0, NULL},
     [MAT_DISP_WHITE]   = {NULL, 0xFF8A8A84u, 0, NULL},
+    [MAT_LAUNCHER]     = {NULL, 0xFF4A4038u, 0, NULL},
+    [MAT_RECEIVER]     = {NULL, 0xFF50543Au, 0, NULL},
     [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
     [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
     [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
@@ -548,11 +550,34 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         submit_box(v3(c.x - 0.08f, c.y - 0.08f, c.z - 0.08f), v3(c.x + 0.08f, c.y + 0.08f, c.z + 0.08f), cam, cs, NULL,
                    0xFFFF3A28u, SE_TRI_EMISSIVE);
     }
-    // Laser catchers: a lens on each open side, in a metal ring, dark
-    // until a beam lights it.
+    // Energy pellets: a white-hot ball in an orange glow, turned to the eye.
+    for (int k = 0; k < g->lv.n_launchers; k++) {
+        pellet_t const* p = &g->pellets[k];
+        if (!p->live) continue;
+        vec3_t const to = v3_norm(v3_sub(cam->pos, p->pos));
+        vec3_t       u  = v3_cross(to, v3(0, 1, 0));
+        if (v3_len(u) < 1e-3f) u = v3(1, 0, 0);
+        u              = v3_norm(u);
+        vec3_t const v = v3_cross(u, to);
+        octagon(p->pos, to, u, v, 0.22f, 0xFFFF8A1Cu, SE_TRI_EMISSIVE, cam, cs);
+        octagon(v3_mad(p->pos, to, 0.01f), to, u, v, 0.12f, 0xFFFFF4C8u, SE_TRI_EMISSIVE, cam, cs);
+    }
+    // A launcher's mouth: a dark ring round an orange glow.
+    for (int k = 0; k < g->lv.n_launchers; k++) {
+        emitter_t const* L = &g->lv.launchers[k];
+        vec3_t const     n = dir_vec(L->dir);
+        vec3_t const     u = fabsf(n.y) > 0.5f ? v3(1, 0, 0) : v3(fabsf(n.z), 0, fabsf(n.x));
+        vec3_t const     v = fabsf(n.y) > 0.5f ? v3(0, 0, 1) : v3(0, 1, 0);
+        vec3_t const     c = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), n, 0.503f);
+        octagon(c, n, u, v, 0.40f, 0xFF2A2A2Eu, 0, cam, cs);
+        octagon(v3_mad(c, n, 0.003f), n, u, v, 0.18f, g->pellets[k].done ? 0xFF4A3018u : 0xFFFF8A1Cu,
+                g->pellets[k].done ? 0 : SE_TRI_EMISSIVE, cam, cs);
+    }
+    // Laser catchers and pellet receivers: a lens on each open side, in a
+    // metal ring, dark until a beam or a pellet lights it.
     for (int i = 0; i < g->lv.n_buttons; i++) {
         button_t const* bt = &g->lv.buttons[i];
-        if (!bt->laser) continue;
+        if (!bt->laser && !bt->receiver) continue;
         vec3_t const mid = v3((float)bt->x + 0.5f, (float)bt->y + 0.5f, (float)bt->z + 0.5f);
         for (int face = 0; face < 6; face++) {
             if (face == DIR_PY || face == DIR_NY) continue;  // the button is on top
@@ -562,7 +587,8 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             vec3_t const n = dir_vec(face);
             vec3_t const u = v3(fabsf(n.z), 0, fabsf(n.x)), v = v3(0, 1, 0);
             octagon(v3_mad(mid, n, 0.503f), n, u, v, 0.40f, 0xFF8A8E96u, 0, cam, cs);
-            octagon(v3_mad(mid, n, 0.506f), n, u, v, 0.30f, bt->pressed ? 0xFFFF3A28u : 0xFF1A1414u,
+            uint32_t const glow = bt->receiver ? 0xFFFF8A1Cu : 0xFFFF3A28u;
+            octagon(v3_mad(mid, n, 0.506f), n, u, v, 0.30f, bt->pressed ? glow : 0xFF1A1414u,
                     bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
         }
     }

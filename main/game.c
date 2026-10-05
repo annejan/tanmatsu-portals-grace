@@ -509,6 +509,115 @@ static int step_gel(game_t* g, float dt) {
     return ev;
 }
 
+// --- Energy pellets -------------------------------------------------------
+
+// The outward normal of box `b`'s face nearest point `p` on it.
+static vec3_t box_normal(aabb_t const* b, vec3_t p) {
+    float const d[6] = {fabsf(p.x - b->hi.x), fabsf(p.x - b->lo.x), fabsf(p.y - b->hi.y),
+                        fabsf(p.y - b->lo.y), fabsf(p.z - b->hi.z), fabsf(p.z - b->lo.z)};
+    int         best = 0;
+    for (int i = 1; i < 6; i++)
+        if (d[i] < d[best]) best = i;
+    return dir_vec(best);
+}
+
+static vec3_t reflect(vec3_t v, vec3_t n) {
+    return v3_sub(v, v3_scale(n, 2.0f * v3_dot(v, n)));
+}
+
+// Launchers fire; pellets fly straight, bounce off walls, glass, cubes and
+// the platform, go through portals, kill the player, and are caught by a
+// receiver -- which latches its button down and rests its launcher.
+static int step_pellets(game_t* g, float dt) {
+    int ev = 0;
+    for (int k = 0; k < g->lv.n_launchers; k++) {
+        pellet_t* p = &g->pellets[k];
+        if (p->done) continue;
+        if (!p->live) {
+            p->wait -= dt;
+            if (p->wait > 0.0f) continue;
+            emitter_t const* L  = &g->lv.launchers[k];
+            vec3_t const     d  = dir_vec(L->dir);
+            p->pos              = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.6f);
+            p->vel              = v3_scale(d, PELLET_SPEED);
+            p->life             = PELLET_LIFE;
+            p->live             = true;
+            ev                 |= GAME_EV_PELLET;
+            continue;
+        }
+        p->life -= dt;
+        if (p->life <= 0.0f) {
+            p->live = false;
+            p->wait = PELLET_WAIT;
+            continue;
+        }
+        float  left = PELLET_SPEED * dt;
+        vec3_t d    = v3_scale(p->vel, 1.0f / PELLET_SPEED);
+        for (int hop = 0; hop < 6 && left > 1e-5f && p->live; hop++) {
+            ray_hit_t const w  = level_raycast(&g->lv, p->pos, d, left);
+            float           t  = w.hit ? w.dist : left;
+            // The player: dead. A cube or the platform: a bounce.
+            aabb_t const    pa = player_aabb(&g->pl);
+            float const     tp = ray_aabb(p->pos, d, &pa);
+            if (tp >= 0.0f && tp < t) {
+                ev      |= PL_EV_DIED;
+                p->live  = false;
+                p->wait  = PELLET_WAIT;
+                break;
+            }
+            aabb_t box    = {0};
+            bool   on_box = false;
+            for (int i = 0; i < g->n_cubes; i++) {
+                aabb_t const b  = cube_aabb(&g->cubes[i]);
+                float const  tb = ray_aabb(p->pos, d, &b);
+                if (tb > 1e-4f && tb < t) t = tb, box = b, on_box = true;
+            }
+            if (g->lv.n_platforms) {
+                aabb_t const b  = platform_aabb(g);
+                float const  tb = ray_aabb(p->pos, d, &b);
+                if (tb > 1e-4f && tb < t) t = tb, box = b, on_box = true;
+            }
+            p->pos  = v3_mad(p->pos, d, t);
+            left   -= t;
+            if (on_box) {
+                vec3_t const n  = box_normal(&box, p->pos);
+                d               = reflect(d, n);
+                p->pos          = v3_mad(p->pos, n, 0.002f);
+                ev             |= GAME_EV_PELLET;
+                continue;
+            }
+            if (!w.hit) break;
+            bool through = false;
+            for (int q = 0; q < 2 && !through; q++) {
+                if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[q], p->pos)) continue;
+                d       = portal_map_dir(&g->portals[q], &g->portals[q ^ 1], d);
+                p->pos  = v3_mad(portal_map_point(&g->portals[q], &g->portals[q ^ 1], p->pos), d, 0.01f);
+                through = true;
+            }
+            if (through) continue;
+            if (level_get(&g->lv, w.x, w.y, w.z) == MAT_RECEIVER) {
+                for (int b = 0; b < g->lv.n_buttons; b++) {
+                    button_t* bt = &g->lv.buttons[b];
+                    if (bt->receiver && bt->x == w.x && bt->y == w.y && bt->z == w.z && !bt->pressed) {
+                        bt->pressed  = true;
+                        ev          |= GAME_EV_BUTTON | GAME_EV_BUTTON_DOWN;
+                    }
+                }
+                p->live  = false;
+                p->done  = true;
+                ev      |= GAME_EV_CAUGHT;
+                break;
+            }
+            vec3_t const n  = dir_vec(w.face);
+            d               = reflect(d, n);
+            p->pos          = v3_mad(p->pos, n, 0.002f);
+            ev             |= GAME_EV_PELLET;
+        }
+        p->vel = v3_scale(d, PELLET_SPEED);
+    }
+    return ev;
+}
+
 // On top of a button: its base within the pad, resting on it.
 static bool on_button(button_t const* bt, aabb_t const* a) {
     float const top = (float)bt->y + 1.0f;
@@ -606,6 +715,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     move_platform(g, dt);
     trace_bridges(g);  // the portals may have moved
     ev |= step_gel(g, dt);
+    ev |= step_pellets(g, dt);
 
     // The player, among the cubes.
     aabb_t               boxes[GAME_MAX_BOXES];
@@ -657,7 +767,9 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     for (int b = 0; b < g->lv.n_buttons; b++) {
         button_t* bt   = &g->lv.buttons[b];
         bool      down = false;
-        if (bt->laser) {
+        if (bt->receiver) {
+            down = bt->pressed;  // latched by step_pellets()
+        } else if (bt->laser) {
             down = lit[b];
         } else if (bt->pedestal) {
             float const before = bt->timer_left;

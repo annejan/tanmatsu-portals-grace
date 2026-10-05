@@ -834,6 +834,64 @@ static void test_gel(void) {
           "a dispenser with no air under it is refused: %s", err);
 }
 
+// Energy pellets (chamber 15): fired, bounced, carried through portals,
+// caught.
+static void test_pellets(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("15-catch"));
+    CHECK(c >= 0, "chamber 15 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.n_launchers == 1 && g.lv.launchers[0].dir == DIR_NX && g.lv.buttons[0].receiver,
+          "a launcher firing west, a receiver button");
+    g.pl.pos = v3(3.5f, 1.0f, 6.5f);  // out of its way
+    // Without portals: off the west wall and back, gone after its life,
+    // and fired again.
+    int ev   = 0;
+    for (int i = 0; i < 100; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(g.pellets[0].live && g.pellets[0].vel.x > 0.0f, "it comes back off the west wall (vx %.1f)",
+          g.pellets[0].vel.x);
+    for (int i = 0; i < (int)((PELLET_LIFE - 2.0f + 0.1f) / 0.02f); i++) game_step(&g, &idle, 0.02f);
+    CHECK(!g.pellets[0].live, "and fizzles out after %.0f s", PELLET_LIFE);
+    for (int i = 0; i < (int)((PELLET_WAIT + 0.1f) / 0.02f); i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.pellets[0].live && !g.lv.buttons[0].pressed, "then the launcher fires another");
+    // Through the portals into the receiver: the button latches, the door
+    // opens, the launcher rests.
+    game_load(&g, c);
+    g.pl.pos = v3(3.5f, 1.0f, 6.5f);
+    CHECK(portal_place_at(&g.lv, 0, 1, 2, DIR_PX, v3(0, 1, 0), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 6, 1, 0, DIR_PZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]),
+          "portals on the west and south walls");
+    ev = 0;
+    for (int i = 0; i < 200; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_CAUGHT) && g.lv.buttons[0].pressed && g.lv.doors[0].open == 1.0f && g.pellets[0].done,
+          "caught: the door opens");
+    g.portals[0].open = g.portals[1].open = false;
+    for (int i = 0; i < 300; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.lv.buttons[0].pressed && !g.pellets[0].live, "and stays open; the launcher fires no more");
+    // In its way: dead.
+    game_load(&g, c);
+    g.pl.pos = v3(6.5f, 1.0f, 2.5f);
+    ev       = 0;
+    for (int i = 0; i < 100 && !(ev & PL_EV_DIED); i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(ev & PL_EV_DIED, "a pellet kills the player it hits");
+    // A cube in its way sends it back.
+    game_load(&g, c);
+    g.pl.pos   = v3(3.5f, 1.0f, 6.5f);
+    g.n_cubes  = 1;
+    g.cubes[0] = (cube_t){.body = {v3(6.5f, 1.0f, 2.5f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    for (int i = 0; i < 60; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.pellets[0].live && g.pellets[0].vel.x > 0.0f && g.pellets[0].pos.x > 6.8f,
+          "a cube bounces it back (at x %.2f)", g.pellets[0].pos.x);
+
+    CHECK(!chamber_parse("size: 5 3 3\nlayer 1\n#####\n#SP.#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) &&
+              strstr(err, "one open side") != NULL,
+          "a launcher open on two sides is refused: %s", err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1471,6 +1529,7 @@ int main(void) {
     test_lasers();
     test_bridges();
     test_gel();
+    test_pellets();
     test_draft_save();
     test_glass();
     test_things();

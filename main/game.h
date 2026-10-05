@@ -22,6 +22,20 @@
 #define GEL_BLOBS      48     // gel in flight, at most
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
 
+#define PELLET_SPEED 6.0f   // m/s, straight, no gravity
+#define PELLET_LIFE  10.0f  // s before it fizzles out ...
+#define PELLET_WAIT  1.5f   // ... and before its launcher fires the next
+
+// An energy pellet, one per launcher: in flight, waiting to be fired, or
+// done -- caught by a receiver, after which its launcher rests.
+typedef struct {
+    vec3_t pos, vel;
+    float  life;  // seconds it has left in flight
+    float  wait;  // seconds until the launcher fires again
+    bool   live;
+    bool   done;
+} pellet_t;
+
 // A blob of gel in flight, from a dispenser: it paints where it lands.
 typedef struct {
     vec3_t  pos, vel;
@@ -57,7 +71,8 @@ typedef struct {
     beam_seg_t bridge[LV_MAX_BRIDGES][BEAM_SEGS];  // each light bridge's centre line, on its surface
     int        bridge_n[LV_MAX_BRIDGES];
     gel_blob_t blobs[GEL_BLOBS];
-    float      drip_t[LV_MAX_GELS];  // each dispenser: seconds to its next blob
+    float      drip_t[LV_MAX_GELS];      // each dispenser: seconds to its next blob
+    pellet_t   pellets[LV_MAX_PELLETS];  // one per launcher
 } game_t;
 
 typedef struct {
@@ -87,6 +102,8 @@ enum {
     GAME_EV_DROPPER     = 1 << 22,  // a dropper let a new cube out
     GAME_EV_BURN        = 1 << 23,  // the player stepped into a laser beam
     GAME_EV_PAINT       = 1 << 24,  // gel painted something new: re-mesh
+    GAME_EV_PELLET      = 1 << 25,  // a launcher fired, or a pellet bounced
+    GAME_EV_CAUGHT      = 1 << 26,  // a receiver caught a pellet
 };
 
 void game_load(game_t* g, int chamber);
