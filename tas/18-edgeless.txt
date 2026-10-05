@@ -1,0 +1,9 @@
+walk_to 3.66 1.69
+grab
+look 6.5 0.43 3.19
+wait 0.04
+use
+look 6.5 1.0 4.0
+walk_to 6.15 4.5
+walk_to 3.58 4.05
+walk_to 3.0 8.5

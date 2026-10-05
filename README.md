@@ -146,6 +146,10 @@ needs Pillow and ffmpeg). `CHAMBERS=dir` adds chambers as the SD card
 would, `GIF=file.gif` a GIF too. Several chambers make one film, the music
 playing on between them: `make movie DEMO="01-gap 02-ledge" MOVIE=two.mp4`.
 
+`make tas` plays the tool-assisted runs in `tas/` -- every chamber's
+fastest known route -- against the solutions; `TASFILM=tas.mp4` films them
+with a timer.
+
 ## Device tests
 
 `main/testkit/` (from the template) runs the scripted demos on the badge.

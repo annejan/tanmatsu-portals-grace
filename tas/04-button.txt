@@ -1,0 +1,7 @@
+walk_to 7.15 3.5
+look 8.5 1.3 3.5
+use
+walk_to 4.75 4.65
+look 3.5 1.3 4.5
+use
+walk_to 6 11.21

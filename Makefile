@@ -72,7 +72,7 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot host_movie movie
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -124,6 +124,16 @@ host_movie: chambers_c
 
 movie: host_movie
 	python3 tools/make_movie.py $(DEMO) --mp4 $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))
+
+# The tool-assisted runs in tas/: each chamber's fastest known route, played
+# at 50 steps a second, against its solution (tools/tas.py). TASFILM=x.mp4
+# films them, with a timer.
+host_tas: chambers_c
+	mkdir -p $(BUILD)
+	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_tas.c $(HOST_SRCS) -lm -o $(BUILD)/host_tas
+
+tas: host_tas $(if $(TASFILM),host_movie)
+	python3 tools/tas.py $(if $(TASFILM),--film $(TASFILM))
 
 textures:
 	python3 tools/make_textures.py

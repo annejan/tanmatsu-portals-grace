@@ -23,6 +23,7 @@
 #define STORY_HOLD 5.0f   // ... and holds it
 #define TURRET_SUB 2.5f   // ... and a turret's words
 #define MESSAGE_S  2.5f   // ... and "Chamber complete": then the next chamber
+#define TAS_HOLD   1.2f   // a TAS cuts that short: the timer has stopped
 #define OPEN_S     4.0f   // the opening and closing titles
 #define CLOSE_S    4.5f
 #define MAX_TICKS  (200 * 50)
@@ -214,7 +215,8 @@ static void plan_camera(void) {
 // --- The recording ------------------------------------------------------------
 //
 // $BUILD/movie.txt has a line per frame of film -- "C" the opening titles,
-// "P\tN\ttyped\tturret\tmessage" the picture movie_N with the HUD on it,
+// "P\tN\ttyped\tturret\tmessage\ttime\texit" the picture movie_N with the
+// HUD on it, `time` into the run (the exit reached at `exit`, or -1),
 // "E" the closing titles -- and "S\tname\thint\tstory" where a chamber
 // begins.
 
@@ -233,6 +235,7 @@ typedef struct {
     float       sub_t;
     float       exit_t;  // when the player reached the exit, or -1
     char const* done;    // what the game says at the exit
+    bool        tas;     // HOST_MOVIE_TAS: a tool-assisted run, filmed as it goes
 } rec_t;
 
 // The sound, up to the film's time `t`.
@@ -273,8 +276,10 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
             ev &= ~PL_EV_EXIT;
     }
     // Moving on, but not over GLaDOS: a chamber solved in seconds would cut
-    // her line off with the next one's.
-    if (r->exit_t >= 0.0f && now > r->exit_t + MESSAGE_S && (!sound_saying() || now > r->exit_t + 15.0f)) return;
+    // her line off with the next one's. A TAS moves on, as the game does.
+    if (r->exit_t >= 0.0f && now > r->exit_t + (r->tas ? TAS_HOLD : MESSAGE_S) &&
+        (r->tas || !sound_saying() || now > r->exit_t + 15.0f))
+        return;
     r->last = now;
     sound_events(ev);
     sound_update();
@@ -308,8 +313,8 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     if (shown > len) shown = len;
     if (len == 0 || (now > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) shown = -1;
     char const* msg = r->exit_t >= 0.0f ? r->done : now < MESSAGE_S ? g->lv.name : "";
-    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\n", r->pic, shown, r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "",
-            msg);
+    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\t%.2f\t%.2f\n", r->pic, shown,
+            r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "", msg, (double)now, (double)r->exit_t);
     r->pic++;
     r->frame++;
 }
@@ -347,6 +352,8 @@ int main(int argc, char** argv) {
     sound_set_voice(true);
 
     float const cap = (float)atof(argv[1]);
+    char const* tas = getenv("HOST_MOVIE_TAS");
+    r.tas           = tas != NULL && tas[0] == '1';
     titles(&r, "C", OPEN_S);
     for (int a = 2; a < argc; a++) {
         int const     i = demo_find(argv[a]);
@@ -358,7 +365,7 @@ int main(int argc, char** argv) {
         static demo_state_t st;
         // Paced, unless that misses the exit: a solution timed to a moving
         // platform or a crusher keeps the script's own timing.
-        float               pace = PACE_S;
+        float               pace = r.tas ? 0.0f : PACE_S;
         plan_t              p    = {false};
         s_n                      = 0;
         demo_run(i, cap, TICK, &st, log_tick, &p, pace);

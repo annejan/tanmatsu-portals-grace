@@ -9,6 +9,7 @@ path = [
     "main/**",
     "tests/**",
     "tools/**",
+    "tas/**",
     "chambers/**",
     "textures/**",
     "metadata/**",

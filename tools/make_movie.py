@@ -89,6 +89,8 @@ def main():
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
     ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
+    ap.add_argument("--tas", action="store_true",
+                    help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
     if not a.mp4 and not a.gif:
         ap.error("--mp4 and/or --gif")
@@ -104,7 +106,7 @@ def main():
     for f in glob.glob(os.path.join(root, "textures", "*.png")):
         Image.open(f).convert("RGB").save(os.path.join(tex, os.path.basename(f)[:-4] + ".ppm"))
 
-    env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build)
+    env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0")
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
@@ -117,15 +119,21 @@ def main():
     f_small = font(["DejaVuSans.ttf", "/usr/share/fonts/truetype/DejaVuSans.ttf"], 14 * SCALE)
 
     # The film's frames, each with what the HUD shows on it.
-    frames, chamber = [], {}
+    frames, chamber, before, done = [], {}, 0.0, 0.0
     for line in lines:
         if line[0] == "S":
+            before += done  # the runs so far, to their exits
+            done = 0.0
             chamber = {"name": line[1], "hint": line[2], "story": line[3] if len(line) > 3 else ""}
         elif line[0] == "P":
+            now, exit_t = float(line[5]), float(line[6])
+            run = exit_t if exit_t >= 0 else now
+            done = run
             frames.append({"kind": "P", "pic": int(line[1]), "typed": int(line[2]), "turret": line[3],
-                           "message": line[4] if len(line) > 4 else "", **chamber})
+                           "message": line[4], "run": run, "total": before + run, **chamber})
         else:
             frames.append({"kind": line[0]})
+    total = before + done
     names = [l[1] for l in lines if l[0] == "S"]
 
     # The titles: a chamber's own name for one; for several, the game's.
@@ -139,9 +147,17 @@ def main():
     else:
         opening = card(w, h, "PORTALS", ["%d test chambers" % len(names), "on the Tanmatsu"], f_big, f_small)
     closing = card(w, h, "PORTALS", ["for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big, f_small)
+    if a.tas:
+        clock = "%d:%05.2f" % (total // 60, total % 60)
+        opening = card(w, h, "PORTALS", ["a tool-assisted run", "%d test chambers in %s" % (len(names), clock)],
+                       f_big, f_small)
+        closing = card(w, h, clock, ["%d chambers, tool-assisted, at 50 steps a second" % len(names),
+                                     "Portals for Tanmatsu  -  github.com/annejan/tanmatsu-portals-grace"],
+                       f_big, f_small)
     f_name = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 15 * SCALE)
     f_hint = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 11 * SCALE)
     f_msg = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 22 * SCALE)
+    f_timer = font(["DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSansMono-Bold.ttf"], 26 * SCALE)
 
     def hud(f):
         """A frame of play, with the HUD on it as main.c draws it."""
@@ -159,6 +175,15 @@ def main():
             d.text((16 * SCALE, h - (44 + (len(typed) - 1 - m) * 18) * SCALE), text, font=f_hud, fill=YELLOW)
         if f["turret"]:
             d.text((16 * SCALE, h - (44 + len(typed) * 18) * SCALE), "Turret: " + f["turret"], font=f_hud, fill=RED)
+        if a.tas:
+            # The timer: this chamber, and the run so far, stopped at each exit.
+            big = "%d:%05.2f" % (f["total"] // 60, f["total"] % 60)
+            small = "%.2f" % f["run"]
+            bw = d.textlength(big, font=f_timer)
+            d.rectangle([w - bw - 28 * SCALE, 44 * SCALE, w - 8 * SCALE, 98 * SCALE], fill=(0, 0, 0))
+            d.text((w - bw - 18 * SCALE, 46 * SCALE), big, font=f_timer, fill=(120, 255, 140))
+            sw = d.textlength(small, font=f_hud)
+            d.text((w - sw - 18 * SCALE, 80 * SCALE), small, font=f_hud, fill=(200, 200, 200))
         return im
 
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
