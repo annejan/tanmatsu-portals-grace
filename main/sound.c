@@ -258,7 +258,7 @@ void sound_set_voice(bool on) {
 // --- Music ----------------------------------------------------------------
 //
 // The engine's procedural generator, slowed and softened: the synthwave
-// preset's progressions and arps, but at 76-88 BPM, a soft sine arp, a
+// preset's progressions and arps, but at 76-88 BPM, a sine arp, a
 // warm pad in front, a kick on the one and nothing else for drums.
 
 static se_music_config_t             s_music;
@@ -278,10 +278,9 @@ void sound_init(void) {
     s_music.bass_pattern_count  = (int)(sizeof(s_bass) / sizeof(s_bass[0]));
     s_music.arp.osc             = SE_OSC_SINE;
     s_music.arp.osc_count       = 1;
-    s_music.arp.gain           *= 0.5f;
     s_music.arp.env.release     = 0.6f;
     s_music.bass.filter         = SE_FILTER_LPF;
-    s_music.bass.cutoff_hz      = 300.0f;
+    s_music.bass.cutoff_hz      = 700.0f;
     s_music.pad.gain           *= 1.3f;
     s_music.pad.amp_lfo_hz      = 0.15f;
     s_music.pad.amp_lfo_depth   = 0.3f;
@@ -289,7 +288,7 @@ void sound_init(void) {
     s_music.snare_voice         = NULL;
     s_music.hat_voice           = NULL;
     audio_mixer_set_music(music_procedural_create(&s_music, 0x9047A1u));
-    audio_mixer_set_music_volume(60);
+    audio_mixer_set_music_volume(100);
 }
 
 void sound_set_music(bool on) {
