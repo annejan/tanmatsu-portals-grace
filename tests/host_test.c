@@ -1003,6 +1003,71 @@ static void test_crushers(void) {
               "refused (%s): %s", bad[i][1], err);
 }
 
+static void test_spheres(void) {
+    static game_t      g;
+    game_input_t const idle = {0}, walk = {.fwd = 1.0f};
+    int const          c = demo_chamber(demo_find("18-edgeless"));
+    CHECK(c >= 0, "chamber 18 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.n_cubes == 1 && g.lv.cube_sphere[0] && !g.lv.cube_reflect[0] && g.lv.buttons[0].sphere_only &&
+              !g.lv.buttons[0].cube_only,
+          "a sphere, and a button in a cup");
+    CHECK(chamber_cell_char(&g.lv, 3, 1, 2) == 'o' && chamber_cell_char(&g.lv, 6, 0, 7) == '@',
+          "written back as o and @");
+    // Walk into it: it rolls off ahead, and on when you stop.
+    g.pl.pos        = v3(3.5f, 1.0f, 1.3f);
+    g.pl.yaw        = 0.0f;
+    body_t* const b = &g.cubes[0].body;
+    for (int i = 0; i < 50 && b->vel.z <= 0.0f; i++) game_step(&g, &walk, 0.02f);
+    CHECK(b->vel.z > 4.0f && fabsf(b->vel.x) < 0.01f, "walking into a sphere sets it rolling (%.2f %.2f)", b->vel.x,
+          b->vel.z);
+    for (int i = 0; i < 10; i++) game_step(&g, &idle, 0.02f);
+    CHECK(b->vel.z > 3.5f, "and it rolls on (%.2f m/s)", b->vel.z);
+    for (int i = 0; i < 50 && b->vel.z > 0.0f; i++) game_step(&g, &idle, 0.02f);
+    CHECK(b->vel.z < -0.5f && b->pos.z < 4.75f, "it bounces off the door (%.2f m/s at z %.2f)", b->vel.z, b->pos.z);
+    vec3_t const u = g.cubes[0].spin[0], v = g.cubes[0].spin[1];
+    CHECK(fabsf(v.z - 1.0f) > 0.01f && fabsf(v3_dot(u, v)) < 1e-3f && fabsf(v3_len(u) - 1.0f) < 1e-3f &&
+              fabsf(v3_len(v) - 1.0f) < 1e-3f,
+          "it turned as it rolled, and its axes stay square");
+    // Walking past one does not push it.
+    game_load(&g, c);
+    g.pl.pos = v3(3.5f, 1.0f, 1.3f);
+    g.pl.yaw = 1.5707963f;
+    *b       = (body_t){v3(3.5f, 1.0f, 1.92f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, true};
+    for (int i = 0; i < 10; i++) game_step(&g, &walk, 0.02f);
+    CHECK(v3_len(b->vel) < 0.01f && g.pl.pos.x > 4.0f, "walking past a sphere leaves it be");
+    // A cube is not pushed.
+    game_load(&g, c);
+    g.lv.cube_sphere[0] = false;
+    g.pl.pos            = v3(3.5f, 1.0f, 1.3f);
+    g.pl.yaw            = 0.0f;
+    for (int i = 0; i < 50; i++) game_step(&g, &walk, 0.02f);
+    CHECK(fabsf(b->pos.z - 2.5f) < 0.05f, "a cube is not pushed (z %.2f)", b->pos.z);
+    // The cup: not the player, not a cube; a sphere, which it holds.
+    for (int sphere = 0; sphere < 2; sphere++) {
+        game_load(&g, c);
+        g.pl.pos = v3(6.5f, 1.0f, 7.5f);
+        for (int i = 0; i < 5; i++) game_step(&g, &idle, 0.02f);
+        CHECK(!g.lv.buttons[0].pressed, "the player does not press a cup's button");
+        g.pl.pos            = v3(6.5f, 1.0f, 2.5f);
+        g.lv.cube_sphere[0] = sphere;
+        // The sphere rolls in; a cube, which would stop short, is put there.
+        *b                  = (body_t){v3(6.5f, 1.0f, sphere ? 6.3f : 7.5f),
+                                       v3(0, 0, sphere ? 3.0f : 0.0f),
+                                       CUBE_HALF,
+                                       2.0f * CUBE_HALF,
+                                       CUBE_HALF,
+                                       true};
+        for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
+        if (sphere)
+            CHECK(g.lv.buttons[0].pressed && fabsf(b->pos.z - 7.5f) < 0.05f && v3_len(b->vel) < 0.05f,
+                  "a sphere rolling into the cup stays there, and presses it (z %.2f)", b->pos.z);
+        else
+            CHECK(!g.lv.buttons[0].pressed, "a cube does not press a cup's button");
+    }
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1643,6 +1708,7 @@ int main(void) {
     test_pellets();
     test_relays();
     test_crushers();
+    test_spheres();
     test_draft_save();
     test_glass();
     test_things();

@@ -2,18 +2,45 @@
 #include <math.h>
 #include <string.h>
 
-#define CUBE_FRICTION 8.0f   // per second, on the ground
-#define CUBE_PULL     12.0f  // how hard a carried cube is pulled to the hold point
-#define CUBE_MAX_PULL 12.0f  // m/s
-#define DOOR_SPEED    2.5f   // of the way open, a second
-#define PLAT_SPEED    1.5f   // m/s
-#define PLAT_PAUSE    1.0f   // s at each end
+#define CUBE_FRICTION   8.0f   // per second, on the ground
+#define CUBE_PULL       12.0f  // how hard a carried cube is pulled to the hold point
+#define CUBE_MAX_PULL   12.0f  // m/s
+#define SPHERE_FRICTION 0.6f   // per second, on the ground: a sphere rolls on
+#define SPHERE_PUSH     5.0f   // m/s: walking into a sphere sets it rolling this fast
+#define SPHERE_BOUNCE   0.4f   // of its speed a sphere keeps, bouncing off a wall
+#define CUP_PULL        8.0f   // how hard a cup draws a sphere to its middle
+#define DOOR_SPEED      2.5f   // of the way open, a second
+#define PLAT_SPEED      1.5f   // m/s
+#define PLAT_PAUSE      1.0f   // s at each end
 
 static void trace_bridges(game_t* g);
 
 static void cube_spawn(game_t* g, int i) {
-    vec3_t const s   = g->lv.cubes[i];
-    g->cubes[i].body = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
+    vec3_t const s      = g->lv.cubes[i];
+    g->cubes[i].body    = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
+    g->cubes[i].spin[0] = v3(1, 0, 0);
+    g->cubes[i].spin[1] = v3(0, 0, 1);
+}
+
+// Turn v by angle a about the unit axis k.
+static vec3_t turn(vec3_t v, vec3_t k, float a) {
+    float const c = cosf(a), s = sinf(a);
+    return v3_add(v3_add(v3_scale(v, c), v3_scale(v3_cross(k, v), s)), v3_scale(k, v3_dot(k, v) * (1.0f - c)));
+}
+
+// A sphere on the ground turns as far as it rolled.
+static void roll(cube_t* c, vec3_t from) {
+    vec3_t const d = v3(c->body.pos.x - from.x, 0.0f, c->body.pos.z - from.z);
+    float const  l = v3_len(d);
+    if (l < 1e-4f || l > 1.0f) return;  // still, or through a portal
+    vec3_t const k = v3_norm(v3_cross(v3(0, 1, 0), d));
+    vec3_t       u = turn(c->spin[0], k, l / CUBE_HALF);
+    vec3_t       v = turn(c->spin[1], k, l / CUBE_HALF);
+    // Keep them square to each other.
+    u              = v3_norm(u);
+    v              = v3_norm(v3_sub(v, v3_scale(u, v3_dot(u, v))));
+    c->spin[0]     = u;
+    c->spin[1]     = v;
 }
 
 // A cube lost: a new one where it started -- out of its dropper, if it
@@ -273,6 +300,43 @@ static bool box_in_solid(level_t const* lv, aabb_t const* a) {
     return false;
 }
 
+// The cup a body stands in, if any.
+static button_t const* cup_under(level_t const* lv, body_t const* b) {
+    for (int k = 0; k < lv->n_buttons; k++) {
+        button_t const* bt = &lv->buttons[k];
+        if (bt->sphere_only && (int)floorf(b->pos.x) == bt->x && (int)floorf(b->pos.z) == bt->z &&
+            b->pos.y > (float)bt->y + 0.99f && b->pos.y < (float)bt->y + 1.5f)
+            return bt;
+    }
+    return NULL;
+}
+
+// Walking into a sphere sets it rolling the way you walk: not the way from
+// your middle to its, which a near miss would turn sideways.
+static void push_spheres(game_t* g, game_input_t const* in) {
+    float const  sy = sinf(g->pl.yaw), cy = cosf(g->pl.yaw);
+    vec3_t const wish = v3(in->fwd * sy + in->strafe * cy, 0.0f, in->fwd * cy - in->strafe * sy);
+    if (v3_len(wish) < 0.1f) return;
+    aabb_t pa  = player_aabb(&g->pl);
+    pa.lo.x   -= 0.05f;
+    pa.lo.z   -= 0.05f;
+    pa.hi.x   += 0.05f;
+    pa.hi.z   += 0.05f;
+    for (int i = 0; i < g->n_cubes; i++) {
+        if (!g->lv.cube_sphere[i]) continue;  // (one carried goes where it is pulled)
+        body_t* const b = &g->cubes[i].body;
+        aabb_t const  c = cube_aabb(&g->cubes[i]);
+        if (!aabb_overlap(&pa, &c)) continue;
+        vec3_t const to = v3(b->pos.x - g->pl.pos.x, 0.0f, b->pos.z - g->pl.pos.z);
+        vec3_t const d  = v3_norm(wish);
+        if (v3_dot(to, d) < 0.5f * v3_len(to)) continue;  // walking past it, or away
+        float const speed = SPHERE_PUSH * fminf(1.0f, v3_len(wish));
+        if (v3_dot(b->vel, d) >= speed) continue;
+        b->vel.x = d.x * speed;
+        b->vel.z = d.z * speed;
+    }
+}
+
 static int step_cube(game_t* g, int i, float dt) {
     int                ev = 0;
     body_t*            b  = &g->cubes[i].body;
@@ -294,11 +358,18 @@ static int step_cube(game_t* g, int i, float dt) {
     } else {
         b->vel.y = fall_half(b->vel.y, dt);
         if (b->on_ground) {
-            float const k  = expf(-CUBE_FRICTION * dt);
-            b->vel.x      *= k;
-            b->vel.z      *= k;
+            float const k        = expf(-(g->lv.cube_sphere[i] ? SPHERE_FRICTION : CUBE_FRICTION) * dt);
+            b->vel.x            *= k;
+            b->vel.z            *= k;
+            // A sphere that rolls into a cup stays there.
+            button_t const* cup  = g->lv.cube_sphere[i] ? cup_under(&g->lv, b) : NULL;
+            if (cup != NULL) {
+                b->vel.x = ((float)cup->x + 0.5f - b->pos.x) * CUP_PULL;
+                b->vel.z = ((float)cup->z + 0.5f - b->pos.z) * CUP_PULL;
+            }
         }
     }
+    vec3_t const v0 = b->vel, p0 = b->pos;
 
     int          via    = -1;
     aabb_t const start  = body_aabb(b);
@@ -312,6 +383,11 @@ static int step_cube(game_t* g, int i, float dt) {
     }
     if (pev & PHYS_TELEPORT) {
         if (i == g->held) g->held_via = g->held_via < 0 ? via : -1;
+    } else if (g->lv.cube_sphere[i] && i != g->held) {
+        if (b->on_ground) roll(&g->cubes[i], p0);
+        // A sphere bounces off what stops it.
+        if (b->vel.x == 0.0f && fabsf(v0.x) > 0.5f) b->vel.x = -v0.x * SPHERE_BOUNCE;
+        if (b->vel.z == 0.0f && fabsf(v0.z) > 0.5f) b->vel.z = -v0.z * SPHERE_BOUNCE;
     }
     if (i != g->held && !b->on_ground) b->vel.y = fall_half(b->vel.y, dt);
 
@@ -796,6 +872,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         ev              |= GAME_EV_LAUNCH;
     }
 
+    push_spheres(g, in);
     for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);
 
     // Lasers: what they light, and whom they burn.
@@ -842,10 +919,10 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             down               = bt->timer_left > 0.0f;
             if (down && ceilf(bt->timer_left) != ceilf(before)) ev |= GAME_EV_TICK;
         } else {
-            down = !bt->cube_only && on_button(bt, &pa);
+            down = !bt->cube_only && !bt->sphere_only && on_button(bt, &pa);
             for (int i = 0; i < g->n_cubes && !down; i++) {
                 aabb_t const c = cube_aabb(&g->cubes[i]);
-                down           = i != g->held && on_button(bt, &c);
+                down           = i != g->held && (!bt->sphere_only || g->lv.cube_sphere[i]) && on_button(bt, &c);
             }
         }
         if (down != bt->pressed) ev |= GAME_EV_BUTTON | (down ? GAME_EV_BUTTON_DOWN : GAME_EV_BUTTON_UP);

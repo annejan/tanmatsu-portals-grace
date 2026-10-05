@@ -37,6 +37,7 @@ typedef enum {
     MAT_RELAY,     // a laser relay: a slim post a beam passes through, lighting its button
     MAT_FIELD,     // a laser field: a red sheet like a fizzler, deadly to touch
     MAT_CRUSHER,   // while parsing only: a crusher's cells (then crusher_t, and air)
+    MAT_CUP,       // a floor a sphere button stands on: only a sphere presses it, and it holds the sphere
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -119,16 +120,18 @@ typedef struct {
 // under it) it is pressed with Use, and stays down for the level's
 // `timer` seconds. On a cube base (MAT_CUBEBASE) only a cube presses it.
 // On a laser catcher (MAT_CATCHER) it is down while a beam hits the block.
+// On a cup (MAT_CUP) only a sphere presses it.
 typedef struct {
     int   x, y, z;
     int   link;
-    bool  pressed;     // state, set by the game
-    bool  pedestal;    // on a pedestal: pressed by hand, for a while
-    bool  cube_only;   // on a cube base: the player does not press it
-    bool  laser;       // on a laser catcher: down while a beam hits it
-    bool  receiver;    // on a pellet receiver: down for good once a pellet arrives
-    bool  relay;       // on a laser relay: down while a beam passes through it
-    float timer_left;  // state: a pedestal button's seconds still to go
+    bool  pressed;      // state, set by the game
+    bool  pedestal;     // on a pedestal: pressed by hand, for a while
+    bool  cube_only;    // on a cube base: the player does not press it
+    bool  sphere_only;  // in a cup: only a sphere presses it
+    bool  laser;        // on a laser catcher: down while a beam hits it
+    bool  receiver;     // on a pellet receiver: down for good once a pellet arrives
+    bool  relay;        // on a laser relay: down while a beam passes through it
+    float timer_left;   // state: a pedestal button's seconds still to go
 } button_t;
 
 #define LV_TIMER_S    4.0f  // a pedestal button's time, unless a chamber says
@@ -164,6 +167,7 @@ typedef struct {
     vec3_t     cubes[LV_MAX_CUBES];         // where each cube starts, its base
     bool       cube_drop[LV_MAX_CUBES];     // ... out of a dropper's hatch
     bool       cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
+    bool       cube_sphere[LV_MAX_CUBES];   // a sphere: it rolls, and walking into it pushes it
     int        n_cubes;
     char       story[160];  // shown as the chamber starts
     float      timer;       // seconds a pedestal button stays down

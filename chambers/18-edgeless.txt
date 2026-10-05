@@ -1,0 +1,81 @@
+name: 18  Edgeless
+hint: It rolls. Line it up, then walk into it.
+story: For your safety, the edges of this cube have been removed. The rest of the chamber has kept its edges.
+size: 10 5 10
+facing: north
+
+layer 0
+##########
+#WEEWWWWW#
+#WWWWW@WW#
+#WWWWWWWW#
+##########
+#WWWWWWWW#
+#WWWWWWWW#
+#WWWWWWWW#
+#WWWWWWWW#
+##########
+
+layer 1
+##########
+#........#
+#.....1..#
+#........#
+#GaaGG.GG#
+#........#
+#........#
+#..o.....#
+#......S.#
+##########
+
+layer 2
+##########
+#........#
+#........#
+#........#
+#GaaGGGGG#
+#........#
+#........#
+#........#
+#........#
+##########
+
+layer 3
+##########
+#........#
+#........#
+#........#
+#GGGGGGGG#
+#........#
+#........#
+#........#
+#........#
+##########
+
+layer 4
+##########
+##########
+##########
+##########
+##########
+##########
+##########
+##########
+##########
+##########
+
+solution
+walk_to 3.5 1.2
+grab
+wait 0.4
+walk_to 6.5 1.2
+look 6.5 1.0 4.0
+wait 0.6
+use
+wait 1.0
+walk_to 6.5 1.3
+look 6.5 1.0 4.0
+walk_to 6.5 4.5
+wait 2.0
+walk_to 3.0 4.0
+walk_to 3.0 8.5

@@ -129,6 +129,8 @@ cells are metal.
 | `\|` | a laser relay: a slim post a beam passes straight through. A button digit on top of it is down while a beam passes. |
 | `*` | a laser field: a red sheet, like a fizzler, that kills the player who touches it. Shots, beams and cubes pass through it. |
 | `Y` | a crusher: a box of `Y` cells hanging under the ceiling. It slams down onto the floor under it, rests there for half a second and rises again, every three seconds; several crushers go one after the other. Anything under it is crushed: the player dies, a cube goes back where it started. Down, it is solid. |
+| `o` | a sphere: a ball the size of a cube, carried like one. It rolls: walk into it and it rolls off the way you walk, and on after you stop, and bounces off walls. It presses buttons like a cube. |
+| `@` | a cup: a floor for a sphere button (put a button on top). Only a sphere presses that button, and a sphere that rolls into the cup stays there. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

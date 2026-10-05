@@ -52,7 +52,8 @@ typedef struct {
 
 typedef struct {
     body_t body;
-    float  yaw;  // where a reflection cube sends a laser: it faces this way
+    float  yaw;      // where a reflection cube sends a laser: it faces this way
+    vec3_t spin[2];  // a sphere's own two axes, turned as it rolls (it is drawn by them)
 } cube_t;
 
 // A piece of a laser beam, from a to b.

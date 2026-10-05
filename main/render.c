@@ -39,6 +39,7 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_RECEIVER]     = {NULL, 0xFF50543Au, 0, NULL},
     [MAT_RELAY]        = {NULL, 0xFF8A8E96u, 0, NULL},
     [MAT_FIELD]        = {"field.png", 0xFFFF4030u, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
+    [MAT_CUP]          = {NULL, 0xFF2E4A5Cu, 0, NULL},
     [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
     [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
     [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
@@ -428,6 +429,40 @@ static void submit_cube(aabb_t const* b, float k, cam_t const* cam, clipset_t co
 #undef P
 }
 
+// A sphere of radius r round c, drawn in its own axes u, v (and their
+// cross product, its pole): white, with a band of lights round its equator
+// that rolls with it.
+static void submit_sphere(vec3_t c, float r, vec3_t u, vec3_t v, bool lit, cam_t const* cam, clipset_t const* cs) {
+    enum {
+        LAT = 8,
+        LON = 12
+    };
+    vec3_t const w = v3_cross(u, v);
+    vec3_t       p[LAT + 1][LON];
+    for (int i = 0; i <= LAT; i++)
+        for (int j = 0; j < LON; j++) {
+            float const a = ((float)i / LAT - 0.5f) * 3.14159265f, b = (float)j * (6.2831853f / LON);
+            p[i][j] =
+                v3_add(v3_add(v3_scale(u, cosf(a) * cosf(b)), v3_scale(v, cosf(a) * sinf(b))), v3_scale(w, sinf(a)));
+        }
+    for (int i = 0; i < LAT; i++)
+        for (int j = 0; j < LON; j++) {
+            int const      k     = (j + 1) % LON;
+            vec3_t const   n     = v3_norm(v3_add(v3_add(p[i][j], p[i][k]), v3_add(p[i + 1][j], p[i + 1][k])));
+            bool const     eq    = i == LAT / 2 - 1 || i == LAT / 2;  // the two rings round the middle
+            // The band: every other piece of it a light.
+            uint32_t const argb  = eq ? (j % 2 ? 0xFF3A4048u : lit ? 0xFF6CE0FFu : 0xFF2C6C8Cu) : 0xFFC8CCD2u;
+            uint32_t const flags = eq && j % 2 == 0 && lit ? SE_TRI_EMISSIVE : 0;
+            cvert_t        q[4];
+            int            nq = 0;
+            q[nq++]           = (cvert_t){v3_mad(c, p[i][j], r), 0, 0};
+            if (i > 0) q[nq++] = (cvert_t){v3_mad(c, p[i][k], r), 0, 0};
+            q[nq++] = (cvert_t){v3_mad(c, p[i + 1][k], r), 0, 0};
+            if (i < LAT - 1) q[nq++] = (cvert_t){v3_mad(c, p[i + 1][j], r), 0, 0};
+            submit_poly(q, nq, n, cam, cs, NULL, argb, flags);
+        }
+}
+
 // A flat octagon of radius r in the plane through c facing n, spanned by
 // u and v: as near round as a lens needs to be.
 static void octagon(vec3_t c, vec3_t n, vec3_t u, vec3_t v, float r, uint32_t argb, uint32_t flags, cam_t const* cam,
@@ -471,10 +506,24 @@ static void submit_pedestal(button_t const* bt, float timer, cam_t const* cam, c
             bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
 }
 
+// A sphere lights up in a cup that is down.
+static bool sphere_home(game_t const* g, int i) {
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        button_t const* bt = &g->lv.buttons[b];
+        if (bt->sphere_only && bt->pressed && (int)floorf(g->cubes[i].body.pos.x) == bt->x &&
+            (int)floorf(g->cubes[i].body.pos.z) == bt->z)
+            return true;
+    }
+    return false;
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
-        if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
+        if (g->lv.cube_sphere[i])
+            submit_sphere(body_center(&g->cubes[i].body), CUBE_HALF, g->cubes[i].spin[0], g->cubes[i].spin[1],
+                          sphere_home(g, i), cam, cs);
+        else if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
             submit_cube(&b, 0.07f, cam, cs, NULL, 0xFFA48A8Au, 0xFF8A7070u);
         else
             submit_cube(&b, 0.07f, cam, cs, &s_cube, s_cube.argb, 0xFF6E7278u);
@@ -517,8 +566,17 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             }
         }
         float const    h   = bt->pressed ? 0.06f : 0.12f;
-        // Red for anyone, blue for a cube only.
-        uint32_t const lit = bt->cube_only ? 0xFF40A0FFu : 0xFFFF6040u, off = bt->cube_only ? 0xFF1C4C90u : 0xFFB02818u;
+        // Red for anyone, blue for a cube only, cyan for a sphere.
+        uint32_t const lit = bt->sphere_only ? 0xFF6CE0FFu : bt->cube_only ? 0xFF40A0FFu : 0xFFFF6040u;
+        uint32_t const off = bt->sphere_only ? 0xFF2C6C8Cu : bt->cube_only ? 0xFF1C4C90u : 0xFFB02818u;
+        if (bt->sphere_only) {
+            // A cup: a flat ring of light the sphere sits in.
+            octagon(v3(x + 0.5f, top + 0.042f, z + 0.5f), v3(0, 1, 0), v3(1, 0, 0), v3(0, 0, 1), 0.4f,
+                    bt->pressed ? lit : off, bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
+            octagon(v3(x + 0.5f, top + 0.044f, z + 0.5f), v3(0, 1, 0), v3(1, 0, 0), v3(0, 0, 1), 0.28f, 0xFF3A4048u, 0,
+                    cam, cs);
+            continue;
+        }
         submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL, bt->pressed ? lit : off,
                    bt->pressed ? SE_TRI_EMISSIVE : 0);
     }
