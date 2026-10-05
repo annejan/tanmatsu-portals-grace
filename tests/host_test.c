@@ -1365,6 +1365,17 @@ static void test_more_things(void) {
     game_step(&g, &idle, 0.02f);
     CHECK(!g.lv.buttons[0].pressed, "a carried cube does not press a button");
 
+    // No floor portal under a button: its pad covers that floor.
+    button_t const* b0 = &g.lv.buttons[0];
+    portal_t        under;
+    for (int dz = -2; dz <= 2; dz++) level_set(&g.lv, b0->x, b0->y, b0->z + dz, MAT_WHITE);
+    CHECK(portal_place_at(&g.lv, b0->x, b0->y, b0->z + 1, DIR_PY, v3(0, 0, 1), NULL, &under),
+          "white floor beside it takes a portal");
+    CHECK(level_portalable(&g.lv, b0->x, b0->y, b0->z) &&
+              !portal_place_at(&g.lv, b0->x, b0->y, b0->z, DIR_PY, v3(0, 0, 1), NULL, &under) &&
+              !portal_place_at(&g.lv, b0->x, b0->y, b0->z - 1, DIR_PY, v3(0, 0, 1), NULL, &under),
+          "no portal on the floor under a button");
+
     // The old button letter A is button 1.
     CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.A#\n#####\n", &a, NULL, NULL, err, sizeof(err)),
           "old A: %s", err);

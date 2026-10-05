@@ -10,6 +10,10 @@ static vec3_t face_center(int x, int y, int z, int face) {
 
 static bool face_takes_portal(level_t const* lv, int x, int y, int z, int face) {
     if (!level_portalable(lv, x, y, z)) return false;
+    // A button's pad covers the top of the cell it stands on.
+    if (face == DIR_PY)
+        for (int i = 0; i < lv->n_buttons; i++)
+            if (lv->buttons[i].x == x && lv->buttons[i].y == y && lv->buttons[i].z == z) return false;
     int dx, dy, dz;
     dir_step(face, &dx, &dy, &dz);
     return !level_solid(lv, x + dx, y + dy, z + dz);
