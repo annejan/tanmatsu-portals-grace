@@ -16,10 +16,12 @@
 static void trace_bridges(game_t* g);
 
 static void cube_spawn(game_t* g, int i) {
-    vec3_t const s      = g->lv.cubes[i];
-    g->cubes[i].body    = (body_t){s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false};
-    g->cubes[i].spin[0] = v3(1, 0, 0);
-    g->cubes[i].spin[1] = v3(0, 0, 1);
+    vec3_t const  s = g->lv.cubes[i];
+    cube_t* const c = &g->cubes[i];
+    *c              = (cube_t){.body = {s, v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false},
+                               .yaw  = g->lv.cube_yaw[i],
+                               .spin = {v3(1, 0, 0), v3(0, 0, 1)}};
+    if (g->lv.cube_turret[i]) c->body = (body_t){s, v3(0, 0, 0), TURRET_HALF, TURRET_H, TURRET_H * 0.5f, false};
 }
 
 // Turn v by angle a about the unit axis k.
@@ -46,6 +48,14 @@ static void roll(cube_t* c, vec3_t from) {
 // A cube lost: a new one where it started -- out of its dropper, if it
 // came from one.
 static int cube_respawn(game_t* g, int i) {
+    if (g->lv.cube_turret[i]) {
+        // A turret does not come back: it is put out of the way, for good.
+        cube_t* const c = &g->cubes[i];
+        c->gone         = true;
+        c->body.pos     = v3(-100.0f, -100.0f, -100.0f);
+        c->body.vel     = v3(0, 0, 0);
+        return 0;
+    }
     cube_spawn(g, i);
     return g->lv.cube_drop[i] ? GAME_EV_DROPPER : 0;
 }
@@ -337,9 +347,35 @@ static void push_spheres(game_t* g, game_input_t const* in) {
     }
 }
 
+// A turret knocked over: on its side, half as tall, and harmless.
+static void topple(cube_t* t) {
+    t->down       = true;
+    t->seen       = 0.0f;
+    t->body.h     = 2.0f * TURRET_HALF;
+    t->body.probe = TURRET_HALF;
+}
+
+// Knock over every turret that box `a` (another body, just landed fast)
+// came down on.
+static int knock_under(game_t* g, aabb_t const* a, int skip) {
+    int ev = 0;
+    for (int k = 0; k < g->n_cubes; k++) {
+        cube_t* const t = &g->cubes[k];
+        if (k == skip || !g->lv.cube_turret[k] || t->gone || t->down) continue;
+        aabb_t const b = cube_aabb(t);
+        if (fabsf(a->lo.y - b.hi.y) < 0.05f && a->lo.x < b.hi.x && a->hi.x > b.lo.x && a->lo.z < b.hi.z &&
+            a->hi.z > b.lo.z) {
+            topple(t);
+            ev |= GAME_EV_TOPPLE;
+        }
+    }
+    return ev;
+}
+
 static int step_cube(game_t* g, int i, float dt) {
-    int                ev = 0;
-    body_t*            b  = &g->cubes[i].body;
+    int ev = 0;
+    if (g->cubes[i].gone) return 0;
+    body_t*            b = &g->cubes[i].body;
     aabb_t             boxes[GAME_MAX_BOXES];
     int                n = gather_boxes(g, i, boxes);
     phys_world_t const w = {&g->lv, g->portals, boxes, n};
@@ -348,9 +384,11 @@ static int step_cube(game_t* g, int i, float dt) {
         // A reflection cube turns with you, in eighths of a turn: a beam
         // can be aimed with the keys of a badge.
         g->cubes[i].yaw = roundf(g->pl.yaw / 0.78539816f) * 0.78539816f;
+        // A turret looks where you look: put it down facing away.
+        if (g->lv.cube_turret[i]) g->cubes[i].yaw = g->pl.yaw;
         // Pulled to a point in front of the eye -- on the far side of a
         // portal when it went through one ahead of the player.
-        vec3_t target   = v3_mad(player_eye(&g->pl), player_view(&g->pl).fwd, CUBE_HOLD);
+        vec3_t target = v3_mad(player_eye(&g->pl), player_view(&g->pl).fwd, CUBE_HOLD);
         if (g->held_via >= 0) target = portal_map_point(&g->portals[g->held_via], &g->portals[g->held_via ^ 1], target);
         vec3_t pull = v3_scale(v3_sub(target, body_center(b)), CUBE_PULL);
         if (v3_len(pull) > CUBE_MAX_PULL) pull = v3_scale(v3_norm(pull), CUBE_MAX_PULL);
@@ -375,6 +413,16 @@ static int step_cube(game_t* g, int i, float dt) {
     aabb_t const start  = body_aabb(b);
     float        impact = 0.0f;
     int const    pev    = body_move(b, &w, dt, &via, &impact);
+    // Landing hard: a turret that lands so is knocked over, and so is one
+    // that something lands on.
+    if ((pev & PHYS_LANDED) && impact > TURRET_KNOCK && i != g->held) {
+        if (g->lv.cube_turret[i] && !g->cubes[i].down) {
+            topple(&g->cubes[i]);
+            ev |= GAME_EV_TOPPLE;
+        }
+        aabb_t const box  = body_aabb(b);
+        ev               |= knock_under(g, &box, i);
+    }
     // A cube down on blue gel, fast enough, bounces too.
     if ((pev & PHYS_LANDED) && i != g->held && impact > 3.0f &&
         level_paint(&g->lv, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z)) == GEL_BLUE) {
@@ -416,6 +464,69 @@ static int step_cube(game_t* g, int i, float dt) {
         b->vel        = jump_velocity(b->pos, j->target);
         b->on_ground  = false;
         ev           |= GAME_EV_LAUNCH;
+    }
+    return ev;
+}
+
+// --- Turrets --------------------------------------------------------------
+
+// Whether turret i sees the player: in front of it, near enough, and
+// nothing in between -- a wall, glass, or a cube, which takes the shots.
+static bool turret_sees(game_t const* g, int i) {
+    cube_t const* const t   = &g->cubes[i];
+    vec3_t const        eye = v3(t->body.pos.x, t->body.pos.y + TURRET_EYE, t->body.pos.z);
+    vec3_t const        d   = v3_sub(v3(g->pl.pos.x, g->pl.pos.y + 1.0f, g->pl.pos.z), eye);
+    float const         l   = v3_len(d);
+    if (l > TURRET_RANGE || l < 1e-3f) return false;
+    vec3_t const u = v3_scale(d, 1.0f / l);
+    if (v3_dot(u, v3(sinf(t->yaw), 0.0f, cosf(t->yaw))) < TURRET_CONE) return false;
+    if (level_raycast(&g->lv, eye, u, l).hit) return false;
+    for (int k = 0; k < g->n_cubes; k++) {
+        if (k == i || g->cubes[k].gone) continue;
+        aabb_t const b  = cube_aabb(&g->cubes[k]);
+        float const  at = ray_aabb(eye, u, &b);
+        if (at >= 0.0f && at < l) return false;
+    }
+    return true;
+}
+
+static bool turret_awake(game_t const* g, int i) {
+    cube_t const* const t = &g->cubes[i];
+    return g->lv.cube_turret[i] && !t->gone && !t->down && i != g->held;
+}
+
+bool turret_firing(game_t const* g, int i) {
+    return turret_awake(g, i) && g->cubes[i].seen >= TURRET_WAKE && turret_sees(g, i);
+}
+
+// Turrets look, and fire at what they have seen for long enough. A turret
+// that loses sight of you forgets you, slowly.
+static int step_turrets(game_t* g, float dt) {
+    int  ev   = 0;
+    bool fire = false;
+    for (int i = 0; i < g->n_cubes; i++) {
+        cube_t* const t = &g->cubes[i];
+        if (!turret_awake(g, i)) {
+            t->seen = 0.0f;
+            continue;
+        }
+        if (turret_sees(g, i)) {
+            if (t->seen == 0.0f) ev |= GAME_EV_SPOTTED;
+            t->seen += dt;
+            fire    |= t->seen >= TURRET_WAKE;
+        } else {
+            t->seen = fmaxf(0.0f, fminf(t->seen, TURRET_WAKE) - dt);
+        }
+    }
+    if (fire) {
+        float const b0  = g->burst_t;
+        g->burst_t     += dt;
+        if (b0 == 0.0f || floorf(g->burst_t / TURRET_BURST) != floorf(b0 / TURRET_BURST)) ev |= GAME_EV_SHOOT;
+        g->shot_t += dt;
+        if (g->shot_t >= TURRET_KILL) ev |= PL_EV_DIED;
+    } else {
+        g->burst_t = 0.0f;
+        g->shot_t  = fmaxf(0.0f, g->shot_t - dt);
     }
     return ev;
 }
@@ -846,7 +957,14 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     player_input_t const pin    = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
     int                  via    = -1;
     aabb_t const         start  = player_aabb(&g->pl);
-    ev                         |= player_update_in(&g->pl, &w, &pin, dt, &via);
+    float const          fall   = -g->pl.vel.y;
+    int const            pev    = player_update_in(&g->pl, &w, &pin, dt, &via);
+    ev                         |= pev;
+    // Coming down hard on a turret knocks it over.
+    if ((pev & PL_EV_LANDED) && fall > TURRET_KNOCK) {
+        aabb_t const pb  = player_aabb(&g->pl);
+        ev              |= knock_under(g, &pb, -1);
+    }
     if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
 
     // A fizzler: the portals close, and a cube carried in goes.
@@ -874,6 +992,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     push_spheres(g, in);
     for (int i = 0; i < g->n_cubes; i++) ev |= step_cube(g, i, dt);
+    ev |= step_turrets(g, dt);
 
     // Lasers: what they light, and whom they burn.
     bool lit[LV_MAX_BUTTONS] = {false}, burnt = false;

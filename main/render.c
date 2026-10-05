@@ -348,19 +348,19 @@ static void submit_box(vec3_t lo, vec3_t hi, cam_t const* cam, clipset_t const* 
 
 // A piece of laser beam: a thin glowing strip from a to b, turned to face
 // the eye (both ways round, whichever way the engine culls).
-static void beam_strip(vec3_t a, vec3_t b, cam_t const* cam, clipset_t const* cs) {
+static void beam_strip(vec3_t a, vec3_t b, float half, uint32_t argb, cam_t const* cam, clipset_t const* cs) {
     vec3_t const along = v3_sub(b, a);
     vec3_t const to    = v3_sub(cam->pos, v3_scale(v3_add(a, b), 0.5f));
     vec3_t       side  = v3_cross(along, to);
     float const  len   = v3_len(side);
     if (v3_len(along) < 1e-3f || len < 1e-6f) return;
-    side               = v3_scale(side, 0.025f / len);
+    side               = v3_scale(side, half / len);
     vec3_t const  n    = v3_scale(to, 1.0f / v3_len(to));
     cvert_t const q[4] = {
         {v3_sub(a, side), 0, 0}, {v3_sub(b, side), 1, 0}, {v3_add(b, side), 1, 1}, {v3_add(a, side), 0, 1}};
     cvert_t const r[4] = {q[3], q[2], q[1], q[0]};
-    submit_quad(q, n, cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
-    submit_quad(r, n, cam, cs, NULL, 0xFFFF3A28u, SE_TRI_EMISSIVE);
+    submit_quad(q, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
+    submit_quad(r, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
 
 // A small glowing square on a face: centre c, facing along axis direction d.
@@ -429,16 +429,16 @@ static void submit_cube(aabb_t const* b, float k, cam_t const* cam, clipset_t co
 #undef P
 }
 
-// A sphere of radius r round c, drawn in its own axes u, v (and their
-// cross product, its pole): white, with a band of lights round its equator
-// that rolls with it.
-static void submit_sphere(vec3_t c, float r, vec3_t u, vec3_t v, bool lit, cam_t const* cam, clipset_t const* cs) {
+// A ball round c with half axes u, v and w (w through its poles), in
+// `argb`, with a band round its middle: every other piece of it `light`,
+// glowing if `lit`, the rest `seam`.
+static void submit_ball(vec3_t c, vec3_t u, vec3_t v, vec3_t w, uint32_t argb, uint32_t light, uint32_t seam, bool lit,
+                        cam_t const* cam, clipset_t const* cs) {
     enum {
         LAT = 8,
         LON = 12
     };
-    vec3_t const w = v3_cross(u, v);
-    vec3_t       p[LAT + 1][LON];
+    vec3_t p[LAT + 1][LON];
     for (int i = 0; i <= LAT; i++)
         for (int j = 0; j < LON; j++) {
             float const a = ((float)i / LAT - 0.5f) * 3.14159265f, b = (float)j * (6.2831853f / LON);
@@ -447,20 +447,29 @@ static void submit_sphere(vec3_t c, float r, vec3_t u, vec3_t v, bool lit, cam_t
         }
     for (int i = 0; i < LAT; i++)
         for (int j = 0; j < LON; j++) {
-            int const      k     = (j + 1) % LON;
-            vec3_t const   n     = v3_norm(v3_add(v3_add(p[i][j], p[i][k]), v3_add(p[i + 1][j], p[i + 1][k])));
+            int const    k   = (j + 1) % LON;
+            vec3_t const out = v3_add(v3_add(p[i][j], p[i][k]), v3_add(p[i + 1][j], p[i + 1][k]));
+            // The face's normal, from its diagonals, turned outwards.
+            vec3_t       n   = v3_norm(v3_cross(v3_sub(p[i + 1][k], p[i][j]), v3_sub(p[i][k], p[i + 1][j])));
+            if (v3_dot(n, out) < 0.0f) n = v3_scale(n, -1.0f);
             bool const     eq    = i == LAT / 2 - 1 || i == LAT / 2;  // the two rings round the middle
-            // The band: every other piece of it a light.
-            uint32_t const argb  = eq ? (j % 2 ? 0xFF3A4048u : lit ? 0xFF6CE0FFu : 0xFF2C6C8Cu) : 0xFFC8CCD2u;
+            uint32_t const col   = eq ? (j % 2 ? seam : light) : argb;
             uint32_t const flags = eq && j % 2 == 0 && lit ? SE_TRI_EMISSIVE : 0;
             cvert_t        q[4];
             int            nq = 0;
-            q[nq++]           = (cvert_t){v3_mad(c, p[i][j], r), 0, 0};
-            if (i > 0) q[nq++] = (cvert_t){v3_mad(c, p[i][k], r), 0, 0};
-            q[nq++] = (cvert_t){v3_mad(c, p[i + 1][k], r), 0, 0};
-            if (i < LAT - 1) q[nq++] = (cvert_t){v3_mad(c, p[i + 1][j], r), 0, 0};
-            submit_poly(q, nq, n, cam, cs, NULL, argb, flags);
+            q[nq++]           = (cvert_t){v3_add(c, p[i][j]), 0, 0};
+            if (i > 0) q[nq++] = (cvert_t){v3_add(c, p[i][k]), 0, 0};
+            q[nq++] = (cvert_t){v3_add(c, p[i + 1][k]), 0, 0};
+            if (i < LAT - 1) q[nq++] = (cvert_t){v3_add(c, p[i + 1][j]), 0, 0};
+            submit_poly(q, nq, n, cam, cs, NULL, col, flags);
         }
+}
+
+// A sphere of radius r, in its own axes u, v: white, with a band of lights
+// round its equator that rolls with it.
+static void submit_sphere(vec3_t c, float r, vec3_t u, vec3_t v, bool lit, cam_t const* cam, clipset_t const* cs) {
+    submit_ball(c, v3_scale(u, r), v3_scale(v, r), v3_scale(v3_cross(u, v), r), 0xFFC8CCD2u,
+                lit ? 0xFF6CE0FFu : 0xFF2C6C8Cu, 0xFF3A4048u, lit, cam, cs);
 }
 
 // A flat octagon of radius r in the plane through c facing n, spanned by
@@ -506,6 +515,44 @@ static void submit_pedestal(button_t const* bt, float timer, cam_t const* cam, c
             bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
 }
 
+// A turret: a white egg on three legs, a red eye, and a thin red line
+// where it looks. Firing, yellow streaks at you and a flash at each side;
+// knocked over, on its side and dark.
+static void submit_turret(game_t const* g, int i, cam_t const* cam, clipset_t const* cs) {
+    cube_t const* const t = &g->cubes[i];
+    vec3_t const        p = t->body.pos;
+    vec3_t const        f = v3(sinf(t->yaw), 0.0f, cosf(t->yaw)), s = v3(f.z, 0.0f, -f.x), up = v3(0, 1, 0);
+    uint32_t const      sk = 0xFFE4E6EAu, seam = 0xFFA8ACB2u;
+    if (t->down) {
+        vec3_t const c = v3(p.x, p.y + 0.2f, p.z);
+        submit_ball(c, v3_scale(up, 0.2f), v3_scale(s, 0.2f), v3_scale(f, 0.42f), sk, seam, seam, false, cam, cs);
+        octagon(v3_add(c, v3_add(v3_scale(f, 0.19f), v3_scale(up, 0.18f))), up, f, s, 0.045f, 0xFF401010u, 0, cam, cs);
+        return;
+    }
+    for (int k = 0; k < 3; k++) {  // one leg behind, two in front
+        float const a = t->yaw + 3.14159265f + (float)(k - 1) * 2.0943951f;
+        float const x = p.x + 0.17f * sinf(a), z = p.z + 0.17f * cosf(a);
+        submit_box(v3(x - 0.025f, p.y, z - 0.025f), v3(x + 0.025f, p.y + 0.35f, z + 0.025f), cam, cs, NULL, 0xFF3A3E44u,
+                   0);
+    }
+    vec3_t const c = v3(p.x, p.y + 0.56f, p.z);
+    submit_ball(c, v3_scale(f, 0.2f), v3_scale(s, 0.2f), v3_scale(up, 0.42f), sk, seam, seam, false, cam, cs);
+    vec3_t const eye = v3_add(v3(p.x, p.y + TURRET_EYE, p.z), v3_scale(f, 0.18f));
+    octagon(eye, f, s, up, 0.045f, 0xFFFF2A1Cu, SE_TRI_EMISSIVE, cam, cs);
+    ray_hit_t const h = level_raycast(&g->lv, eye, f, TURRET_RANGE);
+    beam_strip(eye, v3_mad(eye, f, h.hit ? h.dist : TURRET_RANGE), 0.008f, 0xFFFF2A1Cu, cam, cs);
+    if (!turret_firing(g, i)) return;
+    vec3_t const at    = v3(g->pl.pos.x, g->pl.pos.y + 1.0f, g->pl.pos.z);
+    bool const   flash = fmodf(g->burst_t, TURRET_BURST) < TURRET_BURST * 0.5f;
+    for (int k = -1; k <= 1; k += 2) {
+        vec3_t const muzzle = v3_add(c, v3_add(v3_scale(s, 0.21f * (float)k), v3_scale(f, 0.05f)));
+        float const  j      = g->burst_t * 97.0f + (float)k;
+        vec3_t const miss   = v3_add(v3_scale(s, 0.2f * sinf(j)), v3_scale(up, 0.15f * cosf(j * 1.3f)));
+        beam_strip(muzzle, v3_add(at, miss), 0.012f, 0xFFFFE070u, cam, cs);
+        if (flash) octagon(muzzle, f, s, up, 0.08f, 0xFFFFF0A0u, SE_TRI_EMISSIVE, cam, cs);
+    }
+}
+
 // A sphere lights up in a cup that is down.
 static bool sphere_home(game_t const* g, int i) {
     for (int b = 0; b < g->lv.n_buttons; b++) {
@@ -520,7 +567,10 @@ static bool sphere_home(game_t const* g, int i) {
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
-        if (g->lv.cube_sphere[i])
+        if (g->cubes[i].gone) continue;
+        if (g->lv.cube_turret[i])
+            submit_turret(g, i, cam, cs);
+        else if (g->lv.cube_sphere[i])
             submit_sphere(body_center(&g->cubes[i].body), CUBE_HALF, g->cubes[i].spin[0], g->cubes[i].spin[1],
                           sphere_home(g, i), cam, cs);
         else if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
@@ -586,7 +636,8 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         vec3_t const     d = dir_vec(L->dir);
         lens(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.505f), d, 0.25f, 0xFFFF3A28u,
              cam, cs);
-        for (int i = 0; i < g->beam_n[k]; i++) beam_strip(g->beam[k][i].a, g->beam[k][i].b, cam, cs);
+        for (int i = 0; i < g->beam_n[k]; i++)
+            beam_strip(g->beam[k][i].a, g->beam[k][i].b, 0.025f, 0xFFFF3A28u, cam, cs);
     }
     // Light bridges: a pale blue slab, with glowing edges, along each piece.
     for (int k = 0; k < g->lv.n_bridges; k++) {

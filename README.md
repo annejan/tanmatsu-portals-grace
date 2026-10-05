@@ -5,7 +5,7 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Eighteen chambers are included:
+out of the other, keeping your momentum. Nineteen chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
@@ -35,10 +35,12 @@ out of the other, keeping your momentum. Eighteen chambers are included:
 17. **Gauntlet**: a corridor under three crushers. Keep to the beat.
 18. **Edgeless**: a sphere, and a cup behind glass with a gap under it
     only a ball fits through.
+19. **Sentry**: a turret guards the exit. It cannot see straight up.
 
 Cubes can be picked up, stood on and carried through portals. A cube
 that falls in the goo comes back where it started. A sphere is carried
-the same way, and rolls when you walk into it. A door stays open while
+the same way, and rolls when you walk into it. A turret shoots you if it
+sees you for long enough; drop something on it to knock it over. A door stays open while
 all of its buttons are pressed, and does not shut on anything standing in
 it.
 
@@ -65,7 +67,7 @@ The menu has:
 - **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), music,
   sound effects, GLaDOS voice, portal LEDs, volume, screen brightness,
   keyboard light. GLaDOS reads each chamber's story line out, in SAM's
-  voice.
+  voice; turrets speak too, higher.
   With Portal LEDs on, the badge's user LEDs show the portals while you
   play: A orange while the orange portal is open, B blue for the blue one.
   The system LEDs are dark meanwhile, and come back when you quit.
@@ -99,7 +101,7 @@ far side.
 | U Z X | select a brush: blue, orange and white gel dispenser |
 | J C | select a brush: pellet launcher, pellet receiver (a button on top) |
 | G ; [ | select a brush: laser relay (a button on top), laser field, crusher |
-| ] ' | select a brush: sphere, sphere cup (a button on top) |
+| ] ' , | select a brush: sphere, sphere cup (a button on top), turret |
 | Space | paint. Hold it while you move to paint a line. |
 | B | press it at one corner, then at the other corner, to fill a rectangle |
 | Backspace | erase (set the cell to air) |

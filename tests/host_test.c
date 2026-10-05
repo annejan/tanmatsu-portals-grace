@@ -1068,6 +1068,134 @@ static void test_spheres(void) {
     }
 }
 
+static void test_turrets(void) {
+    static game_t      g;
+    game_input_t const idle = {0}, walk = {.fwd = 1.0f};
+    int const          c = demo_chamber(demo_find("19-sentry"));
+    CHECK(c >= 0, "chamber 19 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    cube_t* const t = &g.cubes[0];
+    CHECK(g.n_cubes == 1 && g.lv.cube_turret[0] && fabsf(fabsf(t->yaw) - 3.14159265f) < 1e-4f &&
+              t->body.h == TURRET_H && chamber_cell_char(&g.lv, 4, 1, 11) == 't',
+          "a turret, 1 m tall, facing the start (yaw %.3f)", t->yaw);
+    // In front of it: seen at once, and dead after the wake-up and the fire.
+    int   ev = 0, all = 0;
+    float at = 0.0f;
+    g.pl.pos = v3(4.5f, 1.0f, 6.5f);
+    for (int i = 0; i < 150 && !(ev & PL_EV_DIED); i++) {
+        ev   = game_step(&g, &idle, 0.02f);
+        all |= ev;
+        at  += 0.02f;
+        if (i == 0) CHECK(ev & GAME_EV_SPOTTED, "seen at once");
+        if (i == 0) CHECK(!turret_firing(&g, 0) && !(ev & GAME_EV_SHOOT), "but not fired at yet");
+    }
+    CHECK((ev & PL_EV_DIED) && (all & GAME_EV_SHOOT) && at > TURRET_WAKE + TURRET_KILL - 0.05f &&
+              at < TURRET_WAKE + TURRET_KILL + 0.1f,
+          "shot dead in front of it, after %.2f s", at);
+    // Out of its sight: behind it, and behind the parapet.
+    for (int k = 0; k < 2; k++) {
+        game_load(&g, c);
+        if (k == 0) g.pl.pos = v3(4.5f, 1.0f, 12.5f);
+        all = 0;
+        for (int i = 0; i < 150; i++) all |= game_step(&g, &idle, 0.02f);
+        CHECK(!(all & (GAME_EV_SPOTTED | PL_EV_DIED)), "not seen %s", k == 0 ? "from behind" : "behind the parapet");
+    }
+    // A cube carried low in front of you takes its shots.
+    game_load(&g, c);
+    g.pl.pos   = v3(4.5f, 1.0f, 6.5f);
+    g.pl.pitch = 0.45f;
+    g.n_cubes  = 2;
+    g.held     = 1;
+    g.cubes[1] = (cube_t){.body = {v3(4.5f, 1.8f, 7.6f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    all        = 0;
+    for (int i = 0; i < 150; i++) all |= game_step(&g, &idle, 0.02f);
+    CHECK(!(all & (GAME_EV_SHOOT | PL_EV_DIED)) && g.held == 1, "a cube carried low is a shield");
+    // Glimpsed and lost for a moment, you are not spotted afresh; under
+    // fire twice with a rest between, you live -- the wounds heal.
+    game_load(&g, c);
+    vec3_t const front = v3(4.5f, 1.0f, 6.5f), back = v3(4.5f, 1.0f, 12.5f);
+    g.pl.pos = front;
+    for (int i = 0; i < 15; i++) game_step(&g, &idle, 0.02f);
+    g.pl.pos = back;
+    for (int i = 0; i < 5; i++) game_step(&g, &idle, 0.02f);
+    g.pl.pos = front;
+    all      = 0;
+    for (int i = 0; i < 5; i++) all |= game_step(&g, &idle, 0.02f);
+    CHECK(!(all & GAME_EV_SPOTTED), "lost sight of for a moment, you are still the same target");
+    game_load(&g, c);
+    all = 0;
+    for (int round = 0; round < 2; round++) {
+        g.pl.pos = front;
+        for (int i = 0; i < (int)((TURRET_WAKE + 0.6f * TURRET_KILL) / 0.02f); i++) all |= game_step(&g, &idle, 0.02f);
+        g.pl.pos = back;
+        for (int i = 0; i < 100; i++) all |= game_step(&g, &idle, 0.02f);
+    }
+    CHECK((all & GAME_EV_SHOOT) && !(all & PL_EV_DIED), "shot at twice, with a rest between: alive");
+    // Far away, it does not see you.
+    static level_t    far;
+    char              err[96];
+    char const* const hall =
+        "size: 22 4 3\nfacing: west\nlayer 1\n######################\n#t..................S#\n"
+        "######################\nlayer 2\n######################\n#....................#\n"
+        "######################\n";
+    bool const parsed = chamber_parse(hall, &far, NULL, NULL, err, sizeof(err));
+    CHECK(parsed, "the long hall parses: %s", err);
+    if (parsed) {
+        game_load_level(&g, &far);
+        all = 0;
+        for (int i = 0; i < 50; i++) all |= game_step(&g, &idle, 0.02f);
+        CHECK(!(all & GAME_EV_SPOTTED), "19 m away, not seen");
+        g.pl.pos = v3(12.5f, 1.0f, 1.5f);
+        all      = 0;
+        for (int i = 0; i < 5; i++) all |= game_step(&g, &idle, 0.02f);
+        CHECK(all & GAME_EV_SPOTTED, "11 m away, seen");
+    }
+    // Walking past it, awake, to the exit: shot.
+    game_load(&g, c);
+    g.pl.pos = v3(3.0f, 1.0f, 12.5f);
+    g.pl.yaw = 3.14159265f;
+    all      = 0;
+    for (int i = 0; i < 200 && !(all & (PL_EV_DIED | PL_EV_EXIT)); i++) all |= game_step(&g, &walk, 0.02f);
+    CHECK((all & PL_EV_DIED) && !(all & PL_EV_EXIT), "walking past it to the exit is deadly (at z %.2f)", g.pl.pos.z);
+    // A cube dropped on it knocks it over; then it sees nothing.
+    game_load(&g, c);
+    g.n_cubes  = 2;
+    g.cubes[1] = (cube_t){.body = {v3(4.5f, 4.0f, 11.5f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    all        = 0;
+    for (int i = 0; i < 60; i++) all |= game_step(&g, &idle, 0.02f);
+    CHECK((all & GAME_EV_TOPPLE) && t->down && t->body.h < TURRET_H, "a cube dropped on it knocks it over");
+    g.pl.pos = v3(4.5f, 1.0f, 6.5f);
+    all      = 0;
+    for (int i = 0; i < 150; i++) all |= game_step(&g, &idle, 0.02f);
+    CHECK(!(all & (GAME_EV_SPOTTED | GAME_EV_SHOOT | PL_EV_DIED)), "a turret knocked over is harmless");
+    // Falling hard itself knocks it over too; a short drop does not.
+    for (int k = 0; k < 2; k++) {
+        game_load(&g, c);
+        t->body.pos.y = k ? 4.0f : 1.2f;
+        all           = 0;
+        for (int i = 0; i < 60; i++) all |= game_step(&g, &idle, 0.02f);
+        CHECK(k ? t->down && (all & GAME_EV_TOPPLE) : !t->down, "dropped %s m: %s", k ? "3" : "0.2",
+              k ? "knocked over" : "still up");
+    }
+    // Carried, it looks where you look and does not fire.
+    game_load(&g, c);
+    g.pl.pos = v3(4.5f, 1.0f, 10.2f);
+    g.pl.yaw = 0.3f;
+    g.held   = 0;
+    for (int i = 0; i < 10; i++) game_step(&g, &idle, 0.02f);
+    CHECK(fabsf(t->yaw - 0.3f) < 1e-4f && t->seen == 0.0f, "carried, it faces your way and sees nothing");
+    // Lost -- here out of the world -- it is gone for good.
+    game_load(&g, c);
+    t->body.pos.y = -5.0f;
+    game_step(&g, &idle, 0.02f);
+    g.pl.pos = v3(4.5f, 1.0f, 6.5f);
+    all      = 0;
+    for (int i = 0; i < 150; i++) all |= game_step(&g, &idle, 0.02f);
+    CHECK(t->gone && t->body.pos.y < -50.0f && !(all & (GAME_EV_SPOTTED | PL_EV_DIED)),
+          "a turret lost does not come back");
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1709,6 +1837,7 @@ int main(void) {
     test_relays();
     test_crushers();
     test_spheres();
+    test_turrets();
     test_draft_save();
     test_glass();
     test_things();

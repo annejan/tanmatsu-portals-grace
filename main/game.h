@@ -26,7 +26,19 @@
 #define CRUSH_DOWN     0.5f
 #define CRUSH_RISE     0.75f
 #define CRUSH_CYCLE    (CRUSH_UP + CRUSH_SLAM + CRUSH_DOWN + CRUSH_RISE)
-#define GEL_BLOBS      48     // gel in flight, at most
+#define GEL_BLOBS      48  // gel in flight, at most
+// A turret: 0.5 m across, 1 m tall. It sees the player in front of it and
+// fires after a moment; anything landing on it, or it landing hard,
+// knocks it over.
+#define TURRET_HALF    0.25f
+#define TURRET_H       1.0f
+#define TURRET_EYE     0.75f  // its eye, above its base
+#define TURRET_RANGE   15.0f  // m
+#define TURRET_CONE    0.6f   // the cosine of the angle off its front it sees at, at most (53 degrees)
+#define TURRET_WAKE    0.6f   // s it sees you before it fires
+#define TURRET_KILL    1.0f   // s of fire a player survives
+#define TURRET_KNOCK   3.0f   // m/s: landing this fast on a turret, or as one, knocks it over
+#define TURRET_BURST   0.1f   // s between bursts of fire
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
 
 #define PELLET_SPEED 6.0f   // m/s, straight, no gravity
@@ -52,8 +64,11 @@ typedef struct {
 
 typedef struct {
     body_t body;
-    float  yaw;      // where a reflection cube sends a laser: it faces this way
+    float  yaw;      // where a reflection cube sends a laser, or a turret looks: it faces this way
     vec3_t spin[2];  // a sphere's own two axes, turned as it rolls (it is drawn by them)
+    float  seen;     // a turret: seconds it has seen the player; it fires from TURRET_WAKE
+    bool   down;     // a turret knocked over: it does nothing more
+    bool   gone;     // a turret lost: in the goo, a fizzler, a crusher. It does not come back.
 } cube_t;
 
 // A piece of a laser beam, from a to b.
@@ -82,6 +97,8 @@ typedef struct {
     float      drip_t[LV_MAX_GELS];      // each dispenser: seconds to its next blob
     pellet_t   pellets[LV_MAX_PELLETS];  // one per launcher
     float      crush_t;                  // the crushers' clock
+    float      shot_t;                   // seconds the player has been under a turret's fire
+    float      burst_t;                  // the turrets' fire: its clock
 } game_t;
 
 typedef struct {
@@ -114,6 +131,9 @@ enum {
     GAME_EV_PELLET      = 1 << 25,  // a launcher fired, or a pellet bounced
     GAME_EV_CAUGHT      = 1 << 26,  // a receiver caught a pellet
     GAME_EV_CRUSH       = 1 << 27,  // a crusher hit the floor
+    GAME_EV_SPOTTED     = 1 << 28,  // a turret saw the player
+    GAME_EV_SHOOT       = 1 << 29,  // a burst of a turret's fire
+    GAME_EV_TOPPLE      = 1 << 30,  // a turret knocked over
 };
 
 void game_load(game_t* g, int chamber);
@@ -127,6 +147,8 @@ bool game_fire(game_t* g, int which);
 int  game_use(game_t* g);
 
 aabb_t cube_aabb(cube_t const* c);
+// Whether turret `i` is firing at the player.
+bool   turret_firing(game_t const* g, int i);
 // Crusher `k` where it is now.
 aabb_t crusher_aabb(game_t const* g, int k);
 // The moving platform where it is now (only if lv.n_platforms).

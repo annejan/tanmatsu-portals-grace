@@ -55,8 +55,22 @@ int speech_split(char const* text, char out[][SPEECH_MAX], int max) {
     return n;
 }
 
-uint8_t const* speech_render(char const* text, int* n) {
+char const* const speech_turret_spot[SPEECH_TURRET_LINES] = {"Target acquired.", "There you are.", "I see you."};
+char const* const speech_turret_down[SPEECH_TURRET_LINES] = {"Critical error.", "I don't blame you.", "Shutting down."};
+
+// SAM's four knobs: speed, pitch (lower is higher), mouth, throat.
+static unsigned char const s_voice[][4] = {
+    [SPEECH_GLADOS] = {72, 64, 128, 128},  // SAM's own defaults
+    [SPEECH_TURRET] = {80, 38, 170, 190},
+};
+
+uint8_t const* speech_render(char const* text, int voice, int* n) {
     *n = 0;
+    if (voice < 0 || voice > SPEECH_TURRET) voice = SPEECH_GLADOS;
+    SetSpeed(s_voice[voice][0]);
+    SetPitch(s_voice[voice][1]);
+    SetMouth(s_voice[voice][2]);
+    SetThroat(s_voice[voice][3]);
     // What the reciter reads: capitals, digits and the punctuation it knows;
     // anything else a pause. "[" ends its input.
     unsigned char in[256];

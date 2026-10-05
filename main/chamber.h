@@ -72,6 +72,7 @@ typedef enum {
     GLYPH_DROPPER,       // a ceiling hatch (MAT_DROPPER) with its own cube
     GLYPH_REFLECT,       // a reflection cube, in the cell where it starts
     GLYPH_SPHERE,        // a sphere, in the cell where it starts
+    GLYPH_TURRET,        // a turret, in the cell where it starts, facing the player's start
 } glyph_kind_t;
 
 typedef struct {

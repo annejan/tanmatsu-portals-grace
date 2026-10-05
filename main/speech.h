@@ -13,8 +13,19 @@
 // its commas. Returns how many (at most `max`).
 int speech_split(char const* text, char out[][SPEECH_MAX], int max);
 
-// Render one piece. Returns its sound, *n samples long -- SAM's own
-// buffer, valid until the next speech_render() or speech_free() -- or
-// NULL if SAM could not make anything of it.
-uint8_t const* speech_render(char const* piece, int* n);
+// Who speaks: GLaDOS in SAM's own voice, a turret higher and smaller.
+typedef enum {
+    SPEECH_GLADOS = 0,
+    SPEECH_TURRET,
+} speech_voice_t;
+
+// What turrets say: when one sees you, and when one is knocked over.
+extern char const* const speech_turret_spot[];
+extern char const* const speech_turret_down[];
+#define SPEECH_TURRET_LINES 3
+
+// Render one piece in a voice. Returns its sound, *n samples long --
+// SAM's own buffer, valid until the next speech_render() or speech_free()
+// -- or NULL if SAM could not make anything of it.
+uint8_t const* speech_render(char const* piece, int voice, int* n);
 void           speech_free(void);

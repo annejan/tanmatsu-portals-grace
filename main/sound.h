@@ -21,13 +21,16 @@ typedef enum {
     SND_MENU,
     SND_FIZZLE,
     SND_LAUNCH,
-    SND_TICK,     // a pedestal button's timer
-    SND_DROPPER,  // a new cube out of a dropper
-    SND_BURN,     // into a laser beam
-    SND_BOUNCE,   // off blue gel
-    SND_PELLET,   // an energy pellet fired, or bouncing
-    SND_CAUGHT,   // a receiver caught a pellet
-    SND_CRUSH,    // a crusher hits the floor
+    SND_TICK,         // a pedestal button's timer
+    SND_DROPPER,      // a new cube out of a dropper
+    SND_BURN,         // into a laser beam
+    SND_BOUNCE,       // off blue gel
+    SND_PELLET,       // an energy pellet fired, or bouncing
+    SND_CAUGHT,       // a receiver caught a pellet
+    SND_CRUSH,        // a crusher hits the floor
+    SND_TURRET_SPOT,  // a turret sees you
+    SND_TURRET_SHOT,  // one burst of a turret's fire
+    SND_TOPPLE,       // a turret knocked over
     SND_COUNT,
 } sound_t;
 

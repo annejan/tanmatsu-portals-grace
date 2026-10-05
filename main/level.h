@@ -168,6 +168,8 @@ typedef struct {
     bool       cube_drop[LV_MAX_CUBES];     // ... out of a dropper's hatch
     bool       cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
     bool       cube_sphere[LV_MAX_CUBES];   // a sphere: it rolls, and walking into it pushes it
+    bool       cube_turret[LV_MAX_CUBES];   // a turret: it shoots the player it sees
+    float      cube_yaw[LV_MAX_CUBES];      // the way a turret faces at the start: towards the player's
     int        n_cubes;
     char       story[160];  // shown as the chamber starts
     float      timer;       // seconds a pedestal button stays down

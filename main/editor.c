@@ -538,6 +538,10 @@ void editor_draw(pax_buf_t* fb) {
             if (kind == GLYPH_DOOR || kind == GLYPH_BUTTON) label[0] = c;
             if (kind == GLYPH_CUBE) pax_simple_circle(fb, 0xFF6EB4E6u, px + cs * 0.5f, py + cs * 0.5f, cs * 0.18f);
             if (kind == GLYPH_SPHERE) pax_simple_circle(fb, 0xFFFFFFFFu, px + cs * 0.5f, py + cs * 0.5f, cs * 0.3f);
+            if (kind == GLYPH_TURRET) {
+                pax_simple_circle(fb, 0xFFF0F0F0u, px + cs * 0.5f, py + cs * 0.5f, cs * 0.3f);
+                pax_simple_circle(fb, 0xFFFF2A1Cu, px + cs * 0.5f, py + cs * 0.5f, cs * 0.1f);
+            }
             if (kind == GLYPH_START) {
                 // The start, pointing the way it faces.
                 float const s = sinf(s_d.yaw), co = cosf(s_d.yaw), r = cs * 0.38f;

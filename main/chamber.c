@@ -69,6 +69,7 @@ chamber_glyph_t const chamber_legend[] = {
     {'Y', "crusher", GLYPH_CELL, MAT_CRUSHER, 0, '[', 0xFF8A3A3Au},
     {'o', "sphere", GLYPH_SPHERE, MAT_AIR, 0, ']', 0xFFB8C4D0u},
     {'@', "sphere cup", GLYPH_CELL, MAT_CUP, 0, '\'', 0xFF2E5A70u},
+    {'t', "turret", GLYPH_TURRET, MAT_AIR, 0, ',', 0xFFF0F0F0u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -298,9 +299,11 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     case GLYPH_CUBE:
                     case GLYPH_REFLECT:
                     case GLYPH_SPHERE:
+                    case GLYPH_TURRET:
                         if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
                         lv->cube_reflect[lv->n_cubes] = gl->kind == GLYPH_REFLECT;
                         lv->cube_sphere[lv->n_cubes]  = gl->kind == GLYPH_SPHERE;
+                        lv->cube_turret[lv->n_cubes]  = gl->kind == GLYPH_TURRET;
                         lv->cubes[lv->n_cubes++]      = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
                     case GLYPH_DROPPER:
@@ -400,6 +403,11 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (layer >= 0) return fail(&c, "layer %d has %d of its %d rows", layer, row, lv->d);
     if (!have_size) return fail(&c, "no size");
     if (spawns != 1) return fail(&c, "want exactly one S, found %d", spawns);
+    // A turret faces the player's start, square to the walls.
+    for (int i = 0; i < lv->n_cubes; i++)
+        if (lv->cube_turret[i])
+            lv->cube_yaw[i] =
+                roundf(atan2f(lv->spawn.x - lv->cubes[i].x, lv->spawn.z - lv->cubes[i].z) / 1.5707963f) * 1.5707963f;
     if (n_plates != n_targets) return fail(&c, "%d faith plate(s) (J) but %d target(s) (T)", n_plates, n_targets);
     // The first plate throws to the first target, and so on, in reading
     // order: whatever order the layers came in, as the writers put them
@@ -615,7 +623,11 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_cubes; i++)
         if (!lv->cube_drop[i] && (int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y &&
             (int)floorf(lv->cubes[i].z) == z)
-            return char_of(lv->cube_reflect[i] ? GLYPH_REFLECT : lv->cube_sphere[i] ? GLYPH_SPHERE : GLYPH_CUBE, 0, 0);
+            return char_of(lv->cube_reflect[i]  ? GLYPH_REFLECT
+                           : lv->cube_sphere[i] ? GLYPH_SPHERE
+                           : lv->cube_turret[i] ? GLYPH_TURRET
+                                                : GLYPH_CUBE,
+                           0, 0);
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
         return char_of(GLYPH_START, 0, 0);
     for (int i = 0; i < lv->n_crushers; i++) {

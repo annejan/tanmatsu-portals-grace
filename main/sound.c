@@ -56,6 +56,9 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_PELLET]      = {W_TRI, 900, 300, 0.10f, 0.002f, 0.25f, 0, {0}},
     [SND_CAUGHT]      = {W_TRI, 0, 0, 0.12f, 0.005f, 0.35f, 0, {392.0f, 523.25f, 783.99f, 0}},
     [SND_CRUSH]       = {W_NOISE, 400, 60, 0.35f, 0.002f, 0.60f, 700, {0}},
+    [SND_TURRET_SPOT] = {W_SINE, 1600, 1600, 0.15f, 0.002f, 0.30f, 0, {0}},
+    [SND_TURRET_SHOT] = {W_NOISE, 3000, 900, 0.05f, 0.001f, 0.35f, 4000, {0}},
+    [SND_TOPPLE]      = {W_SAW, 520, 110, 0.35f, 0.005f, 0.30f, 1500, {0}},
 };
 
 typedef struct {
@@ -153,6 +156,8 @@ void sound_play(sound_t s) {
     v->used = audio_mixer_register_voice(&v->base);
 }
 
+static void turret_says(char const* const lines[]);
+
 void sound_events(int ev) {
     if (ev & GAME_EV_SHOT_BLUE) sound_play(SND_SHOT_BLUE);
     if (ev & GAME_EV_SHOT_ORANGE) sound_play(SND_SHOT_ORANGE);
@@ -175,6 +180,15 @@ void sound_events(int ev) {
     if (ev & GAME_EV_PELLET) sound_play(SND_PELLET);
     if (ev & GAME_EV_CAUGHT) sound_play(SND_CAUGHT);
     if (ev & GAME_EV_CRUSH) sound_play(SND_CRUSH);
+    if (ev & GAME_EV_SHOOT) sound_play(SND_TURRET_SHOT);
+    if (ev & GAME_EV_SPOTTED) {
+        sound_play(SND_TURRET_SPOT);
+        turret_says(speech_turret_spot);
+    }
+    if (ev & GAME_EV_TOPPLE) {
+        sound_play(SND_TOPPLE);
+        turret_says(speech_turret_down);
+    }
 }
 
 // --- GLaDOS ---------------------------------------------------------------
@@ -200,7 +214,7 @@ typedef struct {
 static say_t s_say;
 static bool  s_voice_on = true;
 static char  s_pieces[SAY_PIECES][SPEECH_MAX];
-static int   s_n_pieces, s_next;
+static int   s_n_pieces, s_next, s_speaker;
 
 static void say_render(sfx_voice_t* self, int16_t* out, size_t frames) {
     say_t* v = (say_t*)self;
@@ -229,6 +243,15 @@ void sound_say(char const* line) {
     if (say_busy()) audio_mixer_stop_voice(&s_say.base);
     s_n_pieces = line != NULL && s_voice_on ? speech_split(line, s_pieces, SAY_PIECES) : 0;
     s_next     = 0;
+    s_speaker  = SPEECH_GLADOS;
+}
+
+// A turret's line, unless someone is talking already.
+static void turret_says(char const* const lines[]) {
+    static int k;
+    if (sound_saying()) return;
+    sound_say(lines[k++ % SPEECH_TURRET_LINES]);
+    s_speaker = SPEECH_TURRET;
 }
 
 bool sound_saying(void) {
@@ -238,7 +261,7 @@ bool sound_saying(void) {
 void sound_update(void) {
     if (say_busy() || s_next >= s_n_pieces) return;
     int                  n   = 0;
-    uint8_t const* const pcm = speech_render(s_pieces[s_next++], &n);  // frees the last piece's sound
+    uint8_t const* const pcm = speech_render(s_pieces[s_next++], s_speaker, &n);  // frees the last piece's sound
     if (pcm == NULL || n <= 0) return;
     memset(&s_say, 0, sizeof(s_say));
     s_say.base.render   = say_render;
