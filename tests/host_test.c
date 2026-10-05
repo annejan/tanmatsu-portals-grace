@@ -605,6 +605,10 @@ static void test_parse_rules(void) {
           "and saved, the same pairs: %s", err);
 }
 
+static int gcd(int a, int b) {
+    return b == 0 ? a : gcd(b, a % b);
+}
+
 // SD chambers: the id is the whole file name; with more files than the
 // list holds, the first by name are the ones kept.
 static void test_dir_limits(void) {
@@ -615,9 +619,14 @@ static void test_dir_limits(void) {
     char const* const body     = "size: 3 3 3\nlayer 1\n###\n#S#\n###\n";
     char const* const longname = "zz-the-long-and-winding-corridor-of-doom-and-more.txt";
     int const         files    = CHAMBER_MAX + 5;
-    // Made last name first: a directory that hands names out in the order
-    // they were made would put the first by name last.
-    for (int i = files - 1; i >= 0; i--) {
+    // Made in a scrambled order (a step that shares no factor with the
+    // count visits every one): whether a directory lists names in the order
+    // they were made (btrfs), the other way round (tmpfs) or by hash
+    // (ext4), the list does not come out in name order by itself.
+    int               step     = 17;
+    while (gcd(step, files) != 1) step++;
+    for (int k = 0; k < files; k++) {
+        int const i = k * step % files;
         snprintf(name, sizeof(name), "m%02d.txt", i);
         write_file(dir, i == 0 ? "a-first.txt" : i == files - 1 ? longname : name, body);
     }
@@ -978,6 +987,20 @@ static void test_fizzlers(void) {
     vec3_t const home = g.lv.cubes[0];
     CHECK(g.held < 0 && v3_len(v3_sub(g.cubes[0].body.pos, home)) < 0.05f,
           "fizzler: a carried cube goes back to its start");
+    // Backing into it with the cube held out the other way: the cube goes
+    // too, though it never touches the grill itself.
+    grill_portals(&g);
+    g.pl.pos   = v3(8.5f, 1.0f, 2.2f);
+    g.pl.yaw   = 0.0f;
+    g.pl.pitch = atan2f(PL_EYE - CUBE_HALF, 1.3f);
+    CHECK(game_use(&g) == GAME_EV_PICKUP, "fizzler: picked up the cube to back in with");
+    g.pl.pos = v3(8.5f, 1.0f, 4.0f);
+    g.pl.yaw = 3.14159265f;  // facing away from the grill, the cube out in front
+    for (int i = 0; i < 50; i++) game_step(&g, &(game_input_t){0}, 0.02f);
+    int ev = 0;
+    for (int i = 0; i < 200 && !(ev & GAME_EV_FIZZLE); i++) ev |= game_step(&g, &(game_input_t){.fwd = -1.0f}, 0.02f);
+    CHECK((ev & GAME_EV_FIZZLE) && g.held < 0 && v3_len(v3_sub(g.cubes[0].body.pos, home)) < 0.05f,
+          "fizzler: backing in, the carried cube goes back to its start (held %d)", g.held);
     // A free cube thrown into it, fast, at 10 fps.
     grill_portals(&g);
     g.cubes[0].body.pos = v3(4.5f, 1.4f, 4.0f);
@@ -1002,14 +1025,17 @@ static void test_faith_plate_fps(void) {
     for (int k = 0; k < N_FPS; k++) {
         float const dt = FPS_DT[k];
         game_load(&g, c);
-        jump_t const j = g.lv.jumps[0];
-        g.pl.pos       = v3((float)j.x + 0.5f, (float)j.y + 1.0f, (float)j.z + 0.5f);
+        jump_t const j    = g.lv.jumps[0];
+        g.pl.pos          = v3((float)j.x + 0.5f, (float)j.y + 1.0f, (float)j.z + 0.5f);
         // Where it comes down: the first step back on the ground once thrown.
-        bool   flew    = false;
-        vec3_t land    = g.pl.pos;
+        bool        flew  = false;
+        vec3_t      land  = g.pl.pos;
+        float const start = g.pl.pos.y;
+        float       peak  = start;
         for (int i = 0; i < (int)(4.0f / dt); i++) {
             game_step(&g, &idle, dt);
             if (!g.pl.on_ground) flew = true;
+            peak = fmaxf(peak, g.pl.pos.y);
             if (flew && g.pl.on_ground) {
                 land = g.pl.pos;
                 break;
@@ -1018,6 +1044,10 @@ static void test_faith_plate_fps(void) {
         float const miss = v3_len(v3_sub(v3(land.x, 0, land.z), v3(j.target.x, 0, j.target.z)));
         CHECK(flew && miss < 0.5f && fabsf(land.y - j.target.y) < 0.05f,
               "faith plate at %.0f fps: came down %.2f m off target", 1.0f / dt, miss);
+        // The arc tops out 2.5 m (JUMP_APEX, game.c) over the higher end:
+        // high enough to clear what a chamber puts in the way.
+        float const rise = peak - fmaxf(start, j.target.y);
+        CHECK(fabsf(rise - 2.5f) < 0.3f, "faith plate at %.0f fps: the arc rose %.2f m, not 2.5", 1.0f / dt, rise);
     }
 }
 
@@ -1052,6 +1082,50 @@ static void test_more_things(void) {
     for (int i = 0; i < 50; i++) game_step(&g, &idle, 0.02f);
     CHECK(g.cubes[0].body.pos.y > 0.99f && !in_solid(&g.lv, cube_aabb(&g.cubes[0])),
           "a cube half in a floor portal that moves comes back out (y %.2f)", g.cubes[0].body.pos.y);
+
+    // A faith plate throws a cube as it throws the player.
+    static level_t lv;
+    char const*    plate_room =
+        "size: 12 7 5\n"
+        "layer 0\n############\n#WWWWWWWWWW#\n#WJWWWWWWWW#\n#WWWWWWWWWW#\n############\n"
+        "layer 1\n############\n#..........#\n#.C......T.#\n#S.........#\n############\n"
+        "layer 2\n############\n#..........#\n#..........#\n#..........#\n############\n"
+        "layer 3\n############\n#..........#\n#..........#\n#..........#\n############\n"
+        "layer 4\n############\n#..........#\n#..........#\n#..........#\n############\n"
+        "layer 5\n############\n#..........#\n#..........#\n#..........#\n############\n";
+    CHECK(chamber_parse(plate_room, &lv, NULL, NULL, err, sizeof(err)), "the plate room: %s", err);
+    game_load_level(&g, &lv);
+    bool   thrown = false;
+    vec3_t cube   = g.cubes[0].body.pos;
+    for (int i = 0; i < 150; i++) {
+        game_step(&g, &idle, 0.02f);
+        if (!g.cubes[0].body.on_ground) thrown = true;
+        if (thrown && g.cubes[0].body.on_ground) {
+            cube = g.cubes[0].body.pos;  // where it comes down (it slides on a little)
+            break;
+        }
+    }
+    vec3_t const target = g.lv.jumps[0].target;
+    CHECK(thrown && v3_len(v3_sub(v3(cube.x, 0, cube.z), v3(target.x, 0, target.z))) < 0.5f,
+          "a cube on a faith plate comes down on its target (at %.2f %.2f %.2f)", cube.x, cube.y, cube.z);
+
+    // The platform waits for a player standing in its way, rather than
+    // moving into them.
+    char const* lane =
+        "size: 12 4 3\n"
+        "layer 0\n############\n#WWWWWWWWWW#\n############\n"
+        "layer 1\n############\n#MM...S.N..#\n############\n"
+        "layer 2\n############\n#..........#\n############\n";
+    CHECK(chamber_parse(lane, &lv, NULL, NULL, err, sizeof(err)), "the platform lane: %s", err);
+    game_load_level(&g, &lv);
+    bool into = false;
+    for (int i = 0; i < 400; i++) {
+        game_step(&g, &idle, 0.02f);
+        aabb_t const pa = player_box(&g.pl), pf = platform_aabb(&g);
+        into = into || (pa.lo.x < pf.hi.x && pf.lo.x < pa.hi.x && pa.lo.y < pf.hi.y && pf.lo.y < pa.hi.y);
+    }
+    CHECK(!into, "the platform does not move into the player");
+    CHECK(platform_aabb(&g).hi.x > 4.5f, "it came up to them, though (to %.2f)", platform_aabb(&g).hi.x);
 
     // The moving platform stops a portal shot.
     game_load(&g, demo_chamber(demo_find("09-the-ferry")));
