@@ -46,8 +46,8 @@ the new keys are kept in NVS.
 The menu has:
 
 - **Chamber select**.
-- **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), volume,
-  screen brightness, keyboard light.
+- **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), music,
+  sound effects, volume, screen brightness, keyboard light.
 - **Controls**.
 
 Settings are kept in NVS.
@@ -59,8 +59,9 @@ walk into it.
 ## The chamber editor
 
 Esc → **Chamber editor** edits the chamber you are playing. A built-in
-chamber is edited as a copy, `my-<name>`. To start from an empty chamber,
-choose **New empty chamber** in the editor's menu.
+chamber is edited as a copy, named after its file: `my-01-gap`. To start from
+an empty chamber, choose **New empty chamber** in the editor's menu. A new
+chamber never overwrites a file that is already on the card.
 
 The editor shows one layer at a time, from above. The top of the map is the
 far side.
@@ -77,7 +78,7 @@ far side.
 | Backspace | erase (set the cell to air) |
 | R | turn the start direction |
 | P | play-test. Esc goes back to the editor. |
-| F | save to `/sd/portals/chambers/<name>.txt` |
+| F | save to `/sd/portals/chambers/<file name>.txt` |
 | Esc | the editor's menu: play-test, save, size, start facing, new, quit |
 
 The editor works with the characters of the chamber file. The game reads
@@ -142,8 +143,8 @@ SynthEngine3D has no stencil buffer, and the game does not need one:
   its mesh, so the room paints everything except the openings.
 
 The view through a portal can contain the same portal again. These nested
-views are drawn deepest first, up to `P` levels. The deepest one gets a flat
-fill. See `main/render.c`.
+views are drawn deepest first, as deep as Settings → Portal depth (1 to 3).
+The deepest one gets a flat fill. See `main/render.c`.
 
 A portal is a frame (right, up, n). Going in through A and out of B is a half
 turn about `up`: A's (r, u, n) leaves as B's (−r, u, −n). Positions, velocities,

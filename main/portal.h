@@ -76,8 +76,8 @@ typedef struct {
 
 // The view through `entry` from `eye`, carried out of `exit`: `in`
 // (the region the eye's own pass was limited to, or NULL for the full
-// view) narrowed by the four planes through the eye and the entry's
-// edges, mapped to the far side, plus the exit's own plane, which cuts
+// view) narrowed by the planes through the eye and the entry's oval edge
+// (one per side of it), mapped to the far side, plus the exit's own plane, which cuts
 // away everything behind the wall it hangs on.
 void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye, clipset_t const* in, clipset_t* out);
 

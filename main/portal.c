@@ -148,7 +148,7 @@ void portal_clip_through(portal_t const* entry, portal_t const* exit, vec3_t eye
     vec3_t c[PORTAL_OVAL_N];
     portal_oval(entry, 1.0f, c);
     // A point on the ray from the eye through the hole's middle, a little
-    // beyond it: inside all four planes however obliquely the eye looks.
+    // beyond it: inside all the edge planes however obliquely the eye looks.
     vec3_t const inside = v3_mad(entry->center, v3_sub(entry->center, eye), 0.1f);
     for (int i = 0; i < PORTAL_OVAL_N && cs.n < PORTAL_MAX_PLANES - 1; i++) {
         cs.p[cs.n++] = plane_through(eye, c[i], c[(i + 1) % PORTAL_OVAL_N], inside);

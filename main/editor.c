@@ -122,6 +122,15 @@ static void move(int dx, int dz) {
     if (s_painting) paint_here();
 }
 
+// The start's facing, a quarter turn at a time, snapped: turned often, it
+// must still be "east", not drift off it.
+static void turn_facing(int dir) {
+    float q = roundf(s_d.yaw / 1.5707963f) + (float)dir;
+    if (q > 2.0f) q -= 4.0f;
+    if (q < -1.0f) q += 4.0f;
+    s_d.yaw = q * 1.5707963f;
+}
+
 static void layer(int dy) {
     int const ny = s_y + dy;
     if (ny >= 0 && ny < s_d.h) s_y = ny;
@@ -369,8 +378,7 @@ void editor_event(bsp_input_event_t const* ev) {
             }
             break;
         case BSP_INPUT_SCANCODE_R:
-            s_d.yaw += 1.5707963f;
-            if (s_d.yaw > 3.2f) s_d.yaw -= 6.2831853f;
+            turn_facing(1);
             break;
         case BSP_INPUT_SCANCODE_P:
             playtest();
@@ -471,12 +479,7 @@ static void menu_frame(void) {
         if (s_z >= s_d.d) s_z = s_d.d - 1;
         if (s_y >= s_d.h) s_y = s_d.h - 1;
     } else if (s_menu_cursor == M_FACING && (step != 0 || r == SE_MENU_RESULT_ACTIVATED)) {
-        // Whole quarter turns, snapped: turned often, it must still say
-        // "east", not drift off it.
-        float q = roundf(s_d.yaw / 1.5707963f) + (step < 0 ? -1.0f : 1.0f);
-        if (q > 2.0f) q -= 4.0f;
-        if (q < -1.0f) q += 4.0f;
-        s_d.yaw = q * 1.5707963f;
+        turn_facing(step < 0 ? -1 : 1);
     } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == M_NEW) {
         char id[CHAMBER_ID_N];
         fresh_id(id, sizeof(id), NULL);

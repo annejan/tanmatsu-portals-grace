@@ -61,7 +61,8 @@ typedef struct {
 } platform_t;
 
 // A door fills the cells [x0, x1) x [y0, y1) x [z0, z1), one cell thick
-// along x or z. It opens while any button with its `link` is pressed.
+// along x or z. It opens while all the buttons with its `link` are
+// pressed; a door with no buttons stays shut.
 typedef struct {
     int   x0, y0, z0, x1, y1, z1;
     int   link;
@@ -110,7 +111,7 @@ bool level_load(level_t* lv, int index);
 
 uint8_t level_get(level_t const* lv, int x, int y, int z);
 void    level_set(level_t* lv, int x, int y, int z, uint8_t m);
-// Solid to bodies and shots: anything but air and an open door.
+// Solid to bodies and shots: anything but air, a fizzler and an open door.
 bool    level_solid(level_t const* lv, int x, int y, int z);
 // The door whose cells hold (x, y, z), or -1.
 int     level_door_at(level_t const* lv, int x, int y, int z);

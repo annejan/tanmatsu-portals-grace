@@ -125,7 +125,8 @@ engine:
 	@echo "=== SynthEngine3D added. Commit .gitmodules and synthengine3D, then #include \"synthengine3d.h\" ==="
 
 # Device tests (main/testkit/devtest.h, tools/testrun.py): the scripted
-# demos in main/demo.c (c1walk, c1loop, c2ledge, c3fling), on the badge.
+# demos in main/demo.c -- c1walk, c1loop, and every chamber's solution by
+# its id (03-fling, ...) -- on the badge.
 #
 #   make cycle   TEST="perf scene=c1walk secs=6"           build, install, run, test
 #   make cycle   TEST="shots scene=c1walk ms=1500,2900"    shots at exact instants
