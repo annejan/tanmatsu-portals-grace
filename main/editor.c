@@ -20,6 +20,7 @@ static char const TAG[] = "editor";
 
 static bool     s_active;
 static draft_t  s_d;
+static bool     s_new;  // s_d's file is not on the card yet: saving must not overwrite one
 static char     s_dir[96];
 static int      s_x, s_z, s_y = 1;  // the cursor, and the layer shown
 static char     s_brush = 'W';
@@ -61,33 +62,35 @@ void editor_resume(void) {
     s_painting = false;
 }
 
-// A file name not yet in the list: my-01, my-02, ...
 static void fresh_id(char* out, size_t n, char const* base) {
-    for (int k = 0; k < 100; k++) {
-        if (base != NULL && k == 0)
-            snprintf(out, n, "my-%s", base);
-        else
-            snprintf(out, n, "my-%02d", k + (base == NULL ? 1 : 0));
-        bool taken = false;
-        for (int i = 0; i < chamber_count() && !taken; i++) taken = strcmp(chamber_id(i), out) == 0;
-        if (!taken) return;
-    }
+    draft_fresh_id(s_dir, base, out, n);
 }
 
 void editor_open(int index, char const* chamber_dir) {
     snprintf(s_dir, sizeof(s_dir), "%s", chamber_dir);
-    char id[32];
+    char id[CHAMBER_ID_N];
+    char err[96];
     if (index >= 0 && index < chamber_count()) {
         bool const builtin = index < chamber_builtin_n();
         if (builtin)
             fresh_id(id, sizeof(id), chamber_id(index));
         else
             snprintf(id, sizeof(id), "%s", chamber_id(index));
-        if (!draft_from_text(&s_d, id, chamber_text(index))) draft_new(&s_d, id, 12, 6, 12);
-        if (builtin) say("A copy: saved as %s.txt", id);
+        s_new = builtin;
+        if (!draft_from_text(&s_d, id, chamber_text(index), err, sizeof(err))) {
+            // Never an empty chamber under the name of a file that is there.
+            ESP_LOGW(TAG, "%s: %s", chamber_id(index), err);
+            fresh_id(id, sizeof(id), NULL);
+            draft_new(&s_d, id, 12, 6, 12);
+            s_new = true;
+            say("Cannot edit that one: %s", err);
+        } else if (builtin) {
+            say("A copy: saved as %s.txt", id);
+        }
     } else {
         fresh_id(id, sizeof(id), NULL);
         draft_new(&s_d, id, 12, 6, 12);
+        s_new = true;
         say("New chamber %s", id);
     }
     s_x      = s_d.w / 2;
@@ -160,12 +163,9 @@ static char const* brush_name(char c) {
 static bool save(void) {
     static char text[24 * 1024];
     char        err[96];
-    if (!draft_level(&s_d, &s_level, err, sizeof(err))) {
+    if (!draft_level(&s_d, &s_level, err, sizeof(err)) ||
+        draft_save_text(&s_d, text, sizeof(text), err, sizeof(err)) < 0) {
         say("Not saved: %s", err);
-        return false;
-    }
-    if (draft_text(&s_d, text, sizeof(text)) < 0) {
-        say("Not saved: %s", "too big");
         return false;
     }
     // The folder may not be there yet: /sd/portals, then its chambers.
@@ -177,8 +177,13 @@ static bool save(void) {
         mkdir(parent, 0755);
     }
     mkdir(s_dir, 0755);
-    char path[160];
+    char path[sizeof(s_dir) + CHAMBER_ID_N + 8];
     snprintf(path, sizeof(path), "%s/%s.txt", s_dir, s_d.id);
+    struct stat st;
+    if (s_new && stat(path, &st) == 0) {
+        say("Not saved: %s is already there", path);
+        return false;
+    }
     FILE* f = fopen(path, "wb");
     if (f == NULL) {
         say("Cannot write %s", path);
@@ -191,6 +196,7 @@ static bool save(void) {
         say("Writing %s failed", path);
         return false;
     }
+    s_new = false;  // from now on, this file is the draft's own
     chamber_reload_dir(s_dir);
     ESP_LOGI(TAG, "saved %s", path);
     say("Saved %s", path);
@@ -216,7 +222,8 @@ void editor_event(bsp_input_event_t const* ev) {
         // navigation key: the second must not close the menu the first opened.
         bool const esc =
             (ev->type == INPUT_EVENT_TYPE_SCANCODE && ev->args_scancode.scancode == BSP_INPUT_SCANCODE_ESC) ||
-            (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_ESC);
+            (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_ESC &&
+             ev->args_navigation.state);
         if (esc && esp_timer_get_time() - s_menu_opened_us < 250000) return;
         if (ev->type == INPUT_EVENT_TYPE_SCANCODE) {
             uint16_t const sc = ev->args_scancode.scancode;
@@ -464,14 +471,19 @@ static void menu_frame(void) {
         if (s_z >= s_d.d) s_z = s_d.d - 1;
         if (s_y >= s_d.h) s_y = s_d.h - 1;
     } else if (s_menu_cursor == M_FACING && (step != 0 || r == SE_MENU_RESULT_ACTIVATED)) {
-        s_d.yaw += (step < 0 ? -1.0f : 1.0f) * 1.5707963f;
-        if (s_d.yaw > 3.2f) s_d.yaw -= 6.2831853f;
-        if (s_d.yaw < -3.2f) s_d.yaw += 6.2831853f;
+        // Whole quarter turns, snapped: turned often, it must still say
+        // "east", not drift off it.
+        float q = roundf(s_d.yaw / 1.5707963f) + (step < 0 ? -1.0f : 1.0f);
+        if (q > 2.0f) q -= 4.0f;
+        if (q < -1.0f) q += 4.0f;
+        s_d.yaw = q * 1.5707963f;
     } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == M_NEW) {
-        char id[32];
+        char id[CHAMBER_ID_N];
         fresh_id(id, sizeof(id), NULL);
         draft_new(&s_d, id, 12, 6, 12);
+        s_new = true;
         s_x = s_d.w / 2, s_z = s_d.d / 2, s_y = 1;
+        s_anchor_set = s_painting = false;
         say("New chamber %s", id);
         s_menu = false;
     } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == M_QUIT) {

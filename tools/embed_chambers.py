@@ -9,11 +9,13 @@ import os
 import sys
 
 
+def c_escape(s):
+    # ? too: "??/" is a trigraph in strict ISO C.
+    return s.replace("\\", "\\\\").replace('"', '\\"').replace("?", "\\?").replace("\n", "\\n")
+
+
 def c_string(text):
-    out = []
-    for line in text.splitlines(keepends=True):
-        esc = line.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
-        out.append('        "%s"' % esc)
+    out = ['        "%s"' % c_escape(line) for line in text.splitlines(keepends=True)]
     return "\n".join(out) if out else '        ""'
 
 
@@ -25,7 +27,7 @@ def main():
     for n in names:
         with open(os.path.join(src, n), encoding="utf-8") as f:
             text = f.read()
-        parts.append('    {"%s",\n%s},' % (n[:-4], c_string(text)))
+        parts.append('    {"%s",\n%s},' % (c_escape(n[:-4]), c_string(text)))
     parts.append("};")
     parts.append("int const chamber_builtin_count = %d;" % len(names))
     data = "\n".join(parts) + "\n"

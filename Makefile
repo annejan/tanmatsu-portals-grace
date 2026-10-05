@@ -314,4 +314,4 @@ fullclean: clean
 format:
 	# Not main/testkit/ or crt0.c: they come from the template, and restyling
 	# them would make every merge from upstream conflict.
-	find main/ -path main/testkit -prune -o \( -iname '*.h' -o -iname '*.c' \) ! -name crt0.c -print | xargs clang-format -i
+	find main/ tests/ -path main/testkit -prune -o \( -iname '*.h' -o -iname '*.c' \) ! -name crt0.c -print | xargs clang-format -i

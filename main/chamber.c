@@ -81,8 +81,10 @@ static bool facing_of(char const* v, float* yaw) {
     // sscanf, not strtof: graceloader does not export strtof.
     float d;
     int   n = 0;
-    if (sscanf(v, "%f %n", &d, &n) != 1 || v[n] != '\0') return false;
-    *yaw = d * DEG;
+    // Not NaN or infinity: either would reach the player's position, and
+    // from there the physics' loops over cells.
+    if (sscanf(v, "%f %n", &d, &n) != 1 || v[n] != '\0' || !isfinite(d)) return false;
+    *yaw = fmodf(d, 360.0f) * DEG;
     return true;
 }
 
@@ -123,10 +125,10 @@ static bool parse_step(ctx_t* c, char* line, step_t* st) {
         *st = (step_t){OP_WALK, 0, a, 0, 0};
     } else if (strcmp(verb, "walk_to") == 0) {
         float pace = 1.0f;
-        int   got  = sscanf(args, "%f %f %f", &a, &d, &pace);
-        if (got < 2) return fail(c, "want: walk_to x z [pace]");
-        *st = (step_t){OP_WALK_TO, 0, a, got >= 3 ? pace : 1.0f, d};
-        return true;
+        int   k    = 0;
+        if (sscanf(args, "%f %f %n", &a, &d, &n) != 2) return fail(c, "want: walk_to x z [pace]");
+        if (sscanf(args + n, "%f %n", &pace, &k) == 1) n += k;
+        *st = (step_t){OP_WALK_TO, 0, a, pace, d};
     } else if (strcmp(verb, "step_off") == 0) {
         if (sscanf(args, "%f %n", &a, &n) != 1) return fail(c, "want: step_off pace");
         *st = (step_t){OP_STEP_OFF, 0, a, 0, 0};
@@ -143,7 +145,19 @@ static bool parse_step(ctx_t* c, char* line, step_t* st) {
         return fail(c, "unknown step \"%s\"", verb);
     }
     if (*trim((char*)args + n) != '\0') return fail(c, "too much after \"%s\"", verb);
+    if (!isfinite(st->a) || !isfinite(st->b) || !isfinite(st->c)) return fail(c, "\"%s\": not a number", verb);
     return true;
+}
+
+// Where a cell comes in a file written the usual way: layer by layer
+// upwards, each layer's rows from the far side (highest z) to the near
+// one, left to right.
+static int reading_order(int x, int y, int z) {
+    return (y * LV_MAX_D + (LV_MAX_D - 1 - z)) * LV_MAX_W + x;
+}
+
+static int target_order(vec3_t t) {
+    return reading_order((int)floorf(t.x), (int)floorf(t.y), (int)floorf(t.z));
 }
 
 bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, char* err, size_t err_n) {
@@ -151,13 +165,14 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (err_n) err[0] = '\0';
     memset(lv, 0, sizeof(*lv));
     snprintf(lv->name, sizeof(lv->name), "Untitled");
-    int         ns        = 0;
-    int         layer     = -1;  // the layer whose rows are being read
-    int         row       = 0;
-    bool        in_sol    = false;
-    bool        have_size = false;
-    int         spawns    = 0;
-    // Faith plates and their targets, paired in the order they are read.
+    int         ns                   = 0;
+    int         layer                = -1;  // the layer whose rows are being read
+    int         row                  = 0;
+    bool        in_sol               = false;
+    bool        have_size            = false;
+    int         spawns               = 0;
+    bool        layer_seen[LV_MAX_H] = {false};
+    // Faith plates and their targets, paired in reading order (below).
     jump_t      plates[LV_MAX_JUMPS];
     vec3_t      targets[LV_MAX_JUMPS];
     int         n_plates = 0, n_targets = 0;
@@ -166,6 +181,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     bool        have_m = false, have_n = false;
     char        buf[128];
     char const* p = text;
+    // A byte-order mark, as Windows editors write one, is not text.
+    if (strncmp(p, "\xEF\xBB\xBF", 3) == 0) p += 3;
 
     while (next_line(&p, buf, sizeof(buf))) {
         c.line++;
@@ -290,8 +307,11 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         if (sscanf(s, "layer %d", &y) == 1) {
             if (!have_size) return fail(&c, "layer before size");
             if (y < 0 || y >= lv->h) return fail(&c, "layer %d outside the size's %d", y, lv->h);
-            layer = y;
-            row   = 0;
+            // Twice, its cubes and buttons would add up, and its cells not.
+            if (layer_seen[y]) return fail(&c, "layer %d given twice", y);
+            layer_seen[y] = true;
+            layer         = y;
+            row           = 0;
             continue;
         }
         char* colon = strchr(s, ':');
@@ -321,6 +341,23 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (!have_size) return fail(&c, "no size");
     if (spawns != 1) return fail(&c, "want exactly one S, found %d", spawns);
     if (n_plates != n_targets) return fail(&c, "%d faith plate(s) (J) but %d target(s) (T)", n_plates, n_targets);
+    // The first plate throws to the first target, and so on, in reading
+    // order: whatever order the layers came in, as the writers put them
+    // in this order.
+    for (int i = 1; i < n_plates; i++)
+        for (int j = i; j > 0 && reading_order(plates[j].x, plates[j].y, plates[j].z) <
+                                     reading_order(plates[j - 1].x, plates[j - 1].y, plates[j - 1].z);
+             j--) {
+            jump_t const t = plates[j];
+            plates[j]      = plates[j - 1];
+            plates[j - 1]  = t;
+        }
+    for (int i = 1; i < n_targets; i++)
+        for (int j = i; j > 0 && target_order(targets[j]) < target_order(targets[j - 1]); j--) {
+            vec3_t const t = targets[j];
+            targets[j]     = targets[j - 1];
+            targets[j - 1] = t;
+        }
     for (int i = 0; i < n_plates; i++) {
         plates[i].target = targets[i];
         lv->jumps[i]     = plates[i];
@@ -330,6 +367,9 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     if (have_m) {
         int const sx = m_box[3] - m_box[0] + 1, sy = m_box[4] - m_box[1] + 1, sz = m_box[5] - m_box[2] + 1;
         if (n_m != sx * sy * sz) return fail(&c, "the M cells are not a box");
+        if (n_cell[0] >= m_box[0] && n_cell[0] <= m_box[3] && n_cell[1] >= m_box[1] && n_cell[1] <= m_box[4] &&
+            n_cell[2] >= m_box[2] && n_cell[2] <= m_box[5])
+            return fail(&c, "the N is inside the platform");
         lv->platform = (platform_t){
             v3((float)m_box[0], (float)m_box[1], (float)m_box[2]),
             v3((float)m_box[3] + 1, (float)m_box[4] + 1, (float)m_box[5] + 1),
@@ -348,10 +388,19 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                 for (int x = d->x0; x < d->x1; x++)
                     if (level_get(lv, x, y, z) != MAT_DOOR) return fail(&c, "door '%c' is not a box", 'a' + i);
     }
+    // ... and no two boxes overlap. A cell of door b in door a's box makes
+    // the boxes overlap, so then every box holds its own letter only.
+    for (int i = 0; i < lv->n_doors; i++)
+        for (int j = i + 1; j < lv->n_doors; j++) {
+            door_t const* a = &lv->doors[i];
+            door_t const* b = &lv->doors[j];
+            if (a->x0 < b->x1 && b->x0 < a->x1 && a->y0 < b->y1 && b->y0 < a->y1 && a->z0 < b->z1 && b->z0 < a->z1)
+                return fail(&c, "doors '%c' and '%c' overlap", 'a' + i, 'a' + j);
+        }
     for (int i = 0; i < lv->n_buttons; i++) {
         button_t const* b = &lv->buttons[i];
         uint8_t const   m = level_get(lv, b->x, b->y, b->z);
-        if (m == MAT_AIR || m == MAT_DOOR)
+        if (m == MAT_AIR || m == MAT_DOOR || m == MAT_FIZZ)
             return fail(&c, "button '%c' has nothing under it", chamber_button_char(b->link));
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
@@ -433,9 +482,11 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     }
 }
 
-static char const* facing_name(float yaw) {
-    int d = (int)lroundf(yaw / DEG);
-    d     = ((d % 360) + 360) % 360;
+char const* chamber_facing_name(float yaw) {
+    float const deg = yaw / DEG;
+    long const  r   = lroundf(deg);
+    if (fabsf(deg - (float)r) > 0.001f) return NULL;  // 89.6 is not east
+    int const d = (int)(((r % 360) + 360) % 360);
     return d == 0 ? "north" : d == 90 ? "east" : d == 180 ? "south" : d == 270 ? "west" : NULL;
 }
 
@@ -445,7 +496,7 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
     put(&o, "name: %s\n", lv->name);
     if (lv->hint[0]) put(&o, "hint: %s\n", lv->hint);
     put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
-    char const* f = facing_name(lv->spawn_yaw);
+    char const* f = chamber_facing_name(lv->spawn_yaw);
     if (f)
         put(&o, "facing: %s\n", f);
     else
@@ -512,7 +563,7 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
 // --- The list ---------------------------------------------------------
 
 typedef struct {
-    char        id[32];
+    char        id[CHAMBER_ID_N];
     char const* text;
     bool        owned;  // read from a file: ours to free
 } entry_t;
@@ -575,6 +626,24 @@ static bool ends_txt(char const* name, size_t len) {
 }
 
 static char s_found[CHAMBER_MAX][64];  // file names in the directory
+static int  s_listed;                  // .txt files the last list_dir saw, kept or not
+
+// Keep `name` if it is among the CHAMBER_MAX first by name so far: the
+// directory hands names out in its own order, and the cut must not depend
+// on that.
+static void keep_name(int* n, char const* name, size_t len) {
+    s_listed++;
+    int slot = *n;
+    if (*n == CHAMBER_MAX) {
+        slot = 0;
+        for (int i = 1; i < *n; i++)
+            if (strcmp(s_found[i], s_found[slot]) > 0) slot = i;
+        if (strcmp(name, s_found[slot]) >= 0) return;
+    } else {
+        (*n)++;
+    }
+    memcpy(s_found[slot], name, len + 1);
+}
 
 #ifdef ESP_PLATFORM
 // Graceloader exports no opendir / readdir: list through FatFs, whose
@@ -608,12 +677,13 @@ static int list_dir(char const* dir) {
         }
         open = f_opendir(&d, cand) == FR_OK;
     }
+    s_listed = 0;
     if (!open) return 0;
     int n = 0;
-    while (n < CHAMBER_MAX && f_readdir(&d, &info) == FR_OK && info.fname[0] != '\0') {
+    while (f_readdir(&d, &info) == FR_OK && info.fname[0] != '\0') {
         size_t const len = strlen(info.fname);
         if ((info.fattrib & AM_DIR) || len >= sizeof(s_found[0]) || !ends_txt(info.fname, len)) continue;
-        memcpy(s_found[n++], info.fname, len + 1);
+        keep_name(&n, info.fname, len);
     }
     f_closedir(&d);
     return n;
@@ -621,14 +691,15 @@ static int list_dir(char const* dir) {
 #else
 #include <dirent.h>
 static int list_dir(char const* dir) {
-    DIR* d = opendir(dir);
+    s_listed = 0;
+    DIR* d   = opendir(dir);
     if (d == NULL) return 0;
     int            n = 0;
     struct dirent* e;
-    while (n < CHAMBER_MAX && (e = readdir(d)) != NULL) {
+    while ((e = readdir(d)) != NULL) {
         size_t const len = strlen(e->d_name);
         if (len >= sizeof(s_found[0]) || !ends_txt(e->d_name, len)) continue;
-        memcpy(s_found[n++], e->d_name, len + 1);
+        keep_name(&n, e->d_name, len);
     }
     closedir(d);
     return n;
@@ -654,8 +725,8 @@ int chamber_load_dir(char const* dir) {
     for (int i = 0; i < n; i++) order[i] = s_found[i];
     qsort(order, (size_t)n, sizeof(order[0]), by_name);
 
-    int added = 0;
-    for (int i = 0; i < n && s_n < CHAMBER_MAX; i++) {
+    int added = 0, i = 0;
+    for (; i < n && s_n < CHAMBER_MAX; i++) {
         char path[192];
         snprintf(path, sizeof(path), "%s/%s", dir, order[i]);
         FILE* f = fopen(path, "rb");
@@ -686,5 +757,7 @@ int chamber_load_dir(char const* dir) {
         LOGI("%s: %s", path, check.name);
         added++;
     }
+    int const left = (n - i) + (s_listed - n);
+    if (left > 0) LOGW("%s: %d more chamber files than the list has room for -- not loaded", dir, left);
     return added;
 }

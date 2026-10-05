@@ -23,13 +23,13 @@
 #define W DISPLAY_LOG_W
 #define H DISPLAY_LOG_H
 
-static uint32_t s_px[W * H];
-static uint8_t  s_owner[W * H];  // which pass of the frame last painted each pixel
-static int      s_pass;
-static float    s_depth[W * H];  // 1/z, 0 = empty
-static basis_t  s_basis;
-static vec3_t   s_eye;
-static bool     s_light_on;
+static uint32_t   s_px[W * H];
+static uint8_t    s_owner[W * H];  // which pass of the frame last painted each pixel
+static int        s_pass;
+static float      s_depth[W * H];  // 1/z, 0 = empty
+static basis_t    s_basis;
+static vec3_t     s_eye;
+static bool       s_light_on;
 static se_light_t s_light;
 
 // --- The engine API render.c uses ---------------------------------------
@@ -63,7 +63,7 @@ se_texture_t* se_texture_load(char const* path, uint32_t flags) {
     se_texture_t* t = calloc(1, sizeof(*t));
     t->texels       = calloc(1, sizeof(uint16_t));
     t->w = t->h  = 1;
-    t->mean_argb = strstr(path, "white")  ? 0xFFD8D8D0u
+    t->mean_argb = strstr(path, "white")   ? 0xFFD8D8D0u
                    : strstr(path, "metal") ? 0xFF50545Au
                    : strstr(path, "goo")   ? 0xFF6A5A18u
                    : strstr(path, "cube")  ? 0xFF969AA0u
@@ -89,7 +89,7 @@ static uint32_t shade(uint32_t argb, float k) {
 static uint32_t s_blend;  // this triangle mixes 50/50 with what is there (SE_TRI_BLEND)
 
 static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bool seams) {
-    float sx[3], sy[3], iz[3], uz[3], vz[3];
+    float       sx[3], sy[3], iz[3], uz[3], vz[3];
     rv_t const* v[3] = {a, b, c};
     for (int i = 0; i < 3; i++) {
         iz[i] = 1.0f / v[i]->c.z;
@@ -120,15 +120,15 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
             s_depth[y * W + x] = z;
             uint32_t out       = col;
             if (seams) {
-                float const u = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
-                float const t = (w0 * vz[0] + w1 * vz[1] + w2 * vz[2]) / z;
+                float const u  = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
+                float const t  = (w0 * vz[0] + w1 * vz[1] + w2 * vz[2]) / z;
                 float const fu = u - floorf(u), fv = t - floorf(t);
                 if (fu < 0.03f || fu > 0.97f || fv < 0.03f || fv > 0.97f) out = shade(col, 0.6f);
             }
             if (s_blend) {
                 uint32_t const o = s_px[y * W + x];
-                out = 0xFF000000u | ((((o >> 16) & 255) + ((out >> 16) & 255)) / 2) << 16 |
-                      ((((o >> 8) & 255) + ((out >> 8) & 255)) / 2) << 8 | (((o & 255) + (out & 255)) / 2);
+                out              = 0xFF000000u | ((((o >> 16) & 255) + ((out >> 16) & 255)) / 2) << 16 |
+                                   ((((o >> 8) & 255) + ((out >> 8) & 255)) / 2) << 8 | (((o & 255) + (out & 255)) / 2);
             }
             s_px[y * W + x]    = out;
             s_owner[y * W + x] = (uint8_t)s_pass;
@@ -140,17 +140,17 @@ static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32
     // Per-face light, after se_light: a floor of fill plus a directional share.
     uint32_t col = argb;
     if (s_light_on && !(flags & SE_TRI_EMISSIVE)) {
-        vec3_t const n  = v3_norm(v3_cross(v3_sub(w[1], w[0]), v3_sub(w[2], w[0])));
-        vec3_t const c  = v3_scale(v3_add(v3_add(w[0], w[1]), w[2]), 1.0f / 3.0f);
-        vec3_t const l  = v3_norm(v3_sub(v3(s_light.x, s_light.y, s_light.z), c));
-        float const  d  = fabsf(v3_dot(n, l));
-        col             = shade(argb, (1.0f - s_light.brightness) + s_light.brightness * d);
+        vec3_t const n = v3_norm(v3_cross(v3_sub(w[1], w[0]), v3_sub(w[2], w[0])));
+        vec3_t const c = v3_scale(v3_add(v3_add(w[0], w[1]), w[2]), 1.0f / 3.0f);
+        vec3_t const l = v3_norm(v3_sub(v3(s_light.x, s_light.y, s_light.z), c));
+        float const  d = fabsf(v3_dot(n, l));
+        col            = shade(argb, (1.0f - s_light.brightness) + s_light.brightness * d);
     }
     // To camera space, then clip at the near plane.
     rv_t in[3], buf[2][8];
     for (int i = 0; i < 3; i++) {
         vec3_t const d = v3_sub(w[i], s_eye);
-        in[i]          = (rv_t){v3(v3_dot(d, s_basis.right), v3_dot(d, s_basis.up), v3_dot(d, s_basis.fwd)), u[i], v[i]};
+        in[i] = (rv_t){v3(v3_dot(d, s_basis.right), v3_dot(d, s_basis.up), v3_dot(d, s_basis.fwd)), u[i], v[i]};
     }
     int n = 0;
     for (int i = 0; i < 3; i++) {
@@ -254,8 +254,8 @@ static float frame_diff(void) {
     double sum = 0;
     for (int i = 0; i < W * H; i++) {
         uint32_t const a = s_before[i], b = s_px[i];
-        sum += abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255)) + abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) +
-               abs((int)(a & 255) - (int)(b & 255));
+        sum += abs((int)((a >> 16) & 255) - (int)((b >> 16) & 255)) +
+               abs((int)((a >> 8) & 255) - (int)((b >> 8) & 255)) + abs((int)(a & 255) - (int)(b & 255));
     }
     return (float)(sum / (W * H * 3.0));
 }
@@ -283,13 +283,13 @@ static int fuzz(int n) {
     srand(7);
     level_t lv;
     int     worst_i = -1, bad = 0;
-    float   worst   = 0;
+    float   worst = 0;
     for (int k = 0; k < n; k++) {
         level_load(&lv, 0);
         portal_t pt[2] = {0};
         for (int w = 0; w < 2; w++) {
             for (int tries = 0; tries < 100 && !pt[w].open; tries++) {
-                int const face = rand() % 4;  // the four walls
+                int const face    = rand() % 4;  // the four walls
                 int const dirs[4] = {DIR_PX, DIR_NX, DIR_PZ, DIR_NZ};
                 int       x = 1 + rand() % 8, z = 1 + rand() % 14;
                 int const f = dirs[face];
@@ -302,18 +302,18 @@ static int fuzz(int n) {
         }
         if (!pt[0].open || !pt[1].open) continue;
         // Walk at blue from 2 m out, at an angle.
-        float const ang = ((float)rand() / RAND_MAX - 0.5f) * 1.0f;
-        vec3_t const into = v3_scale(pt[0].n, -1.0f);
-        player_t     pl  = {0};
-        pl.pos           = v3_mad(v3(pt[0].center.x, 1.0f, pt[0].center.z), pt[0].n, 2.0f);
-        pl.yaw           = atan2f(into.x, into.z) + ang;
-        pl.pitch         = ((float)rand() / RAND_MAX - 0.5f) * 0.6f;
+        float const  ang       = ((float)rand() / RAND_MAX - 0.5f) * 1.0f;
+        vec3_t const into      = v3_scale(pt[0].n, -1.0f);
+        player_t     pl        = {0};
+        pl.pos                 = v3_mad(v3(pt[0].center.x, 1.0f, pt[0].center.z), pt[0].n, 2.0f);
+        pl.yaw                 = atan2f(into.x, into.z) + ang;
+        pl.pitch               = ((float)rand() / RAND_MAX - 0.5f) * 0.6f;
         float const keep_pitch = pl.pitch;
         for (int i = 0; i < 200; i++) {
             player_t const       prev = pl;
             player_input_t const in   = {.fwd = 1.0f};
             int const            ev   = player_update(&pl, &lv, pt, &in, 1.0f / 50.0f);
-            pl.pitch = ev & PL_EV_TELEPORT ? pl.pitch : keep_pitch;
+            pl.pitch                  = ev & PL_EV_TELEPORT ? pl.pitch : keep_pitch;
             if (ev & PL_EV_TELEPORT) {
                 draw(&lv, &prev, pt);
                 memcpy(s_before, s_px, sizeof(s_px));
@@ -328,9 +328,11 @@ static int fuzz(int n) {
                 if (d > 25.0f || m0 > 50 || m1 > 50) {
                     bad++;
                     if (bad <= 6) {
-                        printf("case %d: diff %.1f magenta %d/%d  blue face %d (%.1f,%.1f) orange face %d (%.1f,%.1f) ang %.2f\n", k, d,
-                               m0, m1, pt[0].face, pt[0].center.x, pt[0].center.z, pt[1].face, pt[1].center.x,
-                               pt[1].center.z, ang);
+                        printf(
+                            "case %d: diff %.1f magenta %d/%d  blue face %d (%.1f,%.1f) orange face %d (%.1f,%.1f) ang "
+                            "%.2f\n",
+                            k, d, m0, m1, pt[0].face, pt[0].center.x, pt[0].center.z, pt[1].face, pt[1].center.x,
+                            pt[1].center.z, ang);
                         char name[32];
                         snprintf(name, sizeof(name), "fuzz%d_after", k);
                         save(name);
@@ -351,17 +353,17 @@ static int fuzz(int n) {
 
 // Whether pixel (x, y)'s ray meets portal `p` inside its opening.
 static bool in_opening(portal_t const* p, player_t const* pl, int x, int y) {
-    basis_t const b = player_view(pl);
-    vec3_t const  e = player_eye(pl);
-    vec3_t const  d = v3_add(b.fwd, v3_add(v3_scale(b.right, ((float)x + 0.5f - RENDER_HALF_W) / RENDER_FOCAL_LEN),
-                                          v3_scale(b.up, -((float)y + 0.5f - RENDER_HORIZON_Y) / RENDER_FOCAL_LEN)));
-    float const den = v3_dot(d, p->n);
+    basis_t const b   = player_view(pl);
+    vec3_t const  e   = player_eye(pl);
+    vec3_t const  d   = v3_add(b.fwd, v3_add(v3_scale(b.right, ((float)x + 0.5f - RENDER_HALF_W) / RENDER_FOCAL_LEN),
+                                             v3_scale(b.up, -((float)y + 0.5f - RENDER_HORIZON_Y) / RENDER_FOCAL_LEN)));
+    float const   den = v3_dot(d, p->n);
     if (fabsf(den) < 1e-6f) return false;
     float const t = v3_dot(v3_sub(p->center, e), p->n) / den;
     if (t <= 0.0f) return false;
     vec3_t const l = portal_local(p, v3_mad(e, d, t));
     // Inside the rim: 0.9 of the oval, clear of the rim's own pixels.
-    float const u = l.x / (PORTAL_HALF_W * 0.9f), v = l.y / (PORTAL_HALF_H * 0.9f);
+    float const  u = l.x / (PORTAL_HALF_W * 0.9f), v = l.y / (PORTAL_HALF_H * 0.9f);
     return u * u + v * v < 1.0f;
 }
 
@@ -405,12 +407,13 @@ static int selftest(void) {
     frame_check("floor portal over open space", &g, 0, &fails);
 
     // A wall one cell thick, as the editor makes them, with a room behind.
-    if (!chamber_parse("size: 8 5 9\nlayer 0\n########\n#WWWWWW#\n#WWEEWW#\n#WWWWWW#\n#WWWWWW#\n#WWWWWW#\n"
-                       "#WWWWWW#\n#WWWWWW#\n########\n"
-                       "layer 1\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#...S..#\n########\n"
-                       "layer 2\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#......#\n########\n"
-                       "layer 3\n########\n#......#\n#......#\n#......#\n########\n#......#\n#......#\n#......#\n########\n",
-                       &thin, NULL, NULL, err, sizeof(err))) {
+    if (!chamber_parse(
+            "size: 8 5 9\nlayer 0\n########\n#WWWWWW#\n#WWEEWW#\n#WWWWWW#\n#WWWWWW#\n#WWWWWW#\n"
+            "#WWWWWW#\n#WWWWWW#\n########\n"
+            "layer 1\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#...S..#\n########\n"
+            "layer 2\n########\n#......#\n#......#\n#......#\n##WWW###\n#......#\n#......#\n#......#\n########\n"
+            "layer 3\n########\n#......#\n#......#\n#......#\n########\n#......#\n#......#\n#......#\n########\n",
+            &thin, NULL, NULL, err, sizeof(err))) {
         printf("thin wall chamber: %s\n", err);
         return 1;
     }

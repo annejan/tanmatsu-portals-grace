@@ -16,14 +16,14 @@
 
 static int s_fail;
 
-#define CHECK(cond, ...)                                    \
-    do {                                                    \
-        if (!(cond)) {                                      \
-            printf("FAIL %s:%d: ", __FILE__, __LINE__);     \
-            printf(__VA_ARGS__);                            \
-            printf("\n");                                   \
-            s_fail++;                                       \
-        }                                                   \
+#define CHECK(cond, ...)                                \
+    do {                                                \
+        if (!(cond)) {                                  \
+            printf("FAIL %s:%d: ", __FILE__, __LINE__); \
+            printf(__VA_ARGS__);                        \
+            printf("\n");                               \
+            s_fail++;                                   \
+        }                                               \
     } while (0)
 
 // Two levels the same in every field. chamber_parse clears a level before
@@ -98,9 +98,9 @@ static void test_clip(void) {
     portal_clip_through(&a, &b, eye, NULL, &cs);
     CHECK(cs.n == PORTAL_OVAL_N + 1, "a plane per oval edge and the exit's wall, got %d", cs.n);
     // The far wall seen straight through: kept. The wall b hangs on: gone.
-    vec3_t const veye = portal_map_point(&a, &b, eye);
-    vec3_t const look = v3_sub(b.center, veye);
-    vec3_t const far  = v3_mad(b.center, look, 1.0f);
+    vec3_t const veye  = portal_map_point(&a, &b, eye);
+    vec3_t const look  = v3_sub(b.center, veye);
+    vec3_t const far   = v3_mad(b.center, look, 1.0f);
     cvert_t      in[3] = {{far, 0, 0}, {v3_add(far, v3(0, 0.01f, 0)), 0, 0}, {v3_add(far, v3(0, 0, 0.01f)), 0, 0}};
     cvert_t      out[CLIP_MAX_VERTS];
     CHECK(clip_polygon(&cs, in, 3, out) == 3, "straight through is kept");
@@ -144,8 +144,8 @@ static void sim_init(sim_t* s, int chamber) {
     level_load(&s->lv, chamber);
     player_spawn(&s->pl, &s->lv);
     s->portals[0].open = s->portals[1].open = false;
-    s->events                                = 0;
-    s->t                                     = 0;
+    s->events                               = 0;
+    s->t                                    = 0;
 }
 
 static bool shoot(sim_t* s, int which, vec3_t target) {
@@ -158,9 +158,9 @@ static bool shoot(sim_t* s, int which, vec3_t target) {
 }
 
 static int step(sim_t* s, player_input_t const* in) {
-    int const ev = player_update(&s->pl, &s->lv, s->portals, in, DT);
-    s->events |= ev;
-    s->t += DT;
+    int const ev  = player_update(&s->pl, &s->lv, s->portals, in, DT);
+    s->events    |= ev;
+    s->t         += DT;
     return ev;
 }
 
@@ -170,9 +170,9 @@ static int walk_at(sim_t* s, float x, float z, float speed, int stop, float max_
     for (float t = 0; t < max_t; t += DT) {
         float const dx = x - s->pl.pos.x, dz = z - s->pl.pos.z;
         if (dx * dx + dz * dz < 0.2f * 0.2f && s->pl.on_ground) break;
-        s->pl.yaw              = atan2f(dx, dz);
-        player_input_t const in = {.fwd = fminf(speed, sqrtf(dx * dx + dz * dz) * 2.0f)};
-        ev |= step(s, &in);
+        s->pl.yaw                = atan2f(dx, dz);
+        player_input_t const in  = {.fwd = fminf(speed, sqrtf(dx * dx + dz * dz) * 2.0f)};
+        ev                      |= step(s, &in);
         if (ev & stop) break;
     }
     return ev;
@@ -185,8 +185,8 @@ static int walk_to(sim_t* s, float x, float z, int stop, float max_t) {
 static int wait(sim_t* s, int stop, float max_t) {
     int ev = 0;
     for (float t = 0; t < max_t; t += DT) {
-        player_input_t const in = {0};
-        ev |= step(s, &in);
+        player_input_t const in  = {0};
+        ev                      |= step(s, &in);
         if (ev & stop) break;
     }
     return ev;
@@ -215,10 +215,10 @@ static void test_chamber_1(void) {
     CHECK(portal_place(&s.lv, player_eye(&s.pl), player_view(&s.pl).fwd, &s.portals[0], &s.portals[1]),
           "c1 eye-level orange");
     s.pl.yaw = -1.5707963f;
-    ev = 0;
+    ev       = 0;
     for (int i = 0; i < 200 && !(ev & PL_EV_TELEPORT); i++) {
-        player_input_t const in = {.fwd = 1.0f};
-        ev |= step(&s, &in);
+        player_input_t const in  = {.fwd = 1.0f};
+        ev                      |= step(&s, &in);
     }
     CHECK(ev & PL_EV_TELEPORT, "c1 walked straight into an eye-level shot");
 
@@ -252,9 +252,9 @@ static void test_chamber_3(void) {
     // Step off at half pace and let go: the fall carries onto the portal.
     int ev = 0;
     for (float t = 0; t < 3 && s.pl.on_ground; t += DT) {
-        s.pl.yaw                = 0.0f;
-        player_input_t const in = {.fwd = 0.5f};
-        ev |= step(&s, &in);
+        s.pl.yaw                 = 0.0f;
+        player_input_t const in  = {.fwd = 0.5f};
+        ev                      |= step(&s, &in);
     }
     ev |= wait(&s, PL_EV_TELEPORT | PL_EV_DIED | PL_EV_LANDED, 3);
     CHECK(ev & PL_EV_TELEPORT, "c3 fell in (at %f %f %f)", s.pl.pos.x, s.pl.pos.y, s.pl.pos.z);
@@ -305,7 +305,8 @@ static void test_demos(void) {
     }
     // Every built-in chamber has a solution, so make check proves it can be solved.
     for (int i = 0; i < chamber_builtin_count; i++)
-        CHECK(demo_has_solution(demo_find(chamber_builtins[i].id)), "chamber %s has a solution", chamber_builtins[i].id);
+        CHECK(demo_has_solution(demo_find(chamber_builtins[i].id)), "chamber %s has a solution",
+              chamber_builtins[i].id);
     // A pure function of time: the same instant twice is the same state.
     demo_state_t a, b;
     demo_eval(demo_find("c1walk"), 2.37f, &a);
@@ -359,12 +360,12 @@ static void test_frame_rates(void) {
 // shut on the player standing in it; a cube dropped through a floor
 // portal comes out of the other one.
 static void test_things(void) {
-    static game_t g;
+    static game_t      g;
     game_input_t const idle = {0};
 
     game_load(&g, 0);
-    g.lv.cubes[0] = v3(2.5f, 1.0f, 2.5f);
-    g.n_cubes     = 1;
+    g.lv.cubes[0]   = v3(2.5f, 1.0f, 2.5f);
+    g.n_cubes       = 1;
     g.cubes[0].body = (body_t){v3(5.0f, 2.0f, 7.0f), v3(0, 0, 0), CUBE_HALF, 2 * CUBE_HALF, CUBE_HALF, false};
     for (int i = 0; i < 100; i++) game_step(&g, &idle, 0.02f);
     CHECK(fabsf(g.cubes[0].body.pos.x - 2.5f) < 0.01f && fabsf(g.cubes[0].body.pos.z - 2.5f) < 0.01f,
@@ -432,13 +433,20 @@ static void test_draft(void) {
               level_get(&lv, 4, 2, 5) == MAT_AIR,
           "with white walls and air inside");
 
+    static step_t sa[SCRIPT_MAX_STEPS], sb[SCRIPT_MAX_STEPS];
     for (int i = 0; i < chamber_builtin_count; i++) {
-        CHECK(draft_from_text(&d, chamber_id(i), chamber_text(i)), "%s loads into a draft", chamber_id(i));
+        CHECK(draft_from_text(&d, chamber_id(i), chamber_text(i), err, sizeof(err)), "%s loads into a draft: %s",
+              chamber_id(i), err);
         CHECK(draft_level(&d, &lv, err, sizeof(err)), "%s: the draft parses: %s", chamber_id(i), err);
-        chamber_build(i, &ref, NULL, NULL);
+        int na = 0, nb = -1;
+        chamber_build(i, &ref, sa, &na);
         CHECK(level_same(&lv, &ref), "%s: through a draft, the same level", chamber_id(i));
-        CHECK(draft_text(&d, a, sizeof(a)) > 0 && strstr(a, "\nsolution\n") != NULL, "%s: keeps its solution",
-              chamber_id(i));
+        // The text the editor would save: the same solution, step by step.
+        CHECK(draft_text(&d, a, sizeof(a)) > 0 && chamber_parse(a, &lv, sb, &nb, err, sizeof(err)),
+              "%s: the draft's text parses: %s", chamber_id(i), err);
+        CHECK(na > 0 && na == nb, "%s: keeps its %d steps (%d)", chamber_id(i), na, nb);
+        for (int k = 0; k < na && k < nb; k++)
+            CHECK(memcmp(&sa[k], &sb[k], sizeof(sa[k])) == 0, "%s: step %d the same", chamber_id(i), k);
     }
 
     draft_new(&d, "my-02", 8, 5, 8);
@@ -450,7 +458,8 @@ static void test_draft(void) {
     CHECK(s_count == 1, "painting S moves the start (%d)", s_count);
     draft_paint(&d, 3, 1, 3, 'a');
     draft_paint(&d, 5, 1, 3, 'a');
-    CHECK(!draft_level(&d, &lv, err, sizeof(err)) && strstr(err, "door 'a'") != NULL, "a broken door is reported: %s", err);
+    CHECK(!draft_level(&d, &lv, err, sizeof(err)) && strstr(err, "door 'a'") != NULL, "a broken door is reported: %s",
+          err);
     draft_paint(&d, 4, 1, 3, 'a');
     CHECK(draft_level(&d, &lv, err, sizeof(err)) && lv.n_doors == 1, "a door three wide: %s", err);
 
@@ -459,9 +468,184 @@ static void test_draft(void) {
     draft_resize(&d, 8, 5, 8);
     CHECK(draft_get(&d, 6, 1, 6) == '#', "cells cut off by a resize come back as metal");
     draft_text(&d, a, sizeof(a));
-    draft_from_text(&d, "x", a);
+    CHECK(draft_from_text(&d, "x", a, err, sizeof(err)), "the draft's own text loads: %s", err);
     draft_text(&d, b, sizeof(b));
     CHECK(strcmp(a, b) == 0, "text -> draft -> text is the same text");
+}
+
+// What the editor keeps of a file it did not write: all of its solution or
+// nothing (it refuses), an indented `solution` line, a facing in degrees.
+static void test_draft_keeps(void) {
+    static draft_t d;
+    static level_t lv;
+    static step_t  steps[SCRIPT_MAX_STEPS];
+    static char    text[16 * 1024], out[24 * 1024];
+    char           err[96];
+    // A solution of 3 KB, comments mostly; the last step is the one to lose.
+    int            n = snprintf(text, sizeof(text),
+                                "size: 5 3 5\nfacing: 45.5\nlayer 1\n#####\n#...#\n#.S.#\n#...#\n#####\n"
+                                "  solution\n");
+    for (int i = 0; i < 40; i++)
+        n += snprintf(text + n, sizeof(text) - n, "// a note that takes up some room %02d...\n", i);
+    n += snprintf(text + n, sizeof(text) - n, "wait 1\nwalk_to 1.5 3.5 0.5\n");
+    CHECK(draft_from_text(&d, "long", text, err, sizeof(err)), "a 3 KB solution loads: %s", err);
+    int ns = 0;
+    CHECK(draft_text(&d, out, sizeof(out)) > 0 && chamber_parse(out, &lv, steps, &ns, err, sizeof(err)),
+          "and is written out whole: %s", err);
+    CHECK(ns == 2 && steps[1].op == OP_WALK_TO && fabsf(steps[1].b - 0.5f) < 1e-6f, "both steps kept (%d)", ns);
+    CHECK(fabsf(lv.spawn_yaw - 45.5f * 3.14159265f / 180.0f) < 1e-4f, "facing 45.5 kept (%.4f)", lv.spawn_yaw);
+    // Too long to keep: refused, not cut.
+    while (n < (int)sizeof(d.solution) + 100) n += snprintf(text + n, sizeof(text) - n, "// more and more\n");
+    snprintf(text + n, sizeof(text) - n, "wait 2\n");
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)), "the long one is a chamber: %s", err);
+    CHECK(!draft_from_text(&d, "longer", text, err, sizeof(err)) && strstr(err, "solution") != NULL,
+          "a solution longer than the draft keeps is refused: %s", err);
+}
+
+static bool write_file(char const* dir, char const* name, char const* text);
+
+// Saving from the editor: a new file gets an id free in the list and on
+// the card, and what is written must read back.
+static void test_draft_save(void) {
+    static draft_t d;
+    static level_t lv;
+    static char    out[24 * 1024];
+    char           err[96], id[CHAMBER_ID_N], want[CHAMBER_ID_N + 8], dir[200], path[300];
+    char const*    build = getenv("BUILD");
+    snprintf(dir, sizeof(dir), "%s/test_save", build != NULL && build[0] ? build : "build");
+    mkdir(dir, 0755);
+    snprintf(want, sizeof(want), "my-%s", chamber_id(0));
+    draft_fresh_id(dir, chamber_id(0), id, sizeof(id));
+    CHECK(strcmp(id, want) == 0, "a copy of %s is called %s: %s", chamber_id(0), want, id);
+    // Files on the card take their names, even ones that are not chambers
+    // (and so are not in the list).
+    snprintf(path, sizeof(path), "%s.txt", want);
+    write_file(dir, path, "not a chamber");
+    write_file(dir, "my-01.txt", "nor this");
+    draft_fresh_id(dir, chamber_id(0), id, sizeof(id));
+    CHECK(strcmp(id, "my-02") == 0, "with my-%s and my-01 on the card, my-02: %s", chamber_id(0), id);
+    draft_fresh_id(dir, NULL, id, sizeof(id));
+    CHECK(strcmp(id, "my-02") == 0, "a new one, my-02: %s", id);
+    snprintf(path, sizeof(path), "%s/%s.txt", dir, want);
+    remove(path);
+    snprintf(path, sizeof(path), "%s/my-01.txt", dir);
+    remove(path);
+
+    draft_new(&d, "my-03", 8, 5, 8);
+    CHECK(draft_save_text(&d, out, sizeof(out), err, sizeof(err)) > 0, "a new chamber saves: %s", err);
+    // A solution that does not read: the map is fine, the file would not be.
+    snprintf(d.solution, sizeof(d.solution), "solution\nfly 3\n");
+    CHECK(draft_level(&d, &lv, err, sizeof(err)), "the map alone is a chamber: %s", err);
+    CHECK(draft_save_text(&d, out, sizeof(out), err, sizeof(err)) < 0 && strstr(err, "unknown step") != NULL,
+          "a file that would not read back is not saved: %s", err);
+}
+
+// The parser's rules for what it cannot make sense of.
+static void test_parse_rules(void) {
+    static level_t    lv;
+    static step_t     steps[SCRIPT_MAX_STEPS];
+    char              err[96], text[512];
+    char const*       room     = "layer 1\n#####\n#.S.#\n#####\n";
+    // Numbers that are not: the start's position would become NaN.
+    char const* const facing[] = {"nan", "inf", "-inf", "1e39"};
+    for (size_t i = 0; i < sizeof(facing) / sizeof(facing[0]); i++) {
+        snprintf(text, sizeof(text), "size: 5 3 3\nfacing: %s\n%s", facing[i], room);
+        CHECK(!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strstr(err, "facing") != NULL,
+              "facing: %s is refused: %s", facing[i], err);
+    }
+    snprintf(text, sizeof(text), "size: 5 3 3\nfacing: 450\n%s", room);
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && fabsf(lv.spawn_yaw - 1.5707963f) < 1e-4f,
+          "facing: 450 is east (%.4f)", lv.spawn_yaw);
+    char const* const step[][2] = {
+        {"wait nan", "not a number"},      {"walk_to 1 inf", "not a number"}, {"walk_to 1 2 nan", "not a number"},
+        {"look 1 2 1e39", "not a number"}, {"face nan 0", "not a number"},    {"walk_to 1 2 3 4", "too much"},
+    };
+    for (size_t i = 0; i < sizeof(step) / sizeof(step[0]); i++) {
+        snprintf(text, sizeof(text), "size: 5 3 3\n%ssolution\n%s\n", room, step[i][0]);
+        CHECK(!chamber_parse(text, &lv, steps, NULL, err, sizeof(err)) && strstr(err, step[i][1]) != NULL,
+              "\"%s\" is refused (%s): %s", step[i][0], step[i][1], err);
+    }
+    snprintf(text, sizeof(text), "size: 5 3 3\n%ssolution\nwalk_to 1 2 0.5\n", room);
+    CHECK(chamber_parse(text, &lv, steps, NULL, err, sizeof(err)) && fabsf(steps[0].b - 0.5f) < 1e-6f,
+          "walk_to with a pace: %s", err);
+
+    char const* const bad[][2] = {
+        // The same layer twice: its cubes and buttons would add up.
+        {"size: 5 3 3\nlayer 1\n#####\n#SC.#\n#####\nlayer 1\n#####\n#S#.#\n#####\n", "given twice"},
+        // One door's box holding another's cell.
+        {"size: 7 4 3\nlayer 1\n#######\n#S.aba#\n#######\nlayer 2\n#######\n#..aba#\n#######\n", "overlap"},
+        {"size: 6 4 3\nlayer 1\n######\n#S.ab#\n######\nlayer 2\n######\n#..ba#\n######\n", "overlap"},
+        // Nothing can rest on a button over a fizzler.
+        {"size: 5 4 3\nlayer 1\n#####\n#SFa#\n#####\nlayer 2\n#####\n#.1.#\n#####\n", "nothing under it"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK(!chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err)) && strstr(err, bad[i][1]) != NULL,
+              "refused (%s): %s", bad[i][1], err);
+
+    // A byte-order mark, as Windows editors write one.
+    snprintf(text, sizeof(text), "\xEF\xBB\xBFname: Bom\nsize: 5 3 3\n%s", room);
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)) && strcmp(lv.name, "Bom") == 0,
+          "a file with a byte-order mark reads: %s", err);
+
+    // Faith plates take their targets in reading order -- layer by layer
+    // upwards -- whatever order the file gives the layers in.
+    char const* const plates =
+        "size: 5 5 3\n"
+        "layer 3\n#####\n#T..#\n#####\n"
+        "layer 2\n#####\n#..T#\n#####\n"
+        "layer 1\n#####\n#JSJ#\n#####\n";
+    static level_t again;
+    static char    out[4096];
+    CHECK(chamber_parse(plates, &lv, NULL, NULL, err, sizeof(err)) && lv.n_jumps == 2, "two plates: %s", err);
+    CHECK(
+        lv.jumps[0].x == 1 && fabsf(lv.jumps[0].target.x - 3.5f) < 1e-6f && fabsf(lv.jumps[0].target.y - 2.0f) < 1e-6f,
+        "the first plate throws to the lower target (%.1f %.1f)", lv.jumps[0].target.x, lv.jumps[0].target.y);
+    CHECK(chamber_write(&lv, NULL, 0, out, sizeof(out)) > 0 &&
+              chamber_parse(out, &again, NULL, NULL, err, sizeof(err)) && level_same(&lv, &again),
+          "and saved, the same pairs: %s", err);
+}
+
+// SD chambers: the id is the whole file name; with more files than the
+// list holds, the first by name are the ones kept.
+static void test_dir_limits(void) {
+    char const* build = getenv("BUILD");
+    char        dir[200], name[300];
+    snprintf(dir, sizeof(dir), "%s/test_many", build != NULL && build[0] ? build : "build");
+    mkdir(dir, 0755);
+    char const* const body     = "size: 3 3 3\nlayer 1\n###\n#S#\n###\n";
+    char const* const longname = "zz-the-long-and-winding-corridor-of-doom-and-more.txt";
+    int const         files    = CHAMBER_MAX + 5;
+    // Made last name first: a directory that hands names out in the order
+    // they were made would put the first by name last.
+    for (int i = files - 1; i >= 0; i--) {
+        snprintf(name, sizeof(name), "m%02d.txt", i);
+        write_file(dir, i == 0 ? "a-first.txt" : i == files - 1 ? longname : name, body);
+    }
+    int const loaded = chamber_reload_dir(dir);
+    int const room   = CHAMBER_MAX - chamber_builtin_n();
+    CHECK(loaded == room && chamber_count() == CHAMBER_MAX, "%d loaded, room for %d", loaded, room);
+    CHECK(strcmp(chamber_id(chamber_builtin_n()), "a-first") == 0, "the first by name first: %s",
+          chamber_id(chamber_builtin_n()));
+    snprintf(name, sizeof(name), "m%02d", room - 1);
+    CHECK(strcmp(chamber_id(CHAMBER_MAX - 1), name) == 0, "and the rest in name order: %s, wanted %s",
+          chamber_id(CHAMBER_MAX - 1), name);
+    // Fewer files: the long name gets a place, under its whole name.
+    for (int i = 1; i < files - 1; i++) {
+        snprintf(name, sizeof(name), "%s/m%02d.txt", dir, i);
+        if (i > 3) remove(name);
+    }
+    chamber_reload_dir(dir);
+    CHECK(chamber_find("zz-the-long-and-winding-corridor-of-doom-and-more") >= 0, "a long file name is its id");
+    for (int i = 1; i <= 3; i++) {
+        snprintf(name, sizeof(name), "%s/m%02d.txt", dir, i);
+        remove(name);
+    }
+    snprintf(name, sizeof(name), "%s/a-first.txt", dir);
+    remove(name);
+    snprintf(name, sizeof(name), "%s/%s", dir, longname);
+    remove(name);
+    chamber_reload_dir(dir);  // empty now: the built-in ones only
+    CHECK(chamber_count() == chamber_builtin_n(), "the list is back to the built-in chambers");
 }
 
 // Chambers from a directory come after the built-in ones, in name order;
@@ -532,7 +716,8 @@ static void test_caps(void) {
         int const  size = k == 0 ? 20 : 16;
         char const fill = k == 0 ? '#' : 'G';
         int        n    = snprintf(text, sizeof(text), "size: %d 4 %d\nlayer 0\n", size, size);
-        for (int z = 0; z < size; z++) n += snprintf(text + n, sizeof(text) - n, "%.*s\n", size, "########################");
+        for (int z = 0; z < size; z++)
+            n += snprintf(text + n, sizeof(text) - n, "%.*s\n", size, "########################");
         for (int y = 1; y <= (k == 0 ? 1 : 2); y++) {
             n += snprintf(text + n, sizeof(text) - n, "layer %d\n", y);
             for (int z = 0; z < size; z++) {
@@ -541,7 +726,7 @@ static void test_caps(void) {
                 text[n++] = '\n';
             }
         }
-        text[n] = 0;
+        text[n]       = 0;
         bool const ok = chamber_parse(text, &lv, NULL, NULL, err, sizeof(err));
         CHECK(!ok && strstr(err, k == 0 ? "too detailed" : "too much glass") != NULL, "a %s chamber: \"%s\"",
               k == 0 ? "pillared" : "glass-filled", ok ? "read" : err);
@@ -561,7 +746,7 @@ static void test_glass(void) {
     CHECK(d >= 0, "chamber 08 is there");
     if (d < 0) return;
     game_load(&g, demo_chamber(d));
-    g.pl.pos = v3(5.5f, 1.0f, 3.0f);
+    g.pl.pos          = v3(5.5f, 1.0f, 3.0f);
     vec3_t const eye  = player_eye(&g.pl);
     vec3_t const look = v3_norm(v3_sub(v3(5.5f, 2.5f, 11.0f), eye));
     portal_t     p;
@@ -589,7 +774,8 @@ static void test_legend(void) {
         snprintf(text, sizeof(text), "size: 4 3 4\nlayer 1\n####\n#%c.#\n#S.#\n####\n", c);
         bool const ok      = chamber_parse(text, &lv, NULL, NULL, err, sizeof(err));
         bool const unknown = !ok && strstr(err, "unknown cell") != NULL;
-        CHECK(known ? !unknown : unknown, "'%c' %s: %s", c, known ? "is in the legend but does not read" : "reads but is not in the legend", err);
+        CHECK(known ? !unknown : unknown, "'%c' %s: %s", c,
+              known ? "is in the legend but does not read" : "reads but is not in the legend", err);
     }
     // Eight doors, each with its button, all in one chamber.
     snprintf(text, sizeof(text), "size: 10 4 4\nlayer 1\n##########\n#abcdefgh#\n#12345678#\n####S#####\n");
@@ -599,7 +785,8 @@ static void test_legend(void) {
               strstr(err, "no door 'b'") != NULL,
           "a button without its door is reported: %s", err);
     // The old letters still read.
-    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#aB.#\n#S..#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) == false &&
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#aB.#\n#S..#\n#####\n", &lv, NULL, NULL, err, sizeof(err)) ==
+                  false &&
               strstr(err, "no door 'b'") != NULL,
           "old button B is button 2: %s", err);
 }
@@ -611,10 +798,10 @@ static void test_two_buttons(void) {
     game_load(&g, i);
     CHECK(g.lv.n_buttons == 2 && g.lv.buttons[0].link == g.lv.buttons[1].link, "chamber 10: two buttons for one door");
     game_input_t const idle = {0};
-    button_t*          b0 = &g.lv.buttons[0];
-    button_t*          b1 = &g.lv.buttons[1];
+    button_t*          b0   = &g.lv.buttons[0];
+    button_t*          b1   = &g.lv.buttons[1];
     // The player on one button: not enough.
-    g.pl.pos = v3((float)b0->x + 0.5f, (float)b0->y + 1.0f, (float)b0->z + 0.5f);
+    g.pl.pos                = v3((float)b0->x + 0.5f, (float)b0->y + 1.0f, (float)b0->z + 0.5f);
     for (int k = 0; k < 60; k++) game_step(&g, &idle, 0.02f);
     CHECK(b0->pressed && !b1->pressed && g.lv.doors[0].open == 0.0f, "one button of two: the door stays shut");
     // A cube on the other as well: open.
@@ -664,8 +851,9 @@ static void test_solutions_fps(void) {
             static demo_state_t st;
             demo_eval_dt(d, demo_duration(d), FPS_DT[k], &st);
             CHECK((st.events & PL_EV_EXIT) && !(st.events & PL_EV_DIED), "%s at %.0f fps: %s (at %.2f %.2f %.2f)",
-                  chamber_builtins[c].id, 1.0f / FPS_DT[k], (st.events & PL_EV_DIED) ? "died" : "never reached the exit",
-                  st.g.pl.pos.x, st.g.pl.pos.y, st.g.pl.pos.z);
+                  chamber_builtins[c].id, 1.0f / FPS_DT[k],
+                  (st.events & PL_EV_DIED) ? "died" : "never reached the exit", st.g.pl.pos.x, st.g.pl.pos.y,
+                  st.g.pl.pos.z);
         }
     }
 }
@@ -705,7 +893,7 @@ static void test_floor_portal(void) {
                   g.pl.pos.y, g.pl.pos.z);
         }
         // Walking over it, four ways.
-        float const yaws[] = {0.0f, 3.1415927f, 1.5707963f, -1.5707963f};
+        float const  yaws[] = {0.0f, 3.1415927f, 1.5707963f, -1.5707963f};
         vec3_t const from[] = {{5.5f, 1.0f, 3.8f}, {5.5f, 1.0f, 8.0f}, {3.8f, 1.0f, 6.0f}, {7.2f, 1.0f, 6.0f}};
         for (int w = 0; w < 4; w++) {
             grill_portals(&g);
@@ -714,7 +902,8 @@ static void test_floor_portal(void) {
             game_input_t const go = {.fwd = 1.0f};
             for (int i = 0; i < (int)(1.0f / dt); i++) game_step(&g, &go, dt);
             for (int i = 0; i < (int)(2.0f / dt); i++) game_step(&g, &idle, dt);
-            CHECK(!in_solid(&g.lv, player_box(&g.pl)), "%.0f fps: walked over the floor portal (way %d), ends inside a solid", 1.0f / dt, w);
+            CHECK(!in_solid(&g.lv, player_box(&g.pl)),
+                  "%.0f fps: walked over the floor portal (way %d), ends inside a solid", 1.0f / dt, w);
         }
     }
 }
@@ -723,12 +912,14 @@ static void test_floor_portal(void) {
 // with a portal on its far face, you cannot walk in from behind.
 static void test_portal_back(void) {
     static game_t g;
-    if (!load_text(&g, "size: 7 4 9\nfacing: south\n"
-                       "layer 1\n#######\n#.....#\n#..S..#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"
-                       "layer 2\n#######\n#.....#\n#.....#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"))
+    if (!load_text(&g,
+                   "size: 7 4 9\nfacing: south\n"
+                   "layer 1\n#######\n#.....#\n#..S..#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"
+                   "layer 2\n#######\n#.....#\n#.....#\n#.....#\n#WWWWW#\n#.....#\n#.....#\n#.....#\n#######\n"))
         return;
     // The wall is z = 4; its south face looks into the south room.
-    CHECK(portal_place_at(&g.lv, 3, 1, 4, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]), "back: portal on the wall's far face");
+    CHECK(portal_place_at(&g.lv, 3, 1, 4, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]),
+          "back: portal on the wall's far face");
     CHECK(portal_place_at(&g.lv, 1, 1, 4, DIR_NZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]), "back: second portal");
     g.pl.pos              = v3(3.5f, 1.0f, 6.5f);
     g.pl.yaw              = 3.1415927f;  // south, at the wall's back
@@ -785,7 +976,8 @@ static void test_fizzlers(void) {
     CHECK(game_use(&g) == GAME_EV_PICKUP, "fizzler: picked up the cube");
     for (int i = 0; i < 100; i++) game_step(&g, &go, 0.02f);
     vec3_t const home = g.lv.cubes[0];
-    CHECK(g.held < 0 && v3_len(v3_sub(g.cubes[0].body.pos, home)) < 0.05f, "fizzler: a carried cube goes back to its start");
+    CHECK(g.held < 0 && v3_len(v3_sub(g.cubes[0].body.pos, home)) < 0.05f,
+          "fizzler: a carried cube goes back to its start");
     // A free cube thrown into it, fast, at 10 fps.
     grill_portals(&g);
     g.cubes[0].body.pos = v3(4.5f, 1.4f, 4.0f);
@@ -795,8 +987,8 @@ static void test_fizzlers(void) {
     CHECK(fz, "fizzler: a cube at 20 m/s and 10 fps does not jump it");
     // The player, as fast.
     grill_portals(&g);
-    g.pl.pos = v3(4.5f, 1.0f, 4.0f);
-    g.pl.vel = v3(0.0f, 2.0f, 20.0f);
+    g.pl.pos       = v3(4.5f, 1.0f, 4.0f);
+    g.pl.vel       = v3(0.0f, 2.0f, 20.0f);
     g.pl.on_ground = false;
     for (int i = 0; i < 3; i++) game_step(&g, &(game_input_t){0}, 0.1f);
     CHECK(!g.portals[0].open, "fizzler: a player at 20 m/s and 10 fps does not jump it");
@@ -813,8 +1005,8 @@ static void test_faith_plate_fps(void) {
         jump_t const j = g.lv.jumps[0];
         g.pl.pos       = v3((float)j.x + 0.5f, (float)j.y + 1.0f, (float)j.z + 0.5f);
         // Where it comes down: the first step back on the ground once thrown.
-        bool   flew = false;
-        vec3_t land = g.pl.pos;
+        bool   flew    = false;
+        vec3_t land    = g.pl.pos;
         for (int i = 0; i < (int)(4.0f / dt); i++) {
             game_step(&g, &idle, dt);
             if (!g.pl.on_ground) flew = true;
@@ -824,8 +1016,8 @@ static void test_faith_plate_fps(void) {
             }
         }
         float const miss = v3_len(v3_sub(v3(land.x, 0, land.z), v3(j.target.x, 0, j.target.z)));
-        CHECK(flew && miss < 0.5f && fabsf(land.y - j.target.y) < 0.05f, "faith plate at %.0f fps: came down %.2f m off target",
-              1.0f / dt, miss);
+        CHECK(flew && miss < 0.5f && fabsf(land.y - j.target.y) < 0.05f,
+              "faith plate at %.0f fps: came down %.2f m off target", 1.0f / dt, miss);
     }
 }
 
@@ -838,15 +1030,17 @@ static void test_more_things(void) {
 
     // A cube being carried does not press a button, even held right on it.
     game_load(&g, demo_chamber(demo_find("04-button")));
-    button_t const* bt = &g.lv.buttons[0];
-    g.held             = 0;
+    button_t const* bt  = &g.lv.buttons[0];
+    g.held              = 0;
     g.cubes[0].body.pos = v3((float)bt->x + 0.5f, (float)bt->y + 1.05f, (float)bt->z + 0.5f);
     game_step(&g, &idle, 0.02f);
     CHECK(!g.lv.buttons[0].pressed, "a carried cube does not press a button");
 
     // The old button letter A is button 1.
-    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.A#\n#####\n", &a, NULL, NULL, err, sizeof(err)), "old A: %s", err);
-    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.1#\n#####\n", &b, NULL, NULL, err, sizeof(err)), "new 1: %s", err);
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.A#\n#####\n", &a, NULL, NULL, err, sizeof(err)),
+          "old A: %s", err);
+    CHECK(chamber_parse("size: 5 3 4\nlayer 1\n#####\n#.a.#\n#S.1#\n#####\n", &b, NULL, NULL, err, sizeof(err)),
+          "new 1: %s", err);
     CHECK(level_same(&a, &b), "old button A reads as button 1");
 
     // A floor portal moved while a cube is halfway into it: the cube is
@@ -862,7 +1056,7 @@ static void test_more_things(void) {
     // The moving platform stops a portal shot.
     game_load(&g, demo_chamber(demo_find("09-the-ferry")));
     g.pl.pos   = v3(5.0f, 2.0f, 3.0f);  // on the platform
-    g.pl.pitch = 1.45f;                   // looking straight down at it
+    g.pl.pitch = 1.45f;                 // looking straight down at it
     CHECK(!game_fire(&g, 0), "a shot at the moving platform places nothing");
 }
 
@@ -878,6 +1072,9 @@ int main(void) {
     test_legend();
     test_two_buttons();
     test_caps();
+    test_draft_keeps();
+    test_parse_rules();
+    test_draft_save();
     test_glass();
     test_things();
     test_frame_rates();
@@ -893,6 +1090,7 @@ int main(void) {
     test_chamber_write();
     test_draft();
     test_chamber_dir();
+    test_dir_limits();
     if (s_fail) {
         printf("%d check(s) failed\n", s_fail);
         return 1;

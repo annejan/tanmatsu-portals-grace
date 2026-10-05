@@ -1,7 +1,9 @@
 #include "draft.h"
+#include <ctype.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "chamber.h"
 
 #define DEG (3.14159265f / 180.0f)
@@ -49,10 +51,33 @@ void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
     draft_paint(d, w / 2, 1, dep / 2, 'S');
 }
 
-bool draft_from_text(draft_t* d, char const* id, char const* text) {
+// The solution section: from the line that reads "solution" and nothing
+// else, as the parser finds it. (A map row cannot read that: 's' is not a
+// cell, so in a file that parses this is the one.)
+static char const* solution_line(char const* text) {
+    for (char const* line = text; *line != '\0';) {
+        char const* const end = strchr(line, '\n');
+        char const*       a   = line;
+        char const*       b   = end != NULL ? end : line + strlen(line);
+        while (a < b && isspace((unsigned char)*a)) a++;
+        while (b > a && isspace((unsigned char)b[-1])) b--;
+        if (b - a == 8 && strncmp(a, "solution", 8) == 0) return line;
+        if (end == NULL) break;
+        line = end + 1;
+    }
+    return NULL;
+}
+
+bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, size_t err_n) {
     static level_t lv;  // static: a level is too big for the stack
-    char           err[96];
-    if (!chamber_parse(text, &lv, NULL, NULL, err, sizeof(err))) return false;
+    if (!chamber_parse(text, &lv, NULL, NULL, err, err_n)) return false;
+    // The solution, kept as text: the editor does not change it. Cut short,
+    // the file would no longer read back once saved.
+    char const* const sol = solution_line(text);
+    if (sol != NULL && strlen(sol) >= sizeof(d->solution)) {
+        snprintf(err, err_n, "its solution is longer than the editor keeps (%d bytes)", (int)sizeof(d->solution) - 1);
+        return false;
+    }
     memset(d, 0, sizeof(*d));
     snprintf(d->id, sizeof(d->id), "%s", id);
     snprintf(d->name, sizeof(d->name), "%s", lv.name);
@@ -64,13 +89,11 @@ bool draft_from_text(draft_t* d, char const* id, char const* text) {
     for (int y = 0; y < d->h; y++)
         for (int z = 0; z < d->d; z++)
             for (int x = 0; x < d->w; x++) d->grid[y][z][x] = chamber_cell_char(&lv, x, y, z);
-    // The solution, kept as text: the editor does not change it.
-    char const* s = strstr(text, "\nsolution");
-    if (s != NULL) snprintf(d->solution, sizeof(d->solution), "%s", s + 1);
+    if (sol != NULL) snprintf(d->solution, sizeof(d->solution), "%s", sol);
     return true;
 }
 
-int draft_text(draft_t const* d, char* out, size_t n) {
+static int write_text(draft_t const* d, char* out, size_t n, bool solution) {
     size_t len = 0;
 #define PUT(...)                                                                \
     do {                                                                        \
@@ -81,18 +104,11 @@ int draft_text(draft_t const* d, char* out, size_t n) {
     PUT("name: %s\n", d->name);
     if (d->hint[0]) PUT("hint: %s\n", d->hint);
     PUT("size: %d %d %d\n", d->w, d->h, d->d);
-    int deg = (int)lroundf(d->yaw / DEG);
-    deg     = ((deg % 360) + 360) % 360;
-    if (deg == 0)
-        PUT("facing: north\n");
-    else if (deg == 90)
-        PUT("facing: east\n");
-    else if (deg == 180)
-        PUT("facing: south\n");
-    else if (deg == 270)
-        PUT("facing: west\n");
+    char const* const facing = chamber_facing_name(d->yaw);
+    if (facing != NULL)
+        PUT("facing: %s\n", facing);
     else
-        PUT("facing: %d\n", deg);
+        PUT("facing: %g\n", (double)(d->yaw / DEG));
     for (int y = 0; y < d->h; y++) {
         bool metal = true;
         for (int z = 0; z < d->d && metal; z++)
@@ -102,21 +118,44 @@ int draft_text(draft_t const* d, char* out, size_t n) {
         PUT("\nlayer %d\n", y);
         for (int z = d->d - 1; z >= 0; z--) PUT("%.*s\n", d->w, d->grid[y][z]);
     }
-    if (d->solution[0]) PUT("\n%s", d->solution);
+    if (solution && d->solution[0]) PUT("\n%s", d->solution);
 #undef PUT
     return (int)len;
 }
 
+int draft_text(draft_t const* d, char* out, size_t n) {
+    return write_text(d, out, n, true);
+}
+
+int draft_save_text(draft_t const* d, char* out, size_t n, char* err, size_t err_n) {
+    static level_t check;  // static: a level is too big for the stack
+    int const      len = write_text(d, out, n, true);
+    if (len < 0) {
+        snprintf(err, err_n, "too big to write out");
+        return -1;
+    }
+    return chamber_parse(out, &check, NULL, NULL, err, err_n) ? len : -1;
+}
+
+void draft_fresh_id(char const* dir, char const* base, char* out, size_t n) {
+    for (int k = 0; k < 100; k++) {
+        if (base != NULL && k == 0)
+            snprintf(out, n, "my-%s", base);
+        else
+            snprintf(out, n, "my-%02d", k + (base == NULL ? 1 : 0));
+        char        path[192];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s.txt", dir, out);
+        if (chamber_find(out) < 0 && stat(path, &st) != 0) return;
+    }
+}
+
 bool draft_level(draft_t const* d, level_t* lv, char* err, size_t err_n) {
     static char text[24 * 1024];
-    if (draft_text(d, text, sizeof(text)) < 0) {
+    if (write_text(d, text, sizeof(text), false) < 0) {
         snprintf(err, err_n, "too big to write out");
         return false;
     }
-    // The solution may no longer fit the edited chamber; play-testing and
-    // checking the map does not need it.
-    char* s = strstr(text, "\nsolution");
-    if (s != NULL) s[1] = '\0';
     return chamber_parse(text, lv, NULL, NULL, err, err_n);
 }
 

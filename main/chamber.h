@@ -1,7 +1,9 @@
 #pragma once
 // Chambers as text files: chambers/*.txt, built into the app, and any
 // more the player puts in /sd/portals/chambers, which come after them.
-// Pure C (stdio and dirent only) -- the host tests read the same files.
+// Pure C -- the host tests read the same files. The directory is listed
+// with dirent on the host and FatFs on the badge (graceloader exports no
+// opendir).
 //
 // The format (chambers/README.md has the whole of it):
 //
@@ -26,7 +28,8 @@
 #include "level.h"
 #include "script.h"
 
-#define CHAMBER_MAX 40
+#define CHAMBER_MAX  40
+#define CHAMBER_ID_N 64  // an id is its file's name without .txt
 
 typedef struct {
     char const* id;  // file name without .txt, e.g. "01-gap"
@@ -73,7 +76,10 @@ static inline char chamber_button_char(int link) {
 }
 
 // The character a cell is written as ('#', 'W', 'S', 'a', '1', ...).
-char chamber_cell_char(level_t const* lv, int x, int y, int z);
+char        chamber_cell_char(level_t const* lv, int x, int y, int z);
+// "north", "east", "south" or "west" for a whole quarter turn, else NULL
+// (written in degrees).
+char const* chamber_facing_name(float yaw);
 
 // The list: built-ins first, then what chamber_load_dir() added.
 int         chamber_count(void);
