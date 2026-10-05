@@ -18,7 +18,7 @@
 #define BEAM_BURN      0.5f  // seconds in a laser beam a player survives
 // Every solid box a body can meet besides the grid: the other cubes, the
 // player, the platform, and the pieces of the light bridges.
-#define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS)
+#define GAME_MAX_BOXES (LV_MAX_CUBES + 2 + LV_MAX_BRIDGES * BEAM_SEGS + LV_MAX_BUTTONS)
 #define GEL_BLOBS      48     // gel in flight, at most
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
 

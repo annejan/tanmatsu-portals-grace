@@ -97,7 +97,7 @@ static void build_clear(level_t const* lv) {
                         int dx, dy, dz;
                         dir_step(face, &dx, &dy, &dz);
                         uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
-                        if (nb != MAT_AIR && nb != MAT_DOOR && nb != MAT_FIZZ) continue;
+                        if (nb != MAT_AIR && nb != MAT_DOOR && nb != MAT_FIZZ && nb != MAT_PEDESTAL) continue;
                         int const a = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
                         float     o[3] = {(float)x, (float)y, (float)z}, du[3] = {0}, dv[3] = {0};
                         if (face % 2 == 0) o[a] += 1.0f;
@@ -430,6 +430,37 @@ static void octagon(vec3_t c, vec3_t n, vec3_t u, vec3_t v, float r, uint32_t ar
     submit_poly(q, 8, n, cam, cs, NULL, argb, flags);
 }
 
+// A pedestal button: a foot, a slim post, a wide head, and on it a round
+// red button in a ring of eight blue lights -- one per eighth of the time,
+// going out one by one as it runs.
+static void submit_pedestal(button_t const* bt, float timer, cam_t const* cam, clipset_t const* cs) {
+    float const  x = (float)bt->x + 0.5f, y = (float)bt->y, z = (float)bt->z + 0.5f, top = y + 1.0f;
+    vec3_t const up = v3(0, 1, 0), ux = v3(1, 0, 0), uz = v3(0, 0, 1);
+    submit_box(v3(x - 0.3f, y, z - 0.3f), v3(x + 0.3f, y + 0.06f, z + 0.3f), cam, cs, NULL, 0xFF5C6066u, 0);
+    submit_box(v3(x - 0.1f, y, z - 0.1f), v3(x + 0.1f, top - 0.12f, z + 0.1f), cam, cs, NULL, 0xFF8A8E96u, 0);
+    submit_box(v3(x - 0.25f, top - 0.12f, z - 0.25f), v3(x + 0.25f, top, z + 0.25f), cam, cs, NULL, 0xFFB4B8BEu, 0);
+    // The timer's ring, on the head round the button.
+    int const lit = bt->timer_left > 0.0f && timer > 0.0f ? (int)ceilf(8.0f * bt->timer_left / timer) : 0;
+    for (int k = 0; k < 8; k++) {
+        float const   a0 = (float)k * 0.78539816f + 0.05f, a1 = (float)(k + 1) * 0.78539816f - 0.05f;
+        float const   r0 = 0.17f, r1 = 0.23f, h = top + 0.004f;
+        cvert_t const q[4] = {
+            {v3(x + r0 * cosf(a0), h, z + r0 * sinf(a0)), 0, 0},
+            {v3(x + r1 * cosf(a0), h, z + r1 * sinf(a0)), 0, 0},
+            {v3(x + r1 * cosf(a1), h, z + r1 * sinf(a1)), 0, 0},
+            {v3(x + r0 * cosf(a1), h, z + r0 * sinf(a1)), 0, 0},
+        };
+        bool const on = k < lit;
+        submit_poly(q, 4, up, cam, cs, NULL, on ? 0xFF2C8CFFu : 0xFF30343Au, on ? SE_TRI_EMISSIVE : 0);
+    }
+    // The button: down and glowing while it holds the door.
+    float const h = bt->pressed ? 0.025f : 0.06f;
+    submit_box(v3(x - 0.12f, top, z - 0.12f), v3(x + 0.12f, top + h, z + 0.12f), cam, cs, NULL,
+               bt->pressed ? 0xFFC02818u : 0xFF901E10u, 0);
+    octagon(v3(x, top + h + 0.002f, z), up, ux, uz, 0.15f, bt->pressed ? 0xFFFF6040u : 0xFFB02818u,
+            bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
@@ -456,19 +487,16 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
     for (int i = 0; i < g->lv.n_buttons; i++) {
         button_t const* bt = &g->lv.buttons[i];
         float const     x = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
+        if (bt->pedestal) {
+            submit_pedestal(bt, g->lv.timer, cam, cs);
+            continue;
+        }
         submit_box(v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.04f, z + 0.95f), cam, cs, NULL, 0xFF5C6066u, 0);
         float const    h   = bt->pressed ? 0.06f : 0.12f;
         // Red for anyone, blue for a cube only.
         uint32_t const lit = bt->cube_only ? 0xFF40A0FFu : 0xFFFF6040u, off = bt->cube_only ? 0xFF1C4C90u : 0xFFB02818u;
         submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL, bt->pressed ? lit : off,
                    bt->pressed ? SE_TRI_EMISSIVE : 0);
-        // A pedestal button's time left: a blue bar along the pad that
-        // shrinks as it runs out.
-        if (bt->pedestal && bt->timer_left > 0.0f && g->lv.timer > 0.0f) {
-            float const len = 0.8f * bt->timer_left / g->lv.timer;
-            submit_box(v3(x + 0.1f, top, z + 0.06f), v3(x + 0.1f + len, top + 0.05f, z + 0.14f), cam, cs, NULL,
-                       0xFF2C8CFFu, SE_TRI_EMISSIVE);
-        }
     }
     // Lasers: the emitter's lens, and the beam as traced last step.
     for (int k = 0; k < g->lv.n_lasers; k++) {

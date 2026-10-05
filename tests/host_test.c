@@ -571,6 +571,15 @@ static void test_pedestal_dropper(void) {
     int ev              = game_step(&g, &idle, 0.02f);
     CHECK((ev & GAME_EV_DROPPER) && g.cubes[0].body.pos.y > 3.0f, "a lost cube drops out of the dropper again");
 
+    // The pedestal is a slim post: it stops you, about where it is drawn.
+    game_load(&g, c);
+    button_t const* pp = &g.lv.buttons[1];
+    g.pl.pos           = v3((float)pp->x + 2.5f, 1.0f, (float)pp->z + 0.5f);
+    g.pl.yaw           = -1.5707963f;  // west, straight at it
+    for (int i = 0; i < 100; i++) game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+    CHECK(fabsf(g.pl.pos.x - ((float)pp->x + 0.75f + PL_HALF_W)) < 0.05f,
+          "walking into a pedestal stops at its post (x %.2f)", g.pl.pos.x);
+    game_load(&g, c);
     // A cube resting on the pedestal's pad does not press it; Use does.
     button_t const* pb  = &g.lv.buttons[1];
     g.cubes[0].body.pos = v3((float)pb->x + 0.5f, (float)pb->y + 1.0f, (float)pb->z + 0.5f);

@@ -172,6 +172,13 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
         if (i != skip && i != g->held) out[n++] = cube_aabb(&g->cubes[i]);
     if (skip >= 0 && skip != g->held) out[n++] = player_aabb(&g->pl);
     if (g->lv.n_platforms) out[n++] = platform_aabb(g);
+    // A pedestal: its post and head, half a cell across.
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        button_t const* bt = &g->lv.buttons[b];
+        if (!bt->pedestal) continue;
+        float const x = (float)bt->x, y = (float)bt->y, z = (float)bt->z;
+        out[n++] = (aabb_t){v3(x + 0.25f, y, z + 0.25f), v3(x + 0.75f, y + 1.0f, z + 0.75f)};
+    }
     // A light bridge: a slab 1 m wide and a few cm thick under its line.
     for (int k = 0; k < g->lv.n_bridges; k++)
         for (int i = 0; i < g->bridge_n[k]; i++) {
