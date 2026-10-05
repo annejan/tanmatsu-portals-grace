@@ -69,12 +69,13 @@ def goo(rng):
 
 
 def exit_pad(rng):
-    """Green glow with chevrons."""
+    """Green glow with chevrons. Their period divides N both ways, so the
+    pad tiles without a seam across the cells of a wide exit."""
     img = Image.new("RGB", (N, N))
     px = img.load()
     for y in range(N):
         for x in range(N):
-            stripe = (y + abs(x - N // 2)) % 12 < 4
+            stripe = (y + abs(x - N // 2)) % 16 < 5
             g = 220 if stripe else 150
             px[x, y] = (40, g, clamp(70 + rng.uniform(-8, 8)))
     return img
