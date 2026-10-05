@@ -152,6 +152,7 @@ enum {
     SET_DEPTH,
     SET_MUSIC,
     SET_SFX,
+    SET_VOICE,
     SET_LEDS,
     SET_VOLUME,
     SET_SCREEN,
@@ -220,6 +221,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                 (se_menu_row_t){.label = "Music", .kind = SE_MENU_VAL_CHECK, .checked = settings_music()};
             s_set_rows[SET_SFX] =
                 (se_menu_row_t){.label = "Sound effects", .kind = SE_MENU_VAL_CHECK, .checked = settings_effects()};
+            s_set_rows[SET_VOICE] =
+                (se_menu_row_t){.label = "GLaDOS voice", .kind = SE_MENU_VAL_CHECK, .checked = settings_voice()};
             s_set_rows[SET_LEDS] =
                 (se_menu_row_t){.label = "Portal LEDs", .kind = SE_MENU_VAL_CHECK, .checked = settings_leds()};
             s_set_rows[SET_VOLUME] =
@@ -338,6 +341,9 @@ menu_cmd_t menu_update(void) {
             } else if (cur == SET_SFX && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_effects(!settings_effects());
                 sound_set_effects(settings_effects());
+            } else if (cur == SET_VOICE && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_voice(!settings_voice());
+                sound_set_voice(settings_voice());
             } else if (cur == SET_LEDS && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_leds(!settings_leds());
             } else if (cur == SET_DEPTH && (r == SE_MENU_RESULT_ACTIVATED || (act & A_RIGHT))) {

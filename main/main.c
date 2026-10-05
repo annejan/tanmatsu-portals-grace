@@ -88,10 +88,12 @@ static void personalise(char* story, size_t n) {
 }
 
 static void load_chamber(int index) {
-    if (index != s_story_of) s_story_t = 0.0f;
+    bool const fresh = index != s_story_of;  // a restart does not tell it again
+    if (fresh) s_story_t = 0.0f;
     s_story_of = index;
     game_load(&s_game, index);
     personalise(s_game.lv.story, sizeof(s_game.lv.story));
+    if (fresh) sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
     render_set_level(&s_game.lv, s_game.portals);
     ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
 }
@@ -173,6 +175,7 @@ static void on_init(void* user) {
     sound_init();
     sound_set_music(settings_music());
     sound_set_effects(settings_effects());
+    sound_set_voice(settings_voice());
     load_chamber(0);
     message(s_game.lv.name);
     devtest_start(&TEST);
@@ -184,6 +187,7 @@ static void start_playtest(void) {
     personalise(s_game.lv.story, sizeof(s_game.lv.story));
     s_story_t  = 0.0f;
     s_story_of = -1;
+    sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
     render_set_level(&s_game.lv, s_game.portals);
     s_mode      = MODE_TEST;
     s_test_back = false;
@@ -241,6 +245,7 @@ static void menu_frame(void) {
             s_mode = MODE_EDIT;
             break;
         case MENU_CMD_QUIT:
+            sound_say(NULL);
             leds_release();          // the system LEDs back to the coprocessor
             audio_mixer_shutdown();  // se_audio.h: before the restart, or the speaker buzzes
             bsp_device_restart_to_launcher();
@@ -260,6 +265,7 @@ static void on_update(float dt, void* user) {
         leds_portals(s_game.portals[0].open, s_game.portals[1].open);
     else
         leds_release();
+    sound_update();  // GLaDOS: her next sentence
     static float clock = 0.0f;
     clock              = fmodf(clock + dt, 3600.0f);  // the goo and fizzlers move by it
     render_set_time(clock);
@@ -405,7 +411,8 @@ static void hud(pax_buf_t* fb) {
 static void draw_story(pax_buf_t* fb) {
     char const* story = s_game.lv.story;
     int const   len   = (int)strlen(story);
-    if (len == 0 || s_story_t > (float)len / STORY_CPS + STORY_HOLD) return;
+    // Up while it types, a while after, and as long as GLaDOS is still saying it.
+    if (len == 0 || (s_story_t > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) return;
     int shown = (int)(s_story_t * STORY_CPS);
     if (shown > len) shown = len;
     enum {

@@ -16,6 +16,8 @@ bool settings_music(void);
 void settings_set_music(bool on);
 bool settings_effects(void);
 void settings_set_effects(bool on);
+bool settings_voice(void);  // GLaDOS reads the story lines out
+void settings_set_voice(bool on);
 bool settings_leds(void);  // the portals on user LEDs A and B
 void settings_set_leds(bool on);
 int  settings_portal_depth(void);

@@ -1,0 +1,59 @@
+# Licensing of every file, by path (https://reuse.software). Later
+# annotations take precedence over earlier ones for the files they match.
+version = 1
+
+# This project. (include/ is not ours: those headers come with the
+# Graceloader SDK and carry their own licensing.)
+[[annotations]]
+path = [
+    "main/**",
+    "tests/**",
+    "tools/**",
+    "chambers/**",
+    "textures/**",
+    "metadata/**",
+    "LICENSES/**",
+    "README.md",
+    "REUSE.toml",
+    ".gitmodules",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = "2026 Anne Jan Brouwer"
+SPDX-License-Identifier = "MIT"
+
+# The Graceloader app template it started from (Rene Schickbauer's, itself
+# from Nicolai Electronics' tanmatsu-template), MIT per its README.
+[[annotations]]
+path = [
+    "main/testkit/**",
+    "main/crt0.c",
+    "main/app_version.h.in",
+    "tools/testrun.py",
+    "tools/recover.py",
+    "tools/extract_headers.sh",
+    "tools/badgelink_retry.sh",
+    "app.ld",
+    "app_version.script",
+    "toolchain-app.cmake",
+    ".clangd",
+    ".clang-format",
+    ".vscode.template/**",
+    "fakelib/**",
+    "Makefile",
+    "CMakeLists.txt",
+    ".gitignore",
+]
+precedence = "closest"
+SPDX-FileCopyrightText = ["2025 Nicolai Electronics", "2026 Rene Schickbauer"]
+SPDX-License-Identifier = "MIT"
+
+# SAM: no license at all. See third_party/sam/README.md.
+[[annotations]]
+path = ["third_party/sam/**"]
+precedence = "override"
+SPDX-FileCopyrightText = [
+    "1982 Don't Ask Software",
+    "2017 Sebastian Macke",
+    "2026 Anne Jan Brouwer",
+]
+SPDX-License-Identifier = "LicenseRef-SAM-Abandonware"

@@ -37,3 +37,11 @@ void sound_events(int ev);
 // Gates, from the settings.
 void sound_set_music(bool on);
 void sound_set_effects(bool on);
+void sound_set_voice(bool on);
+
+// GLaDOS says a line (speech.c, SAM's voice), a sentence at a time; a new
+// line cuts the old one off. NULL just stops.
+void sound_say(char const* line);
+bool sound_saying(void);
+// Once a frame: the next sentence, when the last has been said.
+void sound_update(void);

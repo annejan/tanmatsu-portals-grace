@@ -26,7 +26,21 @@ set(APP_SOURCES
     main/render.c
     main/settings.c
     main/sound.c
+    main/speech.c
 )
+
+# SAM, the C64's Software Automatic Mouth: GLaDOS's voice (main/speech.c).
+# Third-party code with no license of its own: see third_party/sam/README.md.
+# Old C: its files share globals the C64 way (-fcommon), and its warnings
+# are its own.
+set(SAM_SOURCES
+    third_party/sam/sam.c
+    third_party/sam/render.c
+    third_party/sam/reciter.c
+    third_party/sam/debug.c
+)
+list(APPEND APP_SOURCES ${SAM_SOURCES})
+set_source_files_properties(${SAM_SOURCES} PROPERTIES COMPILE_OPTIONS "-w;-fcommon")
 
 # Automated device tests (main/testkit/, README "Device tests"): perf and
 # shots of the scripted demos in main/demo.c, driven over the debug console.

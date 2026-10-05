@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include "game.h"
+#include "speech.h"
 #include "synthengine3d.h"
 
 #define SR       ((float)AUDIO_SAMPLE_RATE_HZ)
@@ -172,6 +173,83 @@ void sound_events(int ev) {
     if (ev & PL_EV_BOUNCE) sound_play(SND_BOUNCE);
     if (ev & GAME_EV_PELLET) sound_play(SND_PELLET);
     if (ev & GAME_EV_CAUGHT) sound_play(SND_CAUGHT);
+}
+
+// --- GLaDOS ---------------------------------------------------------------
+//
+// One voice, playing a piece SAM rendered (speech.c) at 22050 Hz, stepped
+// to the mixer's rate. A piece is rendered here, on the game's task, only
+// once the mixer has dropped the voice playing the last one -- SAM reuses
+// nothing, but its buffer must outlive the playing.
+
+#define SAY_PIECES 8
+#define SAY_GAIN   180  // 8-bit to 16-bit, with room for the effects
+
+typedef struct {
+    sfx_voice_t    base;  // first
+    uint8_t const* pcm;
+    uint32_t       n;          // samples
+    uint32_t       pos, step;  // 16.16 fixed point, in SAM's samples
+    bool           used;
+    volatile bool  reaped;
+} say_t;
+
+static say_t s_say;
+static bool  s_voice_on = true;
+static char  s_pieces[SAY_PIECES][SPEECH_MAX];
+static int   s_n_pieces, s_next;
+
+static void say_render(sfx_voice_t* self, int16_t* out, size_t frames) {
+    say_t* v = (say_t*)self;
+    for (size_t i = 0; i < frames; i++) {
+        uint32_t const k = v->pos >> 16;
+        if (k >= v->n) {
+            self->finished = true;
+            return;
+        }
+        int16_t const o  = (int16_t)(((int)v->pcm[k] - 128) * SAY_GAIN);
+        out[2 * i]       = o;
+        out[2 * i + 1]   = o;
+        v->pos          += v->step;
+    }
+}
+
+static void say_reaped(sfx_voice_t* self) {
+    ((say_t*)self)->reaped = true;
+}
+
+static bool say_busy(void) {
+    return s_say.used && !s_say.reaped;
+}
+
+void sound_say(char const* line) {
+    if (say_busy()) audio_mixer_stop_voice(&s_say.base);
+    s_n_pieces = line != NULL && s_voice_on ? speech_split(line, s_pieces, SAY_PIECES) : 0;
+    s_next     = 0;
+}
+
+bool sound_saying(void) {
+    return say_busy() || s_next < s_n_pieces;
+}
+
+void sound_update(void) {
+    if (say_busy() || s_next >= s_n_pieces) return;
+    int                  n   = 0;
+    uint8_t const* const pcm = speech_render(s_pieces[s_next++], &n);  // frees the last piece's sound
+    if (pcm == NULL || n <= 0) return;
+    memset(&s_say, 0, sizeof(s_say));
+    s_say.base.render   = say_render;
+    s_say.base.shutdown = say_reaped;
+    s_say.base.group    = GROUP_FX;
+    s_say.pcm           = pcm;
+    s_say.n             = (uint32_t)n;
+    s_say.step          = (uint32_t)((float)SPEECH_RATE / SR * 65536.0f);
+    s_say.used          = audio_mixer_register_voice(&s_say.base);
+}
+
+void sound_set_voice(bool on) {
+    s_voice_on = on;
+    if (!on) sound_say(NULL);
 }
 
 // --- Music ----------------------------------------------------------------

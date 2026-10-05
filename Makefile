@@ -93,6 +93,13 @@ check: chambers_c host_shot
 	# shadow nothing) and tests/shims for the ESP-IDF bits those want.
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Itests/shims $(HOST_ENGINE) -Imain -idirafter include tests/host_input.c -lm -o $(BUILD)/host_input
 	$(BUILD)/host_input
+	# SAM (third_party/sam) speaking every built-in story: GLaDOS's voice.
+	$(HOSTCC) -O1 -g -Imain -fcommon -w -c third_party/sam/sam.c -o $(BUILD)/sam_sam.o
+	$(HOSTCC) -O1 -g -fcommon -w -c third_party/sam/render.c -o $(BUILD)/sam_render.o
+	$(HOSTCC) -O1 -g -fcommon -w -c third_party/sam/reciter.c -o $(BUILD)/sam_reciter.o
+	$(HOSTCC) -O1 -g -fcommon -w -c third_party/sam/debug.c -o $(BUILD)/sam_debug.o
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain -fcommon tests/host_speech.c main/speech.c $(HOST_SRCS) $(BUILD)/sam_*.o -lm -o $(BUILD)/host_speech
+	$(BUILD)/host_speech
 	tests/p4port_test.sh
 
 # Needs Pillow for the PNGs. Each run's PPMs are converted and removed.

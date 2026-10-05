@@ -59,7 +59,9 @@ The menu has:
 
 - **Chamber select**.
 - **Settings**: gyroscope, quarter resolution, portal depth (1 to 3), music,
-  sound effects, portal LEDs, volume, screen brightness, keyboard light.
+  sound effects, GLaDOS voice, portal LEDs, volume, screen brightness,
+  keyboard light. GLaDOS reads each chamber's story line out, in SAM's
+  voice.
   With Portal LEDs on, the badge's user LEDs show the portals while you
   play: A orange while the orange portal is open, B blue for the blue one.
   The system LEDs are dark meanwhile, and come back when you quit.
@@ -200,4 +202,15 @@ brings in graceloader's symbol-export updates.
 
 ## License
 
-MIT, like the template.
+MIT, like the template, except for SAM, below. The licensing of each file
+is in `REUSE.toml` and `LICENSES/`, following [REUSE](https://reuse.software).
+The headers in `include/` come with the Graceloader SDK and keep their own
+licenses; some of them do not say which yet.
+
+**GLaDOS's voice is SAM**, the Software Automatic Mouth: the C64's speech
+program from 1982, in Sebastian Macke's reverse-engineered C port
+(`third_party/sam/`). SAM has no license: Don't Ask Software, who sold it,
+no longer exists, and the port's author cannot license it. It is included
+as it is and is not covered by the MIT license; see
+`LICENSES/LicenseRef-SAM-Abandonware.txt` and `third_party/sam/README.md`.
+Settings → GLaDOS voice turns it off.
