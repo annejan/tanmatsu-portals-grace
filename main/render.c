@@ -200,16 +200,23 @@ static void emit(cvert_t const* v, int n, material_info_t const* m, uint32_t arg
 }
 
 // A quad, if it faces the eye, clipped to `cs` when there is one.
-static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
-                        uint32_t argb, uint32_t flags) {
+// A convex polygon of `n` corners facing `n`ormal: dropped if it faces
+// away from the eye, clipped to `cs`, and drawn.
+static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, clipset_t const* cs,
+                        material_info_t const* m, uint32_t argb, uint32_t flags) {
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
     if (cs == NULL) {
-        emit(q, 4, m, argb, flags);
+        emit(q, nq, m, argb, flags);
         return;
     }
     cvert_t   out[CLIP_MAX_VERTS];
-    int const k = clip_polygon(cs, q, 4, out);
+    int const k = clip_polygon(cs, q, nq, out);
     if (k >= 3) emit(out, k, m, argb, flags);
+}
+
+static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
+                        uint32_t argb, uint32_t flags) {
+    submit_poly(q, 4, n, cam, cs, m, argb, flags);
 }
 
 static void submit_level(cam_t const* cam, clipset_t const* cs) {
@@ -338,13 +345,72 @@ static void lens(vec3_t c, vec3_t d, float half, uint32_t argb, cam_t const* cam
     submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, argb, SE_TRI_EMISSIVE);
 }
 
+// A cube with its edges and corners bevelled off, `k` deep: six faces
+// (textured, when `m` has a texture), twelve edge strips and eight corner
+// triangles in `bevel`.
+static void submit_cube(aabb_t const* b, float k, cam_t const* cam, clipset_t const* cs, material_info_t const* m,
+                        uint32_t argb, uint32_t bevel) {
+    vec3_t const c = v3_scale(v3_add(b->lo, b->hi), 0.5f);
+    float const  h = (b->hi.x - b->lo.x) * 0.5f, in = h - k;
+    // A point of the cube from its centre: the three offsets.
+#define P(x, y, z) (cvert_t){v3_add(c, v3(x, y, z)), 0, 0}
+    for (int a = 0; a < 3; a++)
+        for (int s = -1; s <= 1; s += 2) {
+            int const   ua = (a + 1) % 3, va = (a + 2) % 3;
+            float       o[4][3];
+            float const us[4] = {-in, in, in, -in}, vs[4] = {-in, -in, in, in};
+            cvert_t     q[4];
+            for (int i = 0; i < 4; i++) {
+                o[i][a]  = (float)s * h;
+                o[i][ua] = us[i];
+                o[i][va] = vs[i];
+                q[i]     = (cvert_t){v3_add(c, v3(o[i][0], o[i][1], o[i][2])), i == 1 || i == 2 ? 1.0f : 0.0f,
+                                     i >= 2 ? 1.0f : 0.0f};
+            }
+            float nn[3] = {0};
+            nn[a]       = (float)s;
+            submit_poly(q, 4, v3(nn[0], nn[1], nn[2]), cam, cs, m, argb, 0);
+        }
+    // The edges: along each axis w, between faces a and b at signs sa, sb.
+    for (int w = 0; w < 3; w++) {
+        int const a = (w + 1) % 3, bb = (w + 2) % 3;
+        for (int sa = -1; sa <= 1; sa += 2)
+            for (int sb = -1; sb <= 1; sb += 2) {
+                float       o[4][3];
+                cvert_t     q[4];
+                float const pa[4] = {(float)sa * h, (float)sa * h, (float)sa * in, (float)sa * in};
+                float const pb[4] = {(float)sb * in, (float)sb * in, (float)sb * h, (float)sb * h};
+                float const pw[4] = {-in, in, in, -in};
+                for (int i = 0; i < 4; i++) {
+                    o[i][a]  = pa[i];
+                    o[i][bb] = pb[i];
+                    o[i][w]  = pw[i];
+                    q[i]     = (cvert_t){v3_add(c, v3(o[i][0], o[i][1], o[i][2])), 0, 0};
+                }
+                float nn[3] = {0};
+                nn[a]       = (float)sa;
+                nn[bb]      = (float)sb;
+                submit_poly(q, 4, v3(nn[0], nn[1], nn[2]), cam, cs, NULL, bevel, 0);
+            }
+    }
+    // The corners.
+    for (int sx = -1; sx <= 1; sx += 2)
+        for (int sy = -1; sy <= 1; sy += 2)
+            for (int sz = -1; sz <= 1; sz += 2) {
+                float const   x = (float)sx, y = (float)sy, z = (float)sz;
+                cvert_t const q[3] = {P(x * h, y * in, z * in), P(x * in, y * h, z * in), P(x * in, y * in, z * h)};
+                submit_poly(q, 3, v3(x, y, z), cam, cs, NULL, bevel, 0);
+            }
+#undef P
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         aabb_t const b = cube_aabb(&g->cubes[i]);
         if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
-            submit_box(b.lo, b.hi, cam, cs, NULL, 0xFFA48A8Au, 0);
+            submit_cube(&b, 0.07f, cam, cs, NULL, 0xFFA48A8Au, 0xFF8A7070u);
         else
-            submit_box(b.lo, b.hi, cam, cs, &s_cube, s_cube.argb, 0);
+            submit_cube(&b, 0.07f, cam, cs, &s_cube, s_cube.argb, 0xFF6E7278u);
     }
     // The moving platform: a metal slab with a glowing edge.
     if (g->lv.n_platforms) {
