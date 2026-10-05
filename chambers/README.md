@@ -117,6 +117,7 @@ cells are metal.
 | `T` | a faith plate's target: the air cell where it lands you. The first `J` goes with the first `T`, in reading order (layer by layer upwards, each layer top line first, left to right). |
 | `M` | a moving platform: a box of `M` cells where it starts. It is solid, and what stands on it rides along. |
 | `I` | a pedestal: a solid block, waist high. A button digit on top of it is a pedestal button. You press it with Use, and it stays down for `timer` seconds, ticking. Standing on it or putting a cube on it does nothing. |
+| `K` | a cube button base: floor that takes no portal. A button digit on top of it is a cube button, drawn blue: only a cube presses it, not the player. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

@@ -54,6 +54,7 @@ chamber_glyph_t const chamber_legend[] = {
     {'N', "platform goes to", GLYPH_PLATFORM_END, MAT_AIR, 0, 'N', 0xFF2C5C9Cu},
     {'I', "pedestal", GLYPH_CELL, MAT_PEDESTAL, 0, 'I', 0xFF7A7E86u},
     {'V', "cube dropper", GLYPH_DROPPER, MAT_DROPPER, 0, 'V', 0xFF50402Au},
+    {'K', "cube button base", GLYPH_CELL, MAT_CUBEBASE, 0, 'K', 0xFF4A5A78u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -435,7 +436,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         uint8_t const   m = level_get(lv, b->x, b->y, b->z);
         if (m == MAT_AIR || m == MAT_DOOR || m == MAT_FIZZ)
             return fail(&c, "button '%c' has nothing under it", chamber_button_char(b->link));
-        lv->buttons[i].pedestal = m == MAT_PEDESTAL;
+        lv->buttons[i].pedestal  = m == MAT_PEDESTAL;
+        lv->buttons[i].cube_only = m == MAT_CUBEBASE;
         if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }

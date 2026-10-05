@@ -434,7 +434,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             down               = bt->timer_left > 0.0f;
             if (down && ceilf(bt->timer_left) != ceilf(before)) ev |= GAME_EV_TICK;
         } else {
-            down = on_button(bt, &pa);
+            down = !bt->cube_only && on_button(bt, &pa);
             for (int i = 0; i < g->n_cubes && !down; i++) {
                 aabb_t const c = cube_aabb(&g->cubes[i]);
                 down           = i != g->held && on_button(bt, &c);

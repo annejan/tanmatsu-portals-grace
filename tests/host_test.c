@@ -550,6 +550,17 @@ static void test_pedestal_dropper(void) {
     game_load(&g, c);
     CHECK(g.lv.n_buttons == 2 && !g.lv.buttons[0].pedestal && g.lv.buttons[1].pedestal,
           "a floor button and a pedestal");
+    CHECK(g.lv.buttons[0].cube_only && !g.lv.buttons[1].cube_only, "the floor button is for a cube only");
+    // The player standing on a cube button: nothing. The cube on it: down.
+    button_t const* fb = &g.lv.buttons[0];
+    g.pl.pos           = v3((float)fb->x + 0.5f, 1.0f, (float)fb->z + 0.5f);
+    for (int i = 0; i < 10; i++) game_step(&g, &idle, 0.02f);
+    CHECK(!g.lv.buttons[0].pressed, "the player does not press a cube button");
+    game_load(&g, c);
+    g.cubes[0].body.pos = v3((float)fb->x + 0.5f, 1.0f, (float)fb->z + 0.5f);
+    for (int i = 0; i < 10; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.lv.buttons[0].pressed, "a cube does");
+    game_load(&g, c);
     CHECK(fabsf(g.lv.timer - 3.0f) < 1e-6f && g.lv.story[0] != '\0', "timer 3 and a story");
     CHECK(g.n_cubes == 1 && g.lv.cube_drop[0] && g.cubes[0].body.pos.y > 3.0f, "the cube starts in the dropper");
     for (int i = 0; i < 100; i++) game_step(&g, &idle, 0.02f);

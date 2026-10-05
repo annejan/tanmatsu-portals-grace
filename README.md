@@ -76,7 +76,7 @@ far side.
 | 1 – 9 | select a brush: metal, white, air, goo, exit, door, button, cube, start. Press 6 or 7 again to step through the doors `a`–`h` / their buttons `1`–`8`. |
 | 0 - = T | select a brush: glass, fizzler, faith plate, plate target |
 | M N | select a brush: moving platform, where it goes |
-| I V | select a brush: pedestal (put a button on top), cube dropper |
+| I V K | select a brush: pedestal (put a button on top), cube dropper, cube button base (likewise) |
 | Space | paint. Hold it while you move to paint a line. |
 | B | press it at one corner, then at the other corner, to fill a rectangle |
 | Backspace | erase (set the cell to air) |

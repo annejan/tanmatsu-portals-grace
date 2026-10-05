@@ -28,6 +28,7 @@ static material_info_t s_mat[MAT_COUNT] = {
     // Flat colours: the pedestal a light grey block, the dropper dark.
     [MAT_PEDESTAL] = {NULL, 0xFF7A7E86u, 0, NULL},
     [MAT_DROPPER]  = {NULL, 0xFF34363Bu, 0, NULL},
+    [MAT_CUBEBASE] = {NULL, 0xFF3E4A60u, 0, NULL},
 };
 
 static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
@@ -328,9 +329,11 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         button_t const* bt = &g->lv.buttons[i];
         float const     x = (float)bt->x, z = (float)bt->z, top = (float)bt->y + 1.0f;
         submit_box(v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.04f, z + 0.95f), cam, cs, NULL, 0xFF5C6066u, 0);
-        float const h = bt->pressed ? 0.06f : 0.12f;
-        submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL,
-                   bt->pressed ? 0xFFFF6040u : 0xFFB02818u, bt->pressed ? SE_TRI_EMISSIVE : 0);
+        float const    h   = bt->pressed ? 0.06f : 0.12f;
+        // Red for anyone, blue for a cube only.
+        uint32_t const lit = bt->cube_only ? 0xFF40A0FFu : 0xFFFF6040u, off = bt->cube_only ? 0xFF1C4C90u : 0xFFB02818u;
+        submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL, bt->pressed ? lit : off,
+                   bt->pressed ? SE_TRI_EMISSIVE : 0);
         // A pedestal button's time left: a blue bar along the pad that
         // shrinks as it runs out.
         if (bt->pedestal && bt->timer_left > 0.0f && g->lv.timer > 0.0f) {

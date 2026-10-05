@@ -25,6 +25,7 @@ typedef enum {
     MAT_JUMP,      // a faith plate: a floor that launches (see jump_t)
     MAT_PEDESTAL,  // a waist-high block a pedestal button stands on
     MAT_DROPPER,   // a hatch in the ceiling that cubes drop out of
+    MAT_CUBEBASE,  // a floor a cube button stands on
     MAT_COUNT,
 } material_t;
 
@@ -74,12 +75,13 @@ typedef struct {
 // A button on top of the solid cell (x, y, z). On the floor it is pressed
 // while the player or a cube stands on it. On a pedestal (MAT_PEDESTAL
 // under it) it is pressed with Use, and stays down for the level's
-// `timer` seconds.
+// `timer` seconds. On a cube base (MAT_CUBEBASE) only a cube presses it.
 typedef struct {
     int   x, y, z;
     int   link;
     bool  pressed;     // state, set by the game
     bool  pedestal;    // on a pedestal: pressed by hand, for a while
+    bool  cube_only;   // on a cube base: the player does not press it
     float timer_left;  // state: a pedestal button's seconds still to go
 } button_t;
 
