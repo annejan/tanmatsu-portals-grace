@@ -7,4 +7,4 @@ use
 look 6.5 1.0 4.0
 walk_to 6.5 4.5
 walk_to 3.67 4.87
-walk_to 3.0 8.5
+walk_to 3.41 8.5

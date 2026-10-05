@@ -4,7 +4,8 @@
 //   host_tas [-dt SECONDS | -jitter SEED] DEMO...
 //
 // at 50 steps a second; with -dt at another rate; with -jitter, each step
-// a random 1/30 to 1/15 s, as the badge's frames come.
+// a random 1/30 to 1/8 s, as the badge's frames come (it plays the TAS
+// at about 10 a second).
 // prints, per demo, its time to the exit, or FAIL: if it never gets there,
 // or the player dies first. PORTALS_CHAMBERS adds chambers from a
 // directory, as the SD card would: the TAS chambers.
@@ -55,11 +56,10 @@ int main(int argc, char** argv) {
             demo_player_start(&p, demo_steps(i));
             unsigned seed = jitter;
             for (float now = 0.0f; now < 120.0f && r.exit < 0.0f && !r.died;) {
-                seed = seed * 1103515245u + 12345u;
-                float const ft =
-                    1.0f / 30.0f + (1.0f / 15.0f - 1.0f / 30.0f) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
-                int const ev  = demo_player_step(&p, &st.g, ft, 0.0f);
-                now          += ft;
+                seed           = seed * 1103515245u + 12345u;
+                float const ft = 1.0f / 30.0f + (1.0f / 8.0f - 1.0f / 30.0f) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
+                int const   ev = demo_player_step(&p, &st.g, ft, 0.0f);
+                now += ft;
                 tick(&st.g, ev, now, &r);
             }
         }

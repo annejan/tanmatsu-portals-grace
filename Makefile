@@ -244,7 +244,7 @@ GRACELOADER_SLUG ?= at.cavac.graceloader
 tas-upload: tas
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/tas.txt $(abspath $(BUILD))/tas/recording.txt
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/tas.txt $(abspath $(BUILD))/tas-recording.txt
 
 tas-result:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt
