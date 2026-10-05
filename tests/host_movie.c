@@ -1,10 +1,10 @@
 // Host movie: a demo's run, as frames and sound, for tools/make_movie.py.
 //
-//   host_movie DEMO SECONDS
+//   host_movie SECONDS DEMO [DEMO...]
 //
-// writes $BUILD/shots/movie_NNNNN.ppm at 10 frames a second, $BUILD/movie.wav
-// and $BUILD/movie.txt (the chamber's name and story, then per frame what
-// the HUD shows). The frames come
+// films the demos one after the other, each at most SECONDS long: it
+// writes $BUILD/shots/movie_NNNNN.ppm at 10 frames a second,
+// $BUILD/movie.wav and $BUILD/movie.txt (below). The frames come
 // from host_shot's rasterizer, included below, with the camera eased
 // between the script's sudden turns; the sound is the game's own --
 // sound.c, speech.c with SAM, the engine's music -- mixed here offline as
@@ -21,7 +21,9 @@
 #define STORY_CPS  30.0f  // as main.c types it ...
 #define STORY_HOLD 5.0f   // ... and holds it
 #define TURRET_SUB 2.5f
-#define END_S      3.0f  // the film goes on this long past the exit
+#define END_S      3.0f  // a run goes on this long past the exit
+#define TITLE_S    2.5f  // each chamber's title card
+#define END_CARD_S 3.0f  // the end card
 
 // --- The mixer --------------------------------------------------------------
 
@@ -88,12 +90,23 @@ static void mix(int16_t* out, size_t frames) {
 }
 
 // --- The recording ------------------------------------------------------------
+//
+// One clock and one mixer for the whole film, so the music plays on from
+// chamber to chamber: before each chamber its title card (a stretch of
+// sound with no picture; tools/make_movie.py draws the card), then its
+// run, until a little after the exit; after the last, the end card.
+// $BUILD/movie.txt has a line per frame -- "C\tname" a title card, "P\tN\t
+// typed\tturret" the picture movie_N with the HUD on it, "E" the end card --
+// and "S\tstory" where a chamber's story line begins.
 
 typedef struct {
     FILE*       wav;
     FILE*       txt;
     long        frames_out;  // audio frames written
-    int         frame;       // pictures written
+    int         frame;       // frames of film, cards included
+    int         pic;         // pictures written
+    float       t0;          // the film's clock when this chamber's run began
+    float       last;        // the run's clock at its last step recorded
     float       yaw, pitch;  // the eased camera
     bool        have_cam, cut;
     char const* story;
@@ -109,6 +122,32 @@ static float wrap(float a) {
     return a;
 }
 
+// The sound, up to the film's time `t`.
+static void sound_to(rec_t* r, float t) {
+    long const want = (long)(t * (float)AUDIO_SAMPLE_RATE_HZ + 0.5f);
+    while (r->frames_out < want) {
+        int16_t buf[2 * 1024];
+        size_t  n = (size_t)(want - r->frames_out);
+        if (n > 1024) n = 1024;
+        mix(buf, n);
+        fwrite(buf, sizeof(int16_t), 2 * n, r->wav);
+        r->frames_out += (long)n;
+    }
+}
+
+// A card for `seconds`: frames with no picture, and the sound going on.
+static void card(rec_t* r, char const* line, float seconds) {
+    for (float t = 0.0f; t < seconds - 1e-4f; t += 0.02f) {
+        sound_update();
+        sound_to(r, r->t0 + t + 0.02f);
+        while ((float)r->frame / FPS < r->t0 + t + 0.02f - 1e-4f) {
+            fprintf(r->txt, "%s\n", line);
+            r->frame++;
+        }
+    }
+    r->t0 += seconds;
+}
+
 static void tick(game_t const* g, int ev, float now, void* ctx) {
     rec_t* r = ctx;
     // On the exit, the game moves on to the next chamber; here the player
@@ -119,21 +158,15 @@ static void tick(game_t const* g, int ev, float now, void* ctx) {
         else
             ev &= ~PL_EV_EXIT;
     }
-    if (r->exit_t >= 0.0f && now > r->exit_t + END_S) return;
+    // ... and goes on past it until GLaDOS has finished her line: a chamber
+    // solved in seconds would cut her off with the next chamber's.
+    if (r->exit_t >= 0.0f && now > r->exit_t + END_S && (!sound_saying() || now > r->exit_t + END_S + 15.0f)) return;
+    r->last = now;
     sound_events(ev);
     sound_update();
     if (ev & PL_EV_TELEPORT) r->cut = true;
-
-    // The sound up to now.
-    long const want = (long)(now * (float)AUDIO_SAMPLE_RATE_HZ + 0.5f);
-    while (r->frames_out < want) {
-        int16_t buf[2 * 1024];
-        size_t  n = (size_t)(want - r->frames_out);
-        if (n > 1024) n = 1024;
-        mix(buf, n);
-        fwrite(buf, sizeof(int16_t), 2 * n, r->wav);
-        r->frames_out += (long)n;
-    }
+    float const film = r->t0 + now;
+    sound_to(r, film);
 
     char const* said = NULL;
     int const   n    = sound_turret_said(&said);
@@ -144,7 +177,7 @@ static void tick(game_t const* g, int ev, float now, void* ctx) {
     }
 
     // A picture every 1/FPS s, through the eased camera.
-    if (now + 1e-4f < (float)r->frame / FPS) return;
+    if (film + 1e-4f < (float)r->frame / FPS) return;
     static game_t shot;
     shot = *g;
     if (!r->have_cam || r->cut) {
@@ -164,44 +197,42 @@ static void tick(game_t const* g, int ev, float now, void* ctx) {
     render_set_time(now);
     render_frame(NULL, &shot);
     char name[32];
-    snprintf(name, sizeof(name), "movie_%05d", r->frame);
+    snprintf(name, sizeof(name), "movie_%05d", r->pic);
     save(name);
     // The HUD: how much of the story is typed (-1: gone), and a turret's words.
     int const len   = (int)strlen(r->story);
     int       shown = (int)(now * STORY_CPS);
     if (shown > len) shown = len;
     if (len == 0 || (now > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) shown = -1;
-    fprintf(r->txt, "%d\t%s\n", shown, r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "");
+    fprintf(r->txt, "P\t%d\t%d\t%s\n", r->pic, shown, r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "");
+    r->pic++;
     r->frame++;
 }
 
 int main(int argc, char** argv) {
-    if (argc != 3) {
-        fprintf(stderr, "usage: host_movie DEMO SECONDS\n");
+    if (argc < 3) {
+        fprintf(stderr, "usage: host_movie SECONDS DEMO [DEMO...]\n");
         return 1;
     }
     render_init("textures");
     char const* extra = getenv("PORTALS_CHAMBERS");
     if (extra != NULL) chamber_load_dir(extra);
-    int const i = demo_find(argv[1]);
-    if (i < 0) {
-        fprintf(stderr, "no demo %s\n", argv[1]);
-        return 1;
-    }
+    for (int a = 2; a < argc; a++)
+        if (demo_find(argv[a]) < 0) {
+            fprintf(stderr, "no demo %s\n", argv[a]);
+            return 1;
+        }
     char const* build = getenv("BUILD");
     char        path[256];
     snprintf(path, sizeof(path), "%s/movie.wav", build != NULL && build[0] ? build : "build");
-    rec_t r = {.wav = fopen(path, "wb"), .exit_t = -1.0f};
+    static rec_t r;
+    r.wav = fopen(path, "wb");
     snprintf(path, sizeof(path), "%s/movie.txt", build != NULL && build[0] ? build : "build");
     r.txt = fopen(path, "w");
     if (r.wav == NULL || r.txt == NULL) {
         perror(path);
         return 1;
     }
-    static game_t g;
-    game_load(&g, demo_chamber(i));
-    r.story = g.lv.story;
-    fprintf(r.txt, "%s\n%s\n", g.lv.name, r.story);
     uint8_t hdr[44] = {0};
     fwrite(hdr, 1, sizeof(hdr), r.wav);  // filled in at the end
 
@@ -209,10 +240,29 @@ int main(int argc, char** argv) {
     sound_set_music(true);
     sound_set_effects(true);
     sound_set_voice(true);
-    sound_say(r.story[0] ? r.story : NULL);
 
-    static demo_state_t st;
-    demo_run(i, (float)atof(argv[2]), 1.0f / 50.0f, &st, tick, &r);
+    float const cap = (float)atof(argv[1]);
+    for (int a = 2; a < argc; a++) {
+        int const     i = demo_find(argv[a]);
+        static game_t g;
+        game_load(&g, demo_chamber(i));
+        char line[64];
+        snprintf(line, sizeof(line), "C\t%s", g.lv.name);
+        card(&r, line, TITLE_S);
+        static char story[sizeof(g.lv.story)];
+        snprintf(story, sizeof(story), "%s", g.lv.story);
+        fprintf(r.txt, "S\t%s\n", story);
+        r.story    = story;
+        r.exit_t   = -1.0f;
+        r.have_cam = false;
+        r.sub      = NULL;
+        r.last     = 0.0f;
+        sound_say(story[0] ? story : NULL);
+        static demo_state_t st;
+        demo_run(i, cap, 1.0f / 50.0f, &st, tick, &r);
+        r.t0 += r.last;
+    }
+    card(&r, "E", END_CARD_S);
 
     uint32_t const data = (uint32_t)(r.frames_out * 4), rate = AUDIO_SAMPLE_RATE_HZ;
     uint32_t const h[] = {0x46464952u, 36 + data, 0x45564157u, 0x20746d66u, 16,  0x00020001u,
@@ -221,6 +271,6 @@ int main(int argc, char** argv) {
     fwrite(h, sizeof(h), 1, r.wav);
     fclose(r.wav);
     fclose(r.txt);
-    printf("%d frames, %.1f s of sound\n", r.frame, (double)r.frames_out / AUDIO_SAMPLE_RATE_HZ);
+    printf("%d frames (%d pictures), %.1f s of sound\n", r.frame, r.pic, (double)r.frames_out / AUDIO_SAMPLE_RATE_HZ);
     return 0;
 }

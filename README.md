@@ -143,7 +143,8 @@ the same renderer sampling the real textures, the camera eased between the
 script's turns, and the game's own sound -- effects, GLaDOS in SAM's voice,
 the music -- mixed offline (`tests/host_movie.c`, `tools/make_movie.py`;
 needs Pillow and ffmpeg). `CHAMBERS=dir` adds chambers as the SD card
-would, `GIF=file.gif` a GIF too.
+would, `GIF=file.gif` a GIF too. Several chambers make one film, the music
+playing on between them: `make movie DEMO="01-gap 02-ledge" MOVIE=two.mp4`.
 
 ## Device tests
 
