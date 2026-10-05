@@ -28,6 +28,8 @@ void        demo_eval(int i, float t, demo_state_t* out);
 void        demo_eval_dt(int i, float t, float dt, demo_state_t* out);
 // The same, calling `tick` after every step with the state and that
 // step's events -- its shots and Use included: what a recording needs
-// (tools/make_movie.py).
+// (tests/host_movie.c). With `pace`, the player stands still that long
+// before each shot and Use, as a person would look first; a solution timed
+// to the second may then fail.
 typedef void (*demo_tick_fn)(game_t const* g, int events, float now, void* ctx);
-void demo_run(int i, float t, float dt, demo_state_t* out, demo_tick_fn tick, void* ctx);
+void demo_run(int i, float t, float dt, demo_state_t* out, demo_tick_fn tick, void* ctx, float pace);

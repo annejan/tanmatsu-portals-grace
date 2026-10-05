@@ -69,16 +69,15 @@ def fade(im, k):
     return Image.blend(Image.new("RGB", im.size, (0, 0, 0)), im, max(0.0, min(1.0, k)))
 
 
-def runs(lines):
-    """The film's frames, grouped: [kind, [lines...]] for each stretch of one
-    card or one chamber's pictures."""
+def runs(frames):
+    """The film's frames in stretches of one kind: the opening titles, the
+    play -- every chamber, one after the other, as the game goes -- and the
+    closing titles. Each fades in and out."""
     out = []
-    for line in lines:
-        kind = line[0]
-        key = (kind, line[1] if kind == "C" else None)
-        if not out or out[-1][0] != key:
-            out.append([key, []])
-        out[-1][1].append(line)
+    for f in frames:
+        if not out or out[-1][0] != f["kind"]:
+            out.append([f["kind"], []])
+        out[-1][1].append(f)
     return out
 
 
@@ -117,15 +116,50 @@ def main():
     f_big = font(["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf"], 46 * SCALE)
     f_small = font(["DejaVuSans.ttf", "/usr/share/fonts/truetype/DejaVuSans.ttf"], 14 * SCALE)
 
-    def title_card(chamber):
-        # "07  The grill": a built-in chamber's number, then its name.
-        number, _, rest = chamber.partition(" ")
-        if number.isdigit() and rest.strip():
-            return card(w, h, rest.strip().upper(), ["chamber %d" % int(number), "Portals, on the Tanmatsu"], f_big,
-                        f_small)
-        return card(w, h, chamber.upper(), ["a test chamber for Portals", "on the Tanmatsu"], f_big, f_small)
+    # The film's frames, each with what the HUD shows on it.
+    frames, chamber = [], {}
+    for line in lines:
+        if line[0] == "S":
+            chamber = {"name": line[1], "hint": line[2], "story": line[3] if len(line) > 3 else ""}
+        elif line[0] == "P":
+            frames.append({"kind": "P", "pic": int(line[1]), "typed": int(line[2]), "turret": line[3],
+                           "message": line[4] if len(line) > 4 else "", **chamber})
+        else:
+            frames.append({"kind": line[0]})
+    names = [l[1] for l in lines if l[0] == "S"]
 
-    end = card(w, h, "PORTALS", ["for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big, f_small)
+    # The titles: a chamber's own name for one; for several, the game's.
+    if len(names) == 1:
+        number, _, rest = names[0].partition(" ")
+        if number.isdigit() and rest.strip():
+            opening = card(w, h, rest.strip().upper(), ["chamber %d" % int(number), "Portals, on the Tanmatsu"],
+                           f_big, f_small)
+        else:
+            opening = card(w, h, names[0].upper(), ["a test chamber for Portals", "on the Tanmatsu"], f_big, f_small)
+    else:
+        opening = card(w, h, "PORTALS", ["%d test chambers" % len(names), "on the Tanmatsu"], f_big, f_small)
+    closing = card(w, h, "PORTALS", ["for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big, f_small)
+    f_name = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 15 * SCALE)
+    f_hint = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 11 * SCALE)
+    f_msg = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 22 * SCALE)
+
+    def hud(f):
+        """A frame of play, with the HUD on it as main.c draws it."""
+        im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h), Image.LANCZOS)
+        d = ImageDraw.Draw(im)
+        d.text((8 * SCALE, 6 * SCALE), f["name"], font=f_name, fill=(255, 255, 255))
+        d.text((8 * SCALE, 26 * SCALE), f["hint"], font=f_hint, fill=(160, 160, 160))
+        cx, cy = w // 2, h // 2
+        d.rectangle([cx - SCALE, cy - SCALE, cx + SCALE - 1, cy + SCALE - 1], fill=(255, 255, 255))
+        if f["message"]:
+            mw = d.textlength(f["message"], font=f_msg)
+            d.text((cx - mw / 2, cy - 70 * SCALE), f["message"], font=f_msg, fill=(255, 255, 255))
+        typed = story_lines(f["story"], f["typed"]) if f["typed"] > 0 else []
+        for m, text in enumerate(typed):
+            d.text((16 * SCALE, h - (44 + (len(typed) - 1 - m) * 18) * SCALE), text, font=f_hud, fill=YELLOW)
+        if f["turret"]:
+            d.text((16 * SCALE, h - (44 + len(typed) * 18) * SCALE), "Turret: " + f["turret"], font=f_hud, fill=RED)
+        return im
 
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
@@ -134,34 +168,10 @@ def main():
                            "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-shortest",
                            "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
-    story_at = {}  # the story in force from each frame on
-    frames, story = [], ""
-    for line in lines:
-        if line[0] == "S":
-            story = line[1] if len(line) > 1 else ""
-        else:
-            frames.append(line)
-            story_at[len(frames) - 1] = story
-    k = 0
-    for (kind, _), run in runs(frames):
-        base = title_card(run[0][1]) if kind == "C" else end if kind == "E" else None
-        for j, line in enumerate(run):
-            if base is not None:
-                im = base
-            else:
-                im = Image.open(os.path.join(shots, "movie_%05d.ppm" % int(line[1]))).convert("RGB")
-                im = im.resize((w, h), Image.LANCZOS)
-                d = ImageDraw.Draw(im)
-                shown, sub = int(line[2]), line[3] if len(line) > 3 else ""
-                typed = story_lines(story_at[k], shown) if shown > 0 else []
-                for m, text in enumerate(typed):
-                    d.text((16 * SCALE, h - (44 + (len(typed) - 1 - m) * 18) * SCALE), text, font=f_hud,
-                           fill=YELLOW)
-                if sub:
-                    d.text((16 * SCALE, h - (44 + len(typed) * 18) * SCALE), "Turret: " + sub, font=f_hud,
-                           fill=RED)
+    for kind, run in runs(frames):
+        for j, f in enumerate(run):
+            im = opening if kind == "C" else closing if kind == "E" else hud(f)
             ff.stdin.write(fade(im, min(j, len(run) - 1 - j) / fade_n).tobytes())
-            k += 1
             n += 1
     ff.stdin.close()
     if ff.wait() != 0:

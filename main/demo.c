@@ -86,7 +86,11 @@ void demo_eval(int i, float t, demo_state_t* s) {
 }
 
 void demo_eval_dt(int i, float t, float dt, demo_state_t* s) {
-    demo_run(i, t, dt, s, NULL, NULL);
+    demo_run(i, t, dt, s, NULL, NULL, 0.0f);
+}
+
+static bool is_act(int op) {
+    return op == OP_SHOOT || op == OP_SHOOT_VIEW || op == OP_USE || op == OP_GRAB;
 }
 
 // A shot's events, as game_step() reports one fired by a key.
@@ -94,7 +98,7 @@ static int shot_events(bool ok, int which) {
     return ok ? GAME_EV_PORTAL | (which == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE) : GAME_EV_SHOT_FAIL;
 }
 
-void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void* ctx) {
+void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void* ctx, float pace) {
     memset(s, 0, sizeof(*s));
     if (i < 0 || i >= demo_count()) return;
     game_t* g = &s->g;
@@ -113,12 +117,21 @@ void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void
     float in_step = 0.0f;   // seconds into it
     bool  walked  = false;  // OP_STEP_OFF: has been walking on the ground
     bool  jump    = false;  // OP_JUMP: on this tick
+    int   paced   = -1;     // the act step last paused before ...
+    float hold    = 0.0f;   // ... and how much of that pause is left
     for (float now = 0.0f; now + dt * 0.5f < t; now += dt) {
         game_input_t in      = {0};
-        int          instant = 0;  // events of this tick's instant steps
-        // Instant steps take no time: run them all before this tick.
-        for (;;) {
+        int          instant = 0;      // events of this tick's instant steps
+        bool         still   = false;  // paced: this tick acted, and does nothing more
+        // Instant steps take no time: run them all before this tick -- but
+        // with `pace`, standing still a while before each act first.
+        for (; hold <= 0.0f;) {
             step_t const* st = &steps[k];
+            if (pace > 0.0f && is_act(st->op) && paced != k) {
+                paced = k;
+                hold  = pace;
+                break;
+            }
             if (st->op == OP_FACE) {
                 g->pl.yaw   = st->a;
                 g->pl.pitch = st->b;
@@ -156,9 +169,18 @@ void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void
                 break;
             }
             k++;
+            in_step = 0.0f;  // the next step's time starts now, not with a pause before this one
+            // Paced, the act's step is all it does: the next step would
+            // turn the player away from what it just shot at, unseen.
+            if (pace > 0.0f && is_act(steps[k - 1].op)) {
+                still = true;
+                break;
+            }
         }
-        step_t const* st   = &steps[k];
-        bool          done = false;
+        if (hold > 0.0f) hold -= dt;
+        static step_t const idle = {OP_END, 0, 0, 0, 0};
+        step_t const*       st   = still ? &idle : &steps[k];
+        bool                done = false;
         switch (st->op) {
             case OP_WALK:
                 in.fwd = 1.0f;
@@ -195,7 +217,7 @@ void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void
         s->events    |= ev;
         if (tick != NULL) tick(g, ev, now + dt, ctx);
         if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
-        in_step += dt;
+        if (!still) in_step += dt;
         if (done) {
             k++;
             in_step = 0.0f;
