@@ -773,6 +773,15 @@ static void test_legend(void) {
         for (int j = i + 1; j < chamber_legend_n; j++)
             CHECK(chamber_legend[i].ch != chamber_legend[j].ch, "'%c' means both \"%s\" and \"%s\"",
                   chamber_legend[i].ch, chamber_legend[i].what, chamber_legend[j].what);
+    // Each editor key picks one brush, and none is one the editor uses itself.
+    for (int i = 0; i < chamber_legend_n; i++) {
+        char const k = chamber_legend[i].key;
+        if (k == 0) continue;
+        CHECK(strchr(CHAMBER_EDITOR_KEYS, k) == NULL, "'%c' is on key %c, which the editor uses", chamber_legend[i].ch, k);
+        for (int j = i + 1; j < chamber_legend_n; j++)
+            CHECK(chamber_legend[j].key != k, "key %c picks both '%c' and '%c'", k, chamber_legend[i].ch,
+                  chamber_legend[j].ch);
+    }
     static level_t lv;
     char           err[96], text[256];
     for (int c = 33; c < 127; c++) {

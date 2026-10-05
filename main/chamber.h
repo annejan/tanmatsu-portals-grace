@@ -25,6 +25,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 #include "level.h"
 #include "script.h"
 
@@ -49,18 +50,42 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
 // NULL). Returns the length, or -1 if `out` was too small.
 int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n);
 
-// The map's characters, one meaning each (the host tests check that no
-// two share one). Doors are a-h, and the buttons that open them the
-// digits 1-8: button 1 opens door a, 2 opens b, and so on; a door opens
-// while ALL its buttons are down. Older files wrote buttons A, B, D;
-// those still read, as 1, 2 and 4 (C was never possible: it is a cube).
+// The map's characters: one table, which the parser, both writers and
+// the editor all go by, and one meaning each (the host tests check that no
+// two share a character or an editor key). Doors are a-h, and the buttons
+// that open them the digits 1-8: button 1 opens door a, 2 opens b, and so
+// on; a door opens while ALL its buttons are down. Older files wrote
+// buttons A, B, D; those still read, as 1, 2 and 4 (C was never possible:
+// it is a cube).
+typedef enum {
+    GLYPH_CELL,          // a cell of `mat`, nothing more
+    GLYPH_PLATE,         // a faith plate (MAT_JUMP), paired with a target
+    GLYPH_TARGET,        // where a faith plate lands what it throws
+    GLYPH_START,         // the player's start
+    GLYPH_CUBE,          // a cube, in the cell where it starts
+    GLYPH_PLATFORM,      // a cell of the moving platform's box
+    GLYPH_PLATFORM_END,  // the cell the platform's lowest corner goes to
+    GLYPH_DOOR,          // a cell of door `link`
+    GLYPH_BUTTON,        // a button for door `link`, above a solid cell
+} glyph_kind_t;
+
 typedef struct {
     char        ch;
-    char const* what;
+    char const* what;    // in the legend and the editor
+    uint8_t     kind;    // glyph_kind_t
+    uint8_t     mat;     // the cell's material: air for what stands in one
+    int8_t      link;    // a door's, or the door a button opens: 0 is a
+    char        key;     // the editor's key for it, 0 for none
+    uint32_t    colour;  // in the editor's map; 0 draws it as air
 } chamber_glyph_t;
+
+// The keys the editor keeps for itself (editor.c): no glyph may use one.
+#define CHAMBER_EDITOR_KEYS "QEBRPFWASD"
 
 extern chamber_glyph_t const chamber_legend[];
 extern int const             chamber_legend_n;
+// The glyph for character `c`, or NULL if it is not a map character.
+chamber_glyph_t const*       chamber_glyph(char c);
 
 static inline bool chamber_is_door(char c) {
     return c >= 'a' && c < 'a' + LV_MAX_DOORS;

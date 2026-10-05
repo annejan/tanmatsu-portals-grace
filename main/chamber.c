@@ -20,16 +20,63 @@
 
 // --- The legend -----------------------------------------------------------
 
+// In writing order: the first glyph for a meaning is the one written.
 chamber_glyph_t const chamber_legend[] = {
-    {'#', "metal"},        {'W', "white panel"},  {'.', "air"},          {' ', "air"},          {'~', "goo"},
-    {'E', "exit"},         {'G', "glass"},        {'F', "fizzler"},      {'J', "faith plate"},  {'T', "plate target"},
-    {'M', "platform"},     {'N', "platform end"}, {'S', "start"},        {'C', "cube"},         {'a', "door a"},
-    {'b', "door b"},       {'c', "door c"},       {'d', "door d"},       {'e', "door e"},       {'f', "door f"},
-    {'g', "door g"},       {'h', "door h"},       {'1', "button for a"}, {'2', "button for b"}, {'3', "button for c"},
-    {'4', "button for d"}, {'5', "button for e"}, {'6', "button for f"}, {'7', "button for g"}, {'8', "button for h"},
-    {'A', "old button 1"}, {'B', "old button 2"}, {'D', "old button 4"},
+    {'#', "metal", GLYPH_CELL, MAT_METAL, 0, '1', 0xFF3A3D44u},
+    {'W', "white panel", GLYPH_CELL, MAT_WHITE, 0, '2', 0xFFD0D0C8u},
+    {'.', "air", GLYPH_CELL, MAT_AIR, 0, '3', 0},
+    {' ', "air", GLYPH_CELL, MAT_AIR, 0, 0, 0},
+    {'~', "goo", GLYPH_CELL, MAT_GOO, 0, '4', 0xFF8A7020u},
+    {'E', "exit", GLYPH_CELL, MAT_EXIT, 0, '5', 0xFF30C060u},
+    {'a', "door a", GLYPH_DOOR, MAT_DOOR, 0, '6', 0xFFE08030u},
+    {'b', "door b", GLYPH_DOOR, MAT_DOOR, 1, 0, 0xFFE08030u},
+    {'c', "door c", GLYPH_DOOR, MAT_DOOR, 2, 0, 0xFFE08030u},
+    {'d', "door d", GLYPH_DOOR, MAT_DOOR, 3, 0, 0xFFE08030u},
+    {'e', "door e", GLYPH_DOOR, MAT_DOOR, 4, 0, 0xFFE08030u},
+    {'f', "door f", GLYPH_DOOR, MAT_DOOR, 5, 0, 0xFFE08030u},
+    {'g', "door g", GLYPH_DOOR, MAT_DOOR, 6, 0, 0xFFE08030u},
+    {'h', "door h", GLYPH_DOOR, MAT_DOOR, 7, 0, 0xFFE08030u},
+    {'1', "button for a", GLYPH_BUTTON, MAT_AIR, 0, '7', 0xFFC03020u},
+    {'2', "button for b", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
+    {'3', "button for c", GLYPH_BUTTON, MAT_AIR, 2, 0, 0xFFC03020u},
+    {'4', "button for d", GLYPH_BUTTON, MAT_AIR, 3, 0, 0xFFC03020u},
+    {'5', "button for e", GLYPH_BUTTON, MAT_AIR, 4, 0, 0xFFC03020u},
+    {'6', "button for f", GLYPH_BUTTON, MAT_AIR, 5, 0, 0xFFC03020u},
+    {'7', "button for g", GLYPH_BUTTON, MAT_AIR, 6, 0, 0xFFC03020u},
+    {'8', "button for h", GLYPH_BUTTON, MAT_AIR, 7, 0, 0xFFC03020u},
+    {'C', "cube", GLYPH_CUBE, MAT_AIR, 0, '8', 0xFF9AA0A8u},
+    {'S', "start", GLYPH_START, MAT_AIR, 0, '9', 0},
+    {'G', "glass", GLYPH_CELL, MAT_GLASS, 0, '0', 0xFF8EC8E0u},
+    {'F', "fizzler", GLYPH_CELL, MAT_FIZZ, 0, '-', 0xFF3070D0u},
+    {'J', "faith plate", GLYPH_PLATE, MAT_JUMP, 0, '=', 0xFFE08020u},
+    {'T', "plate target", GLYPH_TARGET, MAT_AIR, 0, 'T', 0xFF6A3A10u},
+    {'M', "platform", GLYPH_PLATFORM, MAT_AIR, 0, 'M', 0xFF5A6070u},
+    {'N', "platform goes to", GLYPH_PLATFORM_END, MAT_AIR, 0, 'N', 0xFF2C5C9Cu},
+    // How older files wrote buttons 1, 2 and 4: read, never written.
+    {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
+    {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
+    {'D', "old button 4", GLYPH_BUTTON, MAT_AIR, 3, 0, 0xFFC03020u},
 };
 int const chamber_legend_n = (int)(sizeof(chamber_legend) / sizeof(chamber_legend[0]));
+
+chamber_glyph_t const* chamber_glyph(char c) {
+    for (int i = 0; i < chamber_legend_n; i++)
+        if (chamber_legend[i].ch == c) return &chamber_legend[i];
+    return NULL;
+}
+
+// The character written for a glyph of `kind` (and material `mat`, for a
+// plain cell, or door `link`): the first in the table.
+static char char_of(int kind, int mat, int link) {
+    for (int i = 0; i < chamber_legend_n; i++) {
+        chamber_glyph_t const* g = &chamber_legend[i];
+        if (g->kind != kind) continue;
+        if (kind == GLYPH_CELL && g->mat != mat) continue;
+        if ((kind == GLYPH_DOOR || kind == GLYPH_BUTTON) && g->link != link) continue;
+        return g->ch;
+    }
+    return '#';
+}
 
 // --- Parsing --------------------------------------------------------------
 
@@ -191,30 +238,16 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             if ((int)strlen(buf) > lv->w) return fail(&c, "row longer than the size's %d cells", lv->w);
             int const z = lv->d - 1 - row;
             for (int x = 0; x < lv->w; x++) {
-                char const ch = x < (int)strlen(buf) ? buf[x] : '#';
-                uint8_t    m  = MAT_AIR;
-                switch (ch) {
-                    case '#':
-                        m = MAT_METAL;
-                        break;
-                    case 'W':
-                        m = MAT_WHITE;
-                        break;
-                    case '~':
-                        m = MAT_GOO;
-                        break;
-                    case 'G':
-                        m = MAT_GLASS;
-                        break;
-                    case 'F':
-                        m = MAT_FIZZ;
-                        break;
-                    case 'J':
+                char const             ch = x < (int)strlen(buf) ? buf[x] : '#';
+                chamber_glyph_t const* gl = chamber_glyph(ch);
+                if (gl == NULL) return fail(&c, "unknown cell '%c' at column %d", ch, x + 1);
+                uint8_t const m = gl->mat;
+                switch (gl->kind) {
+                    case GLYPH_PLATE:
                         if (n_plates >= LV_MAX_JUMPS) return fail(&c, "more than %d faith plates", LV_MAX_JUMPS);
-                        m                  = MAT_JUMP;
                         plates[n_plates++] = (jump_t){x, layer, z, v3(0, 0, 0)};
                         break;
-                    case 'M':
+                    case GLYPH_PLATFORM:
                         if (!have_m) {
                             m_box[0] = m_box[3] = x, m_box[1] = m_box[4] = layer, m_box[2] = m_box[5] = z;
                             have_m = true;
@@ -227,52 +260,35 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         if (z > m_box[5]) m_box[5] = z;
                         n_m++;
                         break;
-                    case 'N':
+                    case GLYPH_PLATFORM_END:
                         if (have_n) return fail(&c, "more than one N");
                         n_cell[0] = x, n_cell[1] = layer, n_cell[2] = z;
                         have_n = true;
                         break;
-                    case 'T':
+                    case GLYPH_TARGET:
                         if (n_targets >= LV_MAX_JUMPS) return fail(&c, "more than %d targets", LV_MAX_JUMPS);
                         targets[n_targets++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
-                    case 'E':
-                        m = MAT_EXIT;
-                        break;
-                    case '.':
-                    case ' ':
-                        break;
-                    case 'S':
+                    case GLYPH_START:
                         lv->spawn = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         spawns++;
                         break;
-                    case 'C':
+                    case GLYPH_CUBE:
                         if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
                         lv->cubes[lv->n_cubes++] = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
+                    case GLYPH_BUTTON:
+                        if (lv->n_buttons >= LV_MAX_BUTTONS) return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
+                        if (layer == 0) return fail(&c, "a button needs a cell under it");
+                        lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, gl->link, false};
+                        break;
                     default:
-                        // Buttons are digits; A, B and D are how older files
-                        // wrote buttons 1, 2 and 4.
-                        int const button = chamber_is_button(ch) ? ch - '1'
-                                           : ch == 'A'           ? 0
-                                           : ch == 'B'           ? 1
-                                           : ch == 'D'           ? 3
-                                                                 : -1;
-                        if (chamber_is_door(ch)) {
-                            m = MAT_DOOR;
-                        } else if (button >= 0) {
-                            if (lv->n_buttons >= LV_MAX_BUTTONS)
-                                return fail(&c, "more than %d buttons", LV_MAX_BUTTONS);
-                            if (layer == 0) return fail(&c, "a button needs a cell under it");
-                            lv->buttons[lv->n_buttons++] = (button_t){x, layer - 1, z, button, false};
-                        } else {
-                            return fail(&c, "unknown cell '%c' at column %d", ch, x + 1);
-                        }
+                        break;
                 }
                 level_set(lv, x, layer, z, m);
                 // Doors: one per letter, the box its cells span (checked below).
-                if (m == MAT_DOOR) {
-                    int const k = ch - 'a';
+                if (gl->kind == GLYPH_DOOR) {
+                    int const k = gl->link;
                     door_t*   d = &lv->doors[k];
                     if (d->x1 == 0) *d = (door_t){x, layer, z, x + 1, layer + 1, z + 1, k, 0.0f};
                     if (x < d->x0) d->x0 = x;
@@ -441,45 +457,31 @@ static void put(sink_t* o, char const* fmt, ...) {
 char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_buttons; i++)
         if (lv->buttons[i].x == x && lv->buttons[i].y + 1 == y && lv->buttons[i].z == z)
-            return chamber_button_char(lv->buttons[i].link);
+            return char_of(GLYPH_BUTTON, 0, lv->buttons[i].link);
     for (int i = 0; i < lv->n_cubes; i++)
         if ((int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y && (int)floorf(lv->cubes[i].z) == z)
-            return 'C';
-    if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z) return 'S';
+            return char_of(GLYPH_CUBE, 0, 0);
+    if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
+        return char_of(GLYPH_START, 0, 0);
     if (lv->n_platforms) {
         platform_t const* p = &lv->platform;
         if ((float)x >= p->lo.x && (float)x < p->hi.x && (float)y >= p->lo.y && (float)y < p->hi.y &&
             (float)z >= p->lo.z && (float)z < p->hi.z)
-            return 'M';
+            return char_of(GLYPH_PLATFORM, 0, 0);
         if (x == (int)(p->lo.x + p->travel.x) && y == (int)(p->lo.y + p->travel.y) && z == (int)(p->lo.z + p->travel.z))
-            return 'N';
+            return char_of(GLYPH_PLATFORM_END, 0, 0);
     }
     for (int i = 0; i < lv->n_jumps; i++)
         if ((int)floorf(lv->jumps[i].target.x) == x && (int)floorf(lv->jumps[i].target.y) == y &&
             (int)floorf(lv->jumps[i].target.z) == z)
-            return 'T';
-    switch (level_get(lv, x, y, z)) {
-        case MAT_GLASS:
-            return 'G';
-        case MAT_FIZZ:
-            return 'F';
-        case MAT_JUMP:
-            return 'J';
-        case MAT_AIR:
-            return '.';
-        case MAT_WHITE:
-            return 'W';
-        case MAT_GOO:
-            return '~';
-        case MAT_EXIT:
-            return 'E';
-        case MAT_DOOR: {
-            int const d = level_door_at(lv, x, y, z);
-            return chamber_door_char(d >= 0 ? lv->doors[d].link : 0);
-        }
-        default:
-            return '#';
+            return char_of(GLYPH_TARGET, 0, 0);
+    uint8_t const m = level_get(lv, x, y, z);
+    if (m == MAT_JUMP) return char_of(GLYPH_PLATE, 0, 0);
+    if (m == MAT_DOOR) {
+        int const d = level_door_at(lv, x, y, z);
+        return char_of(GLYPH_DOOR, 0, d >= 0 ? lv->doors[d].link : 0);
     }
+    return char_of(GLYPH_CELL, m, 0);
 }
 
 char const* chamber_facing_name(float yaw) {

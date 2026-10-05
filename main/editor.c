@@ -137,35 +137,45 @@ static void layer(int dy) {
 }
 
 static char const* brush_name(char c) {
-    switch (c) {
-        case '#':
-            return "metal";
-        case 'W':
-            return "white panel";
-        case '.':
-            return "air";
-        case '~':
-            return "goo";
-        case 'E':
-            return "exit";
-        case 'C':
-            return "cube";
-        case 'S':
-            return "start";
-        case 'G':
-            return "glass";
-        case 'F':
-            return "fizzler";
-        case 'J':
-            return "faith plate";
-        case 'T':
-            return "plate target";
-        case 'M':
-            return "platform";
-        case 'N':
-            return "platform goes to";
-        default:
-            return chamber_is_door(c) ? "door" : chamber_is_button(c) ? "button for" : "?";
+    chamber_glyph_t const* g = chamber_glyph(c);
+    return g != NULL ? g->what : "?";
+}
+
+// The character on key `sc` (PC scancode set 1): what the legend's editor
+// keys are written as.
+static char key_char(uint16_t sc) {
+    static struct {
+        uint16_t    first;
+        char const* chars;
+    } const rows[] = {
+        {BSP_INPUT_SCANCODE_1, "1234567890-="},
+        {BSP_INPUT_SCANCODE_Q, "QWERTYUIOP"},
+        {BSP_INPUT_SCANCODE_A, "ASDFGHJKL"},
+        {BSP_INPUT_SCANCODE_Z, "ZXCVBNM"},
+    };
+    for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
+        size_t const n = strlen(rows[r].chars);
+        if (sc >= rows[r].first && sc < rows[r].first + n) return rows[r].chars[sc - rows[r].first];
+    }
+    return 0;
+}
+
+// The brush on key `k`, if the legend has one there. The door and button
+// keys step through a-h and 1-8 when pressed again.
+static void pick_brush(char k) {
+    for (int i = 0; k != 0 && i < chamber_legend_n; i++) {
+        chamber_glyph_t const* g = &chamber_legend[i];
+        if (g->key != k) continue;
+        if (g->kind == GLYPH_DOOR) {
+            if (chamber_is_door(s_brush)) s_door = chamber_door_char((s_brush - 'a' + 1) % LV_MAX_DOORS);
+            s_brush = s_door;
+        } else if (g->kind == GLYPH_BUTTON) {
+            if (chamber_is_button(s_brush)) s_button = chamber_button_char((s_brush - '1' + 1) % LV_MAX_BUTTONS);
+            s_brush = s_button;
+        } else {
+            s_brush = g->ch;
+        }
+        return;
     }
 }
 
@@ -308,53 +318,6 @@ void editor_event(bsp_input_event_t const* ev) {
             s_act            = 0;
             s_painting       = false;
             break;
-        case BSP_INPUT_SCANCODE_1:
-            s_brush = '#';
-            break;
-        case BSP_INPUT_SCANCODE_2:
-            s_brush = 'W';
-            break;
-        case BSP_INPUT_SCANCODE_3:
-            s_brush = '.';
-            break;
-        case BSP_INPUT_SCANCODE_4:
-            s_brush = '~';
-            break;
-        case BSP_INPUT_SCANCODE_5:
-            s_brush = 'E';
-            break;
-        case BSP_INPUT_SCANCODE_6:
-            if (chamber_is_door(s_brush)) s_door = chamber_door_char((s_brush - 'a' + 1) % LV_MAX_DOORS);
-            s_brush = s_door;
-            break;
-        case BSP_INPUT_SCANCODE_7:
-            if (chamber_is_button(s_brush)) s_button = chamber_button_char((s_brush - '1' + 1) % LV_MAX_BUTTONS);
-            s_brush = s_button;
-            break;
-        case BSP_INPUT_SCANCODE_8:
-            s_brush = 'C';
-            break;
-        case BSP_INPUT_SCANCODE_9:
-            s_brush = 'S';
-            break;
-        case BSP_INPUT_SCANCODE_0:
-            s_brush = 'G';
-            break;
-        case BSP_INPUT_SCANCODE_MINUS:
-            s_brush = 'F';
-            break;
-        case BSP_INPUT_SCANCODE_EQUAL:
-            s_brush = 'J';
-            break;
-        case BSP_INPUT_SCANCODE_T:
-            s_brush = 'T';
-            break;
-        case BSP_INPUT_SCANCODE_M:
-            s_brush = 'M';
-            break;
-        case BSP_INPUT_SCANCODE_N:
-            s_brush = 'N';
-            break;
         case BSP_INPUT_SCANCODE_Q:
         case BSP_INPUT_SCANCODE_ESCAPED_GREY_PGDN:
             layer(-1);
@@ -387,6 +350,7 @@ void editor_event(bsp_input_event_t const* ev) {
             save();
             break;
         default:
+            pick_brush(key_char(sc));
             break;
     }
 }
@@ -547,39 +511,10 @@ editor_cmd_t editor_update(float dt) {
 // --- Drawing --------------------------------------------------------------
 
 static uint32_t cell_colour(char c, bool floor_below) {
-    switch (c) {
-        case '#':
-            return 0xFF3A3D44u;
-        case 'W':
-            return 0xFFD0D0C8u;
-        case '~':
-            return 0xFF8A7020u;
-        case 'E':
-            return 0xFF30C060u;
-        case 'C':
-            return 0xFF9AA0A8u;
-        case 'S':
-            return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
-        case 'G':
-            return 0xFF8EC8E0u;
-        case 'F':
-            return 0xFF3070D0u;
-        case 'J':
-            return 0xFFE08020u;
-        case 'T':
-            return 0xFF6A3A10u;
-        case 'M':
-            return 0xFF5A6070u;
-        case 'N':
-            return 0xFF2C5C9Cu;
-        case '.':
-        case ' ':
-            return floor_below ? 0xFF2C2F36u : 0xFF15161Au;
-        default:
-            if (chamber_is_door(c)) return 0xFFE08030u;
-            if (chamber_is_button(c)) return 0xFFC03020u;
-            return 0xFFFF00FFu;
-    }
+    chamber_glyph_t const* g = chamber_glyph(c);
+    if (g == NULL) return 0xFFFF00FFu;
+    if (g->colour != 0) return g->colour;
+    return floor_below ? 0xFF2C2F36u : 0xFF15161Au;  // air, and what stands in it
 }
 
 void editor_draw(pax_buf_t* fb) {
@@ -591,16 +526,18 @@ void editor_draw(pax_buf_t* fb) {
 
     for (int z = 0; z < s_d.d; z++) {
         for (int x = 0; x < s_d.w; x++) {
-            char const  c     = draft_get(&s_d, x, s_y, z);
-            char const  below = draft_get(&s_d, x, s_y - 1, z);
-            bool const  floor = s_y > 0 && below != '.' && below != ' ' && below != 'S' && below != 'C' &&
-                                !chamber_is_button(below) && below != 'T' && below != 'M' && below != 'N';
-            float const px = (float)(x0 + x * cs), py = (float)(y0 + (s_d.d - 1 - z) * cs);
+            char const             c     = draft_get(&s_d, x, s_y, z);
+            char const             below = draft_get(&s_d, x, s_y - 1, z);
+            chamber_glyph_t const* gb    = chamber_glyph(below);
+            bool const             floor = s_y > 0 && gb != NULL && gb->mat != MAT_AIR && gb->mat != MAT_FIZZ;
+            float const            px = (float)(x0 + x * cs), py = (float)(y0 + (s_d.d - 1 - z) * cs);
             pax_simple_rect(fb, cell_colour(c, floor), px, py, (float)cs - 1, (float)cs - 1);
-            char label[2] = {0};
-            if (chamber_is_door(c) || chamber_is_button(c)) label[0] = c;
-            if (c == 'C') pax_simple_circle(fb, 0xFF6EB4E6u, px + cs * 0.5f, py + cs * 0.5f, cs * 0.18f);
-            if (c == 'S') {
+            char                   label[2] = {0};
+            chamber_glyph_t const* gc       = chamber_glyph(c);
+            int const              kind     = gc != NULL ? gc->kind : -1;
+            if (kind == GLYPH_DOOR || kind == GLYPH_BUTTON) label[0] = c;
+            if (kind == GLYPH_CUBE) pax_simple_circle(fb, 0xFF6EB4E6u, px + cs * 0.5f, py + cs * 0.5f, cs * 0.18f);
+            if (kind == GLYPH_START) {
                 // The start, pointing the way it faces.
                 float const s = sinf(s_d.yaw), co = cosf(s_d.yaw), r = cs * 0.38f;
                 float const cx = px + cs * 0.5f, cy = py + cs * 0.5f;
@@ -634,25 +571,17 @@ void editor_draw(pax_buf_t* fb) {
     snprintf(line, sizeof(line), "x %d  z %d   %dx%dx%d", s_x, s_z, s_d.w, s_d.h, s_d.d);
     pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 68, line);
 
-    static struct {
-        char key;
-        char ch;
-    } const palette[] = {{'1', '#'}, {'2', 'W'}, {'3', '.'}, {'4', '~'}, {'5', 'E'}, {'6', 'a'}, {'7', '1'}, {'8', 'C'},
-                         {'9', 'S'}, {'0', 'G'}, {'-', 'F'}, {'=', 'J'}, {'T', 'T'}, {'M', 'M'}, {'N', 'N'}};
-    int const n_palette = (int)(sizeof(palette) / sizeof(palette[0]));
-    for (int i = 0; i < n_palette; i++) {
-        char ch = palette[i].ch;
-        if (ch == 'a') ch = s_door;
-        if (ch == '1') ch = s_button;
-        float const y   = 86.0f + (float)i * 16.0f;
+    // The brushes: every glyph with a key, in the legend's order.
+    int row = 0;
+    for (int i = 0; i < chamber_legend_n; i++) {
+        chamber_glyph_t const* g = &chamber_legend[i];
+        if (g->key == 0) continue;
+        char const  ch  = g->kind == GLYPH_DOOR ? s_door : g->kind == GLYPH_BUTTON ? s_button : g->ch;
+        float const y   = 86.0f + (float)row++ * 14.0f;
         bool const  sel = s_brush == ch;
-        pax_simple_rect(fb, cell_colour(ch, true), tx, y, 14, 14);
-        snprintf(line, sizeof(line), "%c %s%s%c", palette[i].key, brush_name(ch),
-                 chamber_is_door(ch) || chamber_is_button(ch) ? " " : "",
-                 chamber_is_door(ch)     ? ch
-                 : chamber_is_button(ch) ? chamber_door_char(ch - '1')
-                                         : ' ');
-        pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y + 1, line);
+        pax_simple_rect(fb, cell_colour(ch, true), tx, y, 12, 12);
+        snprintf(line, sizeof(line), "%c %s", g->key, brush_name(ch));
+        pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y, line);
     }
     static char const* const help[] = {
         "arrows  move",       "Space   paint (hold)", "B       box, twice", "Bksp    erase",
