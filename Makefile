@@ -238,6 +238,20 @@ install: build
 
 GRACELOADER_SLUG ?= at.cavac.graceloader
 
+# The TAS routes onto the card, for Esc -> Watch the TAS; and the times the
+# badge played them in, back (tas/README.md).
+.PHONY: tas-upload tas-result
+tas-upload:
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/tas || true
+	for t in tas/[0-9]*.txt; do \
+	  (cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/$$t ../../$$t) || exit 1; \
+	done
+
+tas-result:
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-result.txt $(abspath $(BUILD))/tas-result.txt
+	cat $(BUILD)/tas-result.txt
+
 .PHONY: run
 run:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) start $(GRACELOADER_SLUG) $(APP_INSTALL_PATH)/app.so

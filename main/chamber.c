@@ -702,6 +702,28 @@ char const* chamber_facing_name(float yaw) {
     return d == 0 ? "north" : d == 90 ? "east" : d == 180 ? "south" : d == 270 ? "west" : NULL;
 }
 
+bool chamber_parse_steps(char const* text, step_t* steps, int* n_steps, char* err, size_t err_n) {
+    ctx_t       c = {err, err_n, 0};
+    char        buf[256];
+    bool        long_line = false;
+    char const* p         = text;
+    int         ns        = 0;
+    if (err_n > 0) err[0] = '\0';
+    if (strncmp(p, "\xEF\xBB\xBF", 3) == 0) p += 3;
+    while (next_line(&p, buf, sizeof(buf), &long_line)) {
+        c.line++;
+        if (long_line) return fail(&c, "line longer than %d characters", (int)sizeof(buf) - 1);
+        char* const s = trim(buf);
+        if (*s == '\0' || strncmp(s, "//", 2) == 0 || strcmp(s, "solution") == 0) continue;
+        if (ns >= SCRIPT_MAX_STEPS - 1) return fail(&c, "more than %d steps", SCRIPT_MAX_STEPS - 1);
+        if (!parse_step(&c, s, &steps[ns])) return false;
+        ns++;
+    }
+    steps[ns] = (step_t){0};
+    if (n_steps) *n_steps = ns;
+    return true;
+}
+
 int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n) {
     sink_t o = {out, out_n, 0, false};
     if (out_n) out[0] = '\0';

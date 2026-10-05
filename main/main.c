@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "bsp/device.h"
 #include "chamber.h"
@@ -159,6 +160,131 @@ static void demo_frame(void) {
     if (remesh) render_set_level(&s_game.lv, s_game.portals);
 }
 
+// --- Watching the TAS --------------------------------------------------------
+//
+// Esc -> Watch the TAS: every built-in chamber played by its tool-assisted
+// route from TAS_DIR (tas/ in the source; make tas-upload), or by its own
+// solution where the card has none. The route is stepped with each frame's
+// own time, as a player at the keys would be, and timed by the game's own
+// clock: the run as this badge plays it. The times go to TAS_RESULT.
+
+#define TAS_DIR    "/sd/portals/tas"
+#define TAS_RESULT "/sd/portals/tas-result.txt"
+#define TAS_HOLD_S 1.2f   // "Chamber complete", then the next
+#define TAS_GIVE_S 60.0f  // a run this long has lost its way
+
+static bool          s_tas;    // watching
+static int           s_tas_k;  // the chamber
+static demo_player_t s_tas_player;
+static step_t        s_tas_steps[SCRIPT_MAX_STEPS];
+static float         s_tas_run, s_tas_total, s_tas_hold;
+static float         s_tas_times[CHAMBER_MAX];   // each chamber's time, or -1: lost its way
+static bool          s_tas_routed[CHAMBER_MAX];  // by a route from the card
+
+static void tas_begin(int k) {
+    load_chamber(k);
+    message(s_game.lv.name);
+    s_tas_k    = k;
+    s_tas_run  = 0.0f;
+    s_tas_hold = 0.0f;
+    // Its route, if the card has one; else the chamber's own solution.
+    char path[96];
+    char err[96];
+    int  n = 0;
+    snprintf(path, sizeof(path), "%s/%s.txt", TAS_DIR, chamber_id(k));
+    FILE* f         = fopen(path, "rb");
+    s_tas_routed[k] = false;
+    if (f != NULL) {
+        static char  text[4096];
+        size_t const len = fread(text, 1, sizeof(text) - 1, f);
+        fclose(f);
+        text[len]       = '\0';
+        s_tas_routed[k] = chamber_parse_steps(text, s_tas_steps, &n, err, sizeof(err));
+        if (!s_tas_routed[k]) ESP_LOGW(TAG, "%s: %s", path, err);
+    }
+    if (!s_tas_routed[k]) {
+        step_t const* own = demo_steps(demo_find(chamber_id(k)));
+        int           i   = 0;
+        for (; own != NULL && own[i].op != OP_END && i < SCRIPT_MAX_STEPS - 1; i++) s_tas_steps[i] = own[i];
+        s_tas_steps[i] = (step_t){0};
+    }
+    demo_player_start(&s_tas_player, s_tas_steps);
+}
+
+static void tas_start(void) {
+    s_tas       = true;
+    s_tas_total = 0.0f;
+    for (int i = 0; i < CHAMBER_MAX; i++) s_tas_times[i] = -1.0f;
+    tas_begin(0);
+}
+
+// The run's times, to the card: one line a chamber, then the total.
+static void tas_write(int done) {
+    FILE* f = fopen(TAS_RESULT, "w");
+    if (f == NULL) {
+        ESP_LOGW(TAG, "cannot write %s", TAS_RESULT);
+        return;
+    }
+    for (int k = 0; k < done; k++) {
+        if (s_tas_times[k] >= 0.0f)
+            fprintf(f, "%s\t%.2f\t%s\n", chamber_id(k), (double)s_tas_times[k], s_tas_routed[k] ? "route" : "solution");
+        else
+            fprintf(f, "%s\tFAIL\t%s\n", chamber_id(k), s_tas_routed[k] ? "route" : "solution");
+    }
+    fprintf(f, "total\t%.2f\t%.1f fps\n", (double)s_tas_total, (double)s_fps);
+    fclose(f);
+}
+
+static void tas_stop(void) {
+    s_tas = false;
+    load_chamber(s_game.chamber);
+    message(s_game.lv.name);
+    input_resync();
+}
+
+static void tas_update(float dt) {
+    if (s_msg_t > 0.0f) s_msg_t -= dt;
+    s_story_t += dt;
+    if (s_sub_t > 0.0f) s_sub_t -= dt;
+    char const* said = NULL;
+    int const   n    = sound_turret_said(&said);
+    if (n != s_sub_seen) {
+        s_sub_seen = n;
+        s_sub      = said;
+        s_sub_t    = TURRET_SUB_S;
+    }
+    if (s_tas_hold > 0.0f) {
+        if ((s_tas_hold -= dt) > 0.0f) return;
+        if (s_tas_k + 1 < chamber_builtin_count) {
+            tas_begin(s_tas_k + 1);
+        } else {
+            tas_write(chamber_builtin_count);
+            char done[48];
+            snprintf(done, sizeof(done), "TAS: %d:%05.2f", (int)(s_tas_total / 60.0f),
+                     (double)fmodf(s_tas_total, 60.0f));
+            s_tas = false;
+            message(done);
+            input_resync();
+        }
+        return;
+    }
+    // The game's own clock: game_step() takes no step longer than 0.1 s.
+    int const ev  = demo_player_step(&s_tas_player, &s_game, dt, 0.0f);
+    s_tas_run    += fminf(dt, 0.1f);
+    sound_events(ev);
+    if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
+    if (ev & PL_EV_EXIT) {
+        s_tas_times[s_tas_k]  = s_tas_run;
+        s_tas_total          += s_tas_run;
+        message("Chamber complete");
+        s_tas_hold = TAS_HOLD_S;
+    } else if ((ev & PL_EV_DIED) || s_tas_run > TAS_GIVE_S) {
+        message("Lost its way");  // the frames came otherwise than the route was made for
+        s_tas_hold = TAS_HOLD_S * 2.0f;
+    }
+    if (s_tas_hold > 0.0f) tas_write(s_tas_k + 1);
+}
+
 // --- Engine callbacks ---------------------------------------------------
 
 static void on_init(void* user) {
@@ -223,6 +349,11 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         input_event(ev);
         return;
     }
+    // Watching the TAS, Esc stops it; nothing else plays.
+    if (s_tas) {
+        if (menu_is_open_key(ev)) tas_stop();
+        return;
+    }
     // A menu that is showing has the keyboard, all of it.
     if (menu_active()) {
         menu_event(ev);
@@ -255,6 +386,10 @@ static void menu_frame(void) {
             editor_open(s_game.chamber, CHAMBER_DIR);
             s_mode = MODE_EDIT;
             break;
+        case MENU_CMD_TAS:
+            s_pending_chamber = -1;
+            tas_start();
+            break;
         case MENU_CMD_QUIT:
             sound_say(NULL);
             leds_release();          // the system LEDs back to the coprocessor
@@ -284,6 +419,10 @@ static void on_update(float dt, void* user) {
     devtest_update();
     if (s_demo >= 0) {
         demo_frame();
+        return;
+    }
+    if (s_tas) {
+        tas_update(dt);
         return;
     }
     if (s_mode == MODE_EDIT) {
@@ -402,6 +541,26 @@ static void hud(pax_buf_t* fb) {
     pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_game.lv.name);
     pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_game.lv.hint);
 
+    // Watching the TAS: its timer, where the keys' help goes -- the run so
+    // far, and this chamber's.
+    if (s_tas) {
+        float const total = s_tas_total + (s_tas_hold > 0.0f ? 0.0f : s_tas_run);
+        char        big[24], small[32];
+        snprintf(big, sizeof(big), "%d:%05.2f", (int)(total / 60.0f), (double)fmodf(total, 60.0f));
+        snprintf(small, sizeof(small), "TAS  %.2f",
+                 (double)(s_tas_hold > 0.0f && s_tas_times[s_tas_k] >= 0.0f ? s_tas_times[s_tas_k] : s_tas_run));
+        pax_vec2f const bs = pax_text_size(pax_font_sky_mono, 24, big);
+        pax_simple_rect(fb, 0xC0000000u, DISPLAY_LOG_W - bs.x - 20, 4, bs.x + 14, 46);
+        pax_draw_text(fb, 0xFF78FF8Cu, pax_font_sky_mono, 24, DISPLAY_LOG_W - bs.x - 13, 6, big);
+        pax_vec2f const ss = pax_text_size(pax_font_sky_mono, 12, small);
+        pax_draw_text(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - ss.x - 13, 34, small);
+        draw_subtitle(fb, draw_story(fb));
+        if (s_msg_t > 0.0f) {
+            pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
+            pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
+        }
+        return;
+    }
     // The keys as they are bound now, not as they shipped.
     char blue[16], orange[16], use[16], help[112];
     snprintf(help, sizeof(help), "%s blue   %s orange   %s use   Esc menu",

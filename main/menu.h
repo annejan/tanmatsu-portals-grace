@@ -13,6 +13,7 @@ typedef enum {
     MENU_CMD_RESTART,
     MENU_CMD_CHAMBER,  // load menu_cmd_t.chamber
     MENU_CMD_EDITOR,   // open the chamber editor on the chamber in play
+    MENU_CMD_TAS,      // watch the tool-assisted run, every chamber
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;
 

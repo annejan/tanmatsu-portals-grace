@@ -47,6 +47,9 @@ extern int const               chamber_builtin_count;
 // Parse a chamber file. On failure false, with a message ("line 12: ...")
 // in `err`. `steps` may be NULL to skip the solution.
 bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, char* err, size_t err_n);
+// A script on its own, as a solution is written (a "solution" line may
+// head it): tas/NN-name.txt, a route for the chamber of that name.
+bool chamber_parse_steps(char const* text, step_t* steps, int* n_steps, char* err, size_t err_n);
 
 // Write `lv` out in the file format, solution and all (`steps` may be
 // NULL). Returns the length, or -1 if `out` was too small.

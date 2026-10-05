@@ -140,10 +140,10 @@ void menu_event(bsp_input_event_t const* ev) {
 
 // --- The screens --------------------------------------------------------
 
-#define PAUSE_ROWS 7
+#define PAUSE_ROWS 8
 static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
-    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"},   {.label = "Chamber editor"},
-    {.label = "Settings"}, {.label = "Controls"},        {.label = "Quit to launcher"},
+    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"}, {.label = "Chamber editor"},
+    {.label = "Settings"}, {.label = "Controls"},        {.label = "Watch the TAS"},  {.label = "Quit to launcher"},
 };
 
 enum {
@@ -321,6 +321,10 @@ menu_cmd_t menu_update(void) {
                         go(SCR_CONTROLS);
                         break;
                     case 6:
+                        s_scr    = SCR_NONE;
+                        cmd.kind = MENU_CMD_TAS;
+                        break;
+                    case 7:
                         cmd.kind = MENU_CMD_QUIT;
                         break;
                 }

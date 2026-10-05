@@ -98,129 +98,140 @@ static int shot_events(bool ok, int which) {
     return ok ? GAME_EV_PORTAL | (which == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE) : GAME_EV_SHOT_FAIL;
 }
 
+void demo_player_start(demo_player_t* p, step_t const* steps) {
+    *p       = (demo_player_t){0};
+    p->steps = steps;
+    p->paced = -1;
+}
+
+bool demo_player_done(demo_player_t const* p) {
+    return p->steps[p->k].op == OP_END;
+}
+
+int demo_player_step(demo_player_t* p, game_t* g, float dt, float pace) {
+    game_input_t in      = {0};
+    int          instant = 0;      // events of this step's instant steps
+    bool         still   = false;  // paced: this step acted, and does nothing more
+    // Instant steps take no time: run them all before this step -- but
+    // with `pace`, standing still a while before each act first.
+    for (; p->hold <= 0.0f;) {
+        step_t const* st = &p->steps[p->k];
+        if (pace > 0.0f && is_act(st->op) && p->paced != p->k) {
+            p->paced = p->k;
+            p->hold  = pace;
+            break;
+        }
+        if (st->op == OP_FACE) {
+            g->pl.yaw   = st->a;
+            g->pl.pitch = st->b;
+        } else if (st->op == OP_FACE_POINT) {
+            face_point(&g->pl, v3(st->a, st->b, st->c));
+        } else if (st->op == OP_SHOOT) {
+            face_point(&g->pl, v3(st->a, st->b, st->c));
+            instant |= shot_events(game_fire(g, st->which), st->which);
+        } else if (st->op == OP_SHOOT_VIEW) {
+            instant |= shot_events(game_fire(g, st->which), st->which);
+        } else if (st->op == OP_USE) {
+            instant |= game_use(g);
+        } else if (st->op == OP_JUMP) {
+            p->jump = true;
+        } else if (st->op == OP_GRAB) {
+            // The nearest cube not already carried: look at its middle
+            // and pick it up. Where a cube lands can shift by a few
+            // centimetres with the frame rate; a script that names
+            // the spot would miss it.
+            int   near = -1;
+            float best = 1e9f;
+            for (int c = 0; c < g->n_cubes; c++) {
+                if (c == g->held) continue;
+                float const d = v3_len(v3_sub(body_center(&g->cubes[c].body), player_eye(&g->pl)));
+                if (d < best) {
+                    best = d;
+                    near = c;
+                }
+            }
+            if (near >= 0) {
+                face_point(&g->pl, body_center(&g->cubes[near].body));
+                instant |= game_use(g);
+            }
+        } else {
+            break;
+        }
+        p->k++;
+        p->in_step = 0.0f;  // the next step's time starts now, not with a pause before this one
+        // Paced, the act's step is all it does: the next step would
+        // turn the player away from what it just shot at, unseen.
+        if (pace > 0.0f && is_act(p->steps[p->k - 1].op)) {
+            still = true;
+            break;
+        }
+    }
+    if (p->hold > 0.0f) p->hold -= dt;
+    static step_t const idle = {OP_END, 0, 0, 0, 0};
+    step_t const*       st   = still ? &idle : &p->steps[p->k];
+    bool                done = false;
+    switch (st->op) {
+        case OP_WALK:
+            in.fwd = 1.0f;
+            done   = p->in_step >= st->a;
+            break;
+        case OP_WALK_TO: {
+            float const dx = st->a - g->pl.pos.x, dz = st->c - g->pl.pos.z;
+            float const dist = sqrtf(dx * dx + dz * dz);
+            g->pl.yaw        = atan2f(dx, dz);
+            in.fwd           = fminf(st->b, dist * 2.0f);
+            done             = (dist < 0.2f && g->pl.on_ground) || p->in_step > 6.0f;
+            break;
+        }
+        case OP_STEP_OFF:
+            // Walk until the ground is gone. Begun in the air, it waits
+            // to land first; each step_off starts afresh.
+            if (p->in_step == 0.0f) p->walked = false;
+            if (g->pl.on_ground) {
+                in.fwd    = st->a;
+                p->walked = true;
+            } else if (p->walked) {
+                done = true;
+            }
+            break;
+        case OP_WAIT:
+            done = p->in_step >= st->a;
+            break;
+        default:
+            break;  // OP_END: stand still
+    }
+    in.jump      = p->jump;
+    p->jump      = false;
+    int const ev = game_step(g, &in, dt) | instant;
+    if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
+    if (!still) p->in_step += dt;
+    if (done) {
+        p->k++;
+        p->in_step = 0.0f;
+    }
+    return ev;
+}
+
+step_t const* demo_steps(int i) {
+    static step_t parsed[SCRIPT_MAX_STEPS];
+    if (i < 0 || i >= demo_count()) return NULL;
+    if (i < N_FIXED) return s_demos[i].steps;
+    static level_t lv;
+    int            n = 0;
+    if (!chamber_build(i - N_FIXED, &lv, parsed, &n)) parsed[0] = (step_t){0};
+    return parsed;
+}
+
 void demo_run(int i, float t, float dt, demo_state_t* s, demo_tick_fn tick, void* ctx, float pace) {
     memset(s, 0, sizeof(*s));
     if (i < 0 || i >= demo_count()) return;
     game_t* g = &s->g;
     game_load(g, demo_chamber(i));
-    static step_t parsed[SCRIPT_MAX_STEPS];
-    step_t const* steps = parsed;
-    if (i < N_FIXED) {
-        steps = s_demos[i].steps;
-    } else {
-        static level_t lv;
-        int            n = 0;
-        if (!chamber_build(i - N_FIXED, &lv, parsed, &n)) parsed[0] = (step_t){0};
-    }
-
-    int   k       = 0;      // the step running
-    float in_step = 0.0f;   // seconds into it
-    bool  walked  = false;  // OP_STEP_OFF: has been walking on the ground
-    bool  jump    = false;  // OP_JUMP: on this tick
-    int   paced   = -1;     // the act step last paused before ...
-    float hold    = 0.0f;   // ... and how much of that pause is left
+    demo_player_t p;
+    demo_player_start(&p, demo_steps(i));
     for (float now = 0.0f; now + dt * 0.5f < t; now += dt) {
-        game_input_t in      = {0};
-        int          instant = 0;      // events of this tick's instant steps
-        bool         still   = false;  // paced: this tick acted, and does nothing more
-        // Instant steps take no time: run them all before this tick -- but
-        // with `pace`, standing still a while before each act first.
-        for (; hold <= 0.0f;) {
-            step_t const* st = &steps[k];
-            if (pace > 0.0f && is_act(st->op) && paced != k) {
-                paced = k;
-                hold  = pace;
-                break;
-            }
-            if (st->op == OP_FACE) {
-                g->pl.yaw   = st->a;
-                g->pl.pitch = st->b;
-            } else if (st->op == OP_FACE_POINT) {
-                face_point(&g->pl, v3(st->a, st->b, st->c));
-            } else if (st->op == OP_SHOOT) {
-                face_point(&g->pl, v3(st->a, st->b, st->c));
-                instant |= shot_events(game_fire(g, st->which), st->which);
-            } else if (st->op == OP_SHOOT_VIEW) {
-                instant |= shot_events(game_fire(g, st->which), st->which);
-            } else if (st->op == OP_USE) {
-                instant |= game_use(g);
-            } else if (st->op == OP_JUMP) {
-                jump = true;
-            } else if (st->op == OP_GRAB) {
-                // The nearest cube not already carried: look at its middle
-                // and pick it up. Where a cube lands can shift by a few
-                // centimetres with the frame rate; a script that names
-                // the spot would miss it.
-                int   near = -1;
-                float best = 1e9f;
-                for (int c = 0; c < g->n_cubes; c++) {
-                    if (c == g->held) continue;
-                    float const d = v3_len(v3_sub(body_center(&g->cubes[c].body), player_eye(&g->pl)));
-                    if (d < best) {
-                        best = d;
-                        near = c;
-                    }
-                }
-                if (near >= 0) {
-                    face_point(&g->pl, body_center(&g->cubes[near].body));
-                    instant |= game_use(g);
-                }
-            } else {
-                break;
-            }
-            k++;
-            in_step = 0.0f;  // the next step's time starts now, not with a pause before this one
-            // Paced, the act's step is all it does: the next step would
-            // turn the player away from what it just shot at, unseen.
-            if (pace > 0.0f && is_act(steps[k - 1].op)) {
-                still = true;
-                break;
-            }
-        }
-        if (hold > 0.0f) hold -= dt;
-        static step_t const idle = {OP_END, 0, 0, 0, 0};
-        step_t const*       st   = still ? &idle : &steps[k];
-        bool                done = false;
-        switch (st->op) {
-            case OP_WALK:
-                in.fwd = 1.0f;
-                done   = in_step >= st->a;
-                break;
-            case OP_WALK_TO: {
-                float const dx = st->a - g->pl.pos.x, dz = st->c - g->pl.pos.z;
-                float const dist = sqrtf(dx * dx + dz * dz);
-                g->pl.yaw        = atan2f(dx, dz);
-                in.fwd           = fminf(st->b, dist * 2.0f);
-                done             = (dist < 0.2f && g->pl.on_ground) || in_step > 6.0f;
-                break;
-            }
-            case OP_STEP_OFF:
-                // Walk until the ground is gone. Begun in the air, it waits
-                // to land first; each step_off starts afresh.
-                if (in_step == 0.0f) walked = false;
-                if (g->pl.on_ground) {
-                    in.fwd = st->a;
-                    walked = true;
-                } else if (walked) {
-                    done = true;
-                }
-                break;
-            case OP_WAIT:
-                done = in_step >= st->a;
-                break;
-            default:
-                break;  // OP_END: stand still
-        }
-        in.jump       = jump;
-        jump          = false;
-        int const ev  = game_step(g, &in, dt) | instant;
+        int const ev  = demo_player_step(&p, g, dt, pace);
         s->events    |= ev;
         if (tick != NULL) tick(g, ev, now + dt, ctx);
-        if (st->op == OP_WALK_TO && (ev & PL_EV_TELEPORT)) done = true;
-        if (!still) in_step += dt;
-        if (done) {
-            k++;
-            in_step = 0.0f;
-        }
     }
 }

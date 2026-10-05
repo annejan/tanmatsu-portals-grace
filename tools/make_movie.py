@@ -13,6 +13,7 @@ recorder (tests/host_movie.c) first.
 """
 
 import argparse
+import json
 import glob
 import os
 import shutil
@@ -136,23 +137,28 @@ def main():
     total = before + done
     names = [l[1] for l in lines if l[0] == "S"]
 
+    # The game's version, on the titles: which game this is a film of.
+    with open(os.path.join(root, "metadata", "metadata.json")) as f:
+        version = "Portals " + json.load(f)["version"]
+
     # The titles: a chamber's own name for one; for several, the game's.
     if len(names) == 1:
         number, _, rest = names[0].partition(" ")
         if number.isdigit() and rest.strip():
-            opening = card(w, h, rest.strip().upper(), ["chamber %d" % int(number), "Portals, on the Tanmatsu"],
+            opening = card(w, h, rest.strip().upper(), ["chamber %d" % int(number), version + ", on the Tanmatsu"],
                            f_big, f_small)
         else:
-            opening = card(w, h, names[0].upper(), ["a test chamber for Portals", "on the Tanmatsu"], f_big, f_small)
+            opening = card(w, h, names[0].upper(), ["a test chamber for " + version, "on the Tanmatsu"], f_big, f_small)
     else:
-        opening = card(w, h, "PORTALS", ["%d test chambers" % len(names), "on the Tanmatsu"], f_big, f_small)
-    closing = card(w, h, "PORTALS", ["for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big, f_small)
+        opening = card(w, h, "PORTALS", ["%d test chambers" % len(names), version + ", on the Tanmatsu"], f_big, f_small)
+    closing = card(w, h, "PORTALS", [version + " for Tanmatsu", "github.com/annejan/tanmatsu-portals-grace"], f_big,
+                   f_small)
     if a.tas:
         clock = "%d:%05.2f" % (total // 60, total % 60)
-        opening = card(w, h, "PORTALS", ["a tool-assisted run", "%d test chambers in %s" % (len(names), clock)],
+        opening = card(w, h, "PORTALS", ["a tool-assisted run of " + version, "%d test chambers in %s" % (len(names), clock)],
                        f_big, f_small)
         closing = card(w, h, clock, ["%d chambers, tool-assisted, at 50 steps a second" % len(names),
-                                     "Portals for Tanmatsu  -  github.com/annejan/tanmatsu-portals-grace"],
+                                     version + " for Tanmatsu  -  github.com/annejan/tanmatsu-portals-grace"],
                        f_big, f_small)
     f_name = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 15 * SCALE)
     f_hint = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 11 * SCALE)
