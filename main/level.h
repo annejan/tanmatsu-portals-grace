@@ -34,6 +34,8 @@ typedef enum {
     MAT_DISP_WHITE,
     MAT_LAUNCHER,  // an energy pellet launcher: fires out of its one open side
     MAT_RECEIVER,  // a pellet receiver: a block whose button latches when a pellet arrives
+    MAT_RELAY,     // a laser relay: a slim post a beam passes through, lighting its button
+    MAT_FIELD,     // a laser field: a red sheet like a fizzler, deadly to touch
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -116,6 +118,7 @@ typedef struct {
     bool  cube_only;   // on a cube base: the player does not press it
     bool  laser;       // on a laser catcher: down while a beam hits it
     bool  receiver;    // on a pellet receiver: down for good once a pellet arrives
+    bool  relay;       // on a laser relay: down while a beam passes through it
     float timer_left;  // state: a pedestal button's seconds still to go
 } button_t;
 
@@ -167,8 +170,21 @@ typedef struct {
     int        n_gels;
     uint8_t    paint[LV_MAX_W * LV_MAX_H * LV_MAX_D];  // gel_t per cell: state, painted in play
     platform_t platform;                               // M cells and the N cell; none when n_platforms is 0
+    int        platform_link;  // -1: it always moves; else only while that link's buttons are all down
     int        n_platforms;
 } level_t;
+
+// Open space, as drawn: what the faces of solid cells next to it show to.
+// Doors, fizzlers and laser fields are drawn by the game; pedestals and
+// relays are slim posts in a cell of their own.
+static inline bool level_open(uint8_t m) {
+    return m == MAT_AIR || m == MAT_DOOR || m == MAT_FIZZ || m == MAT_FIELD || m == MAT_PEDESTAL || m == MAT_RELAY;
+}
+
+// A sheet through the middle of its cell: a fizzler or a laser field.
+static inline bool level_sheet(uint8_t m) {
+    return m == MAT_FIZZ || m == MAT_FIELD;
+}
 
 // The chambers (chamber.h): the built-in ones, then any from the SD card.
 int  level_count(void);

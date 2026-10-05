@@ -37,6 +37,8 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_DISP_WHITE]   = {NULL, 0xFF8A8A84u, 0, NULL},
     [MAT_LAUNCHER]     = {NULL, 0xFF4A4038u, 0, NULL},
     [MAT_RECEIVER]     = {NULL, 0xFF50543Au, 0, NULL},
+    [MAT_RELAY]        = {NULL, 0xFF8A8E96u, 0, NULL},
+    [MAT_FIELD]        = {"field.png", 0xFFFF4030u, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
     [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
     [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
     [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
@@ -99,7 +101,7 @@ static void build_clear(level_t const* lv) {
                         int dx, dy, dz;
                         dir_step(face, &dx, &dy, &dz);
                         uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
-                        if (nb != MAT_AIR && nb != MAT_DOOR && nb != MAT_FIZZ && nb != MAT_PEDESTAL) continue;
+                        if (!level_open(nb)) continue;
                         int const a = face / 2, ua = (a + 1) % 3, va = (a + 2) % 3;
                         float     o[3] = {(float)x, (float)y, (float)z}, du[3] = {0}, dv[3] = {0};
                         if (face % 2 == 0) o[a] += 1.0f;
@@ -108,12 +110,18 @@ static void build_clear(level_t const* lv) {
                         add_clear(v3(o[0], o[1], o[2]), v3(du[0], du[1], du[2]), v3(dv[0], dv[1], dv[2]), dir_vec(face),
                                   m);
                     }
-                } else if (m == MAT_FIZZ) {
+                } else if (level_sheet(m)) {
                     // A sheet through the middle of the cell, across the
-                    // way the fizzler runs, seen from both sides.
-                    bool const along_x =
-                        level_get(lv, x - 1, y, z) == MAT_FIZZ || level_get(lv, x + 1, y, z) == MAT_FIZZ ||
-                        !(level_get(lv, x, y, z - 1) == MAT_FIZZ || level_get(lv, x, y, z + 1) == MAT_FIZZ);
+                    // way the fizzler (or laser field) runs, seen from both sides.
+                    bool along_x = level_get(lv, x - 1, y, z) == m || level_get(lv, x + 1, y, z) == m ||
+                                   !(level_get(lv, x, y, z - 1) == m || level_get(lv, x, y, z + 1) == m);
+            // Across a corridor: open on both ends along one axis only.
+#define CLEAR(dx, dz) \
+    (level_open(level_get(lv, x + (dx), y, z + (dz))) && !level_sheet(level_get(lv, x + (dx), y, z + (dz))))
+                    bool const open_x = CLEAR(-1, 0) && CLEAR(1, 0), open_z = CLEAR(0, -1) && CLEAR(0, 1);
+#undef CLEAR
+                    if (open_x && !open_z) along_x = false;
+                    if (open_z && !open_x) along_x = true;
                     if (along_x) {
                         vec3_t const o = v3((float)x, (float)y, (float)z + 0.5f);
                         add_clear(o, v3(1, 0, 0), v3(0, 1, 0), v3(0, 0, -1), m);
@@ -493,7 +501,21 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             submit_pedestal(bt, g->lv.timer, cam, cs);
             continue;
         }
-        submit_box(v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.04f, z + 0.95f), cam, cs, NULL, 0xFF5C6066u, 0);
+        // A relay's button sits on its slim post: a smaller plate.
+        float const rim = bt->relay ? 0.25f : 0.05f;
+        submit_box(v3(x + rim, top, z + rim), v3(x + 1.0f - rim, top + 0.04f, z + 1.0f - rim), cam, cs, NULL,
+                   0xFF5C6066u, 0);
+        if (bt->relay) {
+            // The post, with three rings that glow while a beam goes through.
+            float const    y0 = (float)bt->y, cx = x + 0.5f, cz = z + 0.5f;
+            uint32_t const ring = bt->pressed ? 0xFFFF3A28u : 0xFF3A2020u;
+            submit_box(v3(cx - 0.08f, y0, cz - 0.08f), v3(cx + 0.08f, top, cz + 0.08f), cam, cs, NULL, 0xFF8A8E96u, 0);
+            for (int k = 0; k < 3; k++) {
+                float const ry = y0 + 0.3f + 0.2f * (float)k;
+                submit_box(v3(cx - 0.14f, ry, cz - 0.14f), v3(cx + 0.14f, ry + 0.06f, cz + 0.14f), cam, cs, NULL, ring,
+                           bt->pressed ? SE_TRI_EMISSIVE : 0);
+            }
+        }
         float const    h   = bt->pressed ? 0.06f : 0.12f;
         // Red for anyone, blue for a cube only.
         uint32_t const lit = bt->cube_only ? 0xFF40A0FFu : 0xFFFF6040u, off = bt->cube_only ? 0xFF1C4C90u : 0xFFB02818u;
@@ -663,7 +685,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         mquad_t const*         q = &s_clear[i];
         material_info_t const* m = &s_mat[q->mat];
         if (m->tex == NULL) continue;
-        float const   ov   = q->mat == MAT_FIZZ ? fmodf(s_time * FIZZ_FALL, 1.0f) : 0.0f;  // its streaks fall
+        float const   ov   = level_sheet(q->mat) ? fmodf(s_time * FIZZ_FALL, 1.0f) : 0.0f;  // its streaks fall
         cvert_t const v[4] = {
             {q->origin, 0, ov},
             {v3_add(q->origin, q->du), 1, ov},

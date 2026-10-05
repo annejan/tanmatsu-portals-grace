@@ -1,6 +1,6 @@
 {
   "name": "Portals",
-  "description": "Portal puzzles in ten test chambers",
+  "description": "Portal puzzles in sixteen test chambers",
   "categories": [
     "games"
   ],
@@ -58,6 +58,10 @@
         {
           "source_file": "textures/jump.png",
           "target_file": "textures/jump.png"
+        },
+        {
+          "source_file": "textures/field.png",
+          "target_file": "textures/field.png"
         }
       ]
     }

@@ -64,6 +64,8 @@ chamber_glyph_t const chamber_legend[] = {
     {'X', "white gel dispenser", GLYPH_CELL, MAT_DISP_WHITE, 0, 'X', 0xFFE8E8E0u},
     {'P', "pellet launcher", GLYPH_CELL, MAT_LAUNCHER, 0, 'J', 0xFF8A5A2Au},
     {'Q', "pellet receiver", GLYPH_CELL, MAT_RECEIVER, 0, 'C', 0xFF6A6E2Au},
+    {'|', "laser relay", GLYPH_CELL, MAT_RELAY, 0, 'G', 0xFFA06060u},
+    {'*', "laser field", GLYPH_CELL, MAT_FIELD, 0, ';', 0xFFD03020u},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -228,6 +230,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     memset(lv, 0, sizeof(*lv));
     snprintf(lv->name, sizeof(lv->name), "Untitled");
     lv->timer                        = LV_TIMER_S;
+    lv->platform_link                = -1;
     int         ns                   = 0;
     int         layer                = -1;  // the layer whose rows are being read
     int         row                  = 0;
@@ -365,6 +368,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             snprintf(lv->hint, sizeof(lv->hint), "%s", v);
         } else if (strcmp(k, "story") == 0) {
             snprintf(lv->story, sizeof(lv->story), "%s", v);
+        } else if (strcmp(k, "platform") == 0) {
+            if (strlen(v) != 1 || !chamber_is_button(v[0]))
+                return fail(&c, "platform: the button (1-%d) that has to be down for it to move", LV_MAX_BUTTONS);
+            lv->platform_link = v[0] - '1';
         } else if (strcmp(k, "timer") == 0) {
             float t = 0;
             int   n = 0;
@@ -412,6 +419,13 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     }
     lv->n_jumps = n_plates;
     if (have_m != have_n) return fail(&c, "a moving platform needs its M cells and one N");
+    if (lv->platform_link >= 0) {
+        bool any = false;
+        for (int i = 0; i < lv->n_buttons; i++) any = any || lv->buttons[i].link == lv->platform_link;
+        if (!have_m || !any)
+            return fail(&c, "platform: %c, but %s", chamber_button_char(lv->platform_link),
+                        !have_m ? "there is no platform" : "no button for it");
+    }
     if (have_m) {
         int const sx = m_box[3] - m_box[0] + 1, sy = m_box[4] - m_box[1] + 1, sz = m_box[5] - m_box[2] + 1;
         if (n_m != sx * sy * sz) return fail(&c, "the M cells are not a box");
@@ -454,7 +468,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         lv->buttons[i].cube_only = m == MAT_CUBEBASE;
         lv->buttons[i].laser     = m == MAT_CATCHER;
         lv->buttons[i].receiver  = m == MAT_RECEIVER;
-        if (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0)
+        lv->buttons[i].relay     = m == MAT_RELAY;
+        if (b->link != lv->platform_link && (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0))
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
     // Emitters: each emits out of its one open side; a bridge sideways.
@@ -590,6 +605,7 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
     if (lv->hint[0]) put(&o, "hint: %s\n", lv->hint);
     if (lv->story[0]) put(&o, "story: %s\n", lv->story);
     if (lv->timer != LV_TIMER_S) put(&o, "timer: %g\n", (double)lv->timer);
+    if (lv->platform_link >= 0) put(&o, "platform: %c\n", chamber_button_char(lv->platform_link));
     put(&o, "size: %d %d %d\n", lv->w, lv->h, lv->d);
     char const* f = chamber_facing_name(lv->spawn_yaw);
     if (f)

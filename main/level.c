@@ -25,7 +25,7 @@ bool level_solid(level_t const* lv, int x, int y, int z) {
     uint8_t const m = level_get(lv, x, y, z);
     // A pedestal is a slim post, not a block: the game gives it a box of its
     // own (game.c), and the grid lets things by.
-    if (m == MAT_AIR || m == MAT_FIZZ || m == MAT_PEDESTAL) return false;
+    if (m == MAT_AIR || level_sheet(m) || m == MAT_PEDESTAL || m == MAT_RELAY) return false;
     if (m == MAT_DOOR) {
         int const d = level_door_at(lv, x, y, z);
         return d < 0 || lv->doors[d].open < DOOR_PASSABLE;
@@ -125,13 +125,13 @@ int level_clear_faces(level_t const* lv) {
         for (int z = 0; z < lv->d; z++)
             for (int x = 0; x < lv->w; x++) {
                 uint8_t const m = level_get(lv, x, y, z);
-                if (m == MAT_FIZZ) n += 2;  // a sheet, seen from both sides
+                if (level_sheet(m)) n += 2;  // a sheet, seen from both sides
                 if (m != MAT_GLASS) continue;
                 for (int face = 0; face < 6; face++) {
                     int dx, dy, dz;
                     dir_step(face, &dx, &dy, &dz);
                     uint8_t const nb = level_get(lv, x + dx, y + dy, z + dz);
-                    if (nb == MAT_AIR || nb == MAT_DOOR || nb == MAT_FIZZ || nb == MAT_PEDESTAL) n++;
+                    if (level_open(nb)) n++;
                 }
             }
     return n;
@@ -153,20 +153,18 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
             for (int j = 0; j < nv; j++) {
                 for (int i = 0; i < nu; i++) {
                     int c[3];
-                    c[a]                = s;
-                    c[ua]               = i;
-                    c[va]               = j;
-                    uint8_t const m     = level_get(lv, c[0], c[1], c[2]);
-                    int           e[3]  = {c[0], c[1], c[2]};
-                    e[a]               += sign;
+                    c[a]                      = s;
+                    c[ua]                     = i;
+                    c[va]                     = j;
+                    uint8_t const m           = level_get(lv, c[0], c[1], c[2]);
+                    int           e[3]        = {c[0], c[1], c[2]};
+                    e[a]                     += sign;
                     // Doors, glass and fizzlers are drawn by the game, not the
                     // mesh: their cells are open space here, so what is
                     // round and behind them shows.
-                    uint8_t const n     = level_get(lv, e[0], e[1], e[2]);
-                    bool const    vis =
-                        m != MAT_AIR && m != MAT_DOOR && m != MAT_GLASS && m != MAT_FIZZ && m != MAT_PEDESTAL &&
-                        (n == MAT_AIR || n == MAT_DOOR || n == MAT_GLASS || n == MAT_FIZZ || n == MAT_PEDESTAL) &&
-                        !is_hole(holes, n_holes, c[0], c[1], c[2], face);
+                    uint8_t const        n    = level_get(lv, e[0], e[1], e[2]);
+                    bool const           vis  = !level_open(m) && m != MAT_GLASS && (level_open(n) || n == MAT_GLASS) &&
+                                                !is_hole(holes, n_holes, c[0], c[1], c[2], face);
                     // A painted face is meshed as its paint.
                     static uint8_t const painted[] = {0, MAT_PAINT_BLUE, MAT_PAINT_ORANGE, MAT_PAINT_WHITE};
                     int const            gel       = vis ? level_paint(lv, c[0], c[1], c[2]) : GEL_NONE;

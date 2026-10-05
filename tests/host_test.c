@@ -892,6 +892,58 @@ static void test_pellets(void) {
           "a launcher open on two sides is refused: %s", err);
 }
 
+// Laser relays, a platform that waits for one, laser fields (chamber 16).
+static void test_relays(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    int const          c = demo_chamber(demo_find("16-relay"));
+    CHECK(c >= 0, "chamber 16 is there");
+    if (c < 0) return;
+    game_load(&g, c);
+    CHECK(g.lv.platform_link == 0 && g.lv.buttons[0].relay, "the platform waits for button 1, on a relay");
+    for (int i = 0; i < 250; i++) game_step(&g, &idle, 0.02f);
+    CHECK(platform_aabb(&g).lo.x < 4.01f && !g.lv.buttons[0].pressed, "unlit, the platform stays put (x %.2f)",
+          platform_aabb(&g).lo.x);
+    // The beam through the relay: lit, and the platform goes.
+    CHECK(portal_place_at(&g.lv, 2, 2, 8, DIR_NZ, v3(0, 1, 0), NULL, &g.portals[0]) &&
+              portal_place_at(&g.lv, 0, 2, 6, DIR_PX, v3(0, 1, 0), &g.portals[0], &g.portals[1]),
+          "portals on the north and west walls");
+    for (int i = 0; i < 200; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.lv.buttons[0].pressed && platform_aabb(&g).lo.x > 5.0f, "lit, it moves (x %.2f)", platform_aabb(&g).lo.x);
+    // The relay's post stops you, beam or not.
+    game_load(&g, c);
+    g.pl.pos = v3(3.5f, 2.0f, 4.5f);
+    g.pl.yaw = 0.0f;  // north, at the post
+    for (int i = 0; i < 100; i++) game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+    CHECK(g.pl.pos.z < 6.31f - PL_HALF_W + 0.01f, "the relay post stops the player (z %.2f)", g.pl.pos.z);
+    // The laser field on the ledge: walking into it is the end.
+    game_load(&g, c);
+    g.pl.pos = v3(5.5f, 2.0f, 7.5f);
+    g.pl.yaw = 1.5707963f;  // east, along the ledge
+    int ev   = 0;
+    for (int i = 0; i < 150 && !(ev & PL_EV_DIED); i++) ev |= game_step(&g, &(game_input_t){.fwd = 1.0f}, 0.02f);
+    CHECK((ev & PL_EV_DIED) && g.pl.pos.x < 8.1f, "walking into a laser field kills (at x %.2f)", g.pl.pos.x);
+    // A cube in it is left alone.
+    game_load(&g, c);
+    g.n_cubes  = 1;
+    g.cubes[0] = (cube_t){.body = {v3(8.5f, 2.0f, 7.5f), v3(0, 0, 0), CUBE_HALF, 2.0f * CUBE_HALF, CUBE_HALF, false}};
+    ev         = 0;
+    for (int i = 0; i < 30; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(!(ev & GAME_EV_FIZZLE) && fabsf(g.cubes[0].body.pos.x - 8.5f) < 0.05f && g.cubes[0].body.pos.y > 1.9f,
+          "a cube in a laser field is left alone (at %.2f %.2f)", g.cubes[0].body.pos.x, g.cubes[0].body.pos.y);
+
+    char const* const bad[][2] = {
+        {"size: 5 3 3\nplatform: 9\nlayer 1\n#####\n#.S.#\n#####\n", "platform: the button"},
+        {"size: 5 3 3\nplatform: 1\nlayer 1\n#####\n#.S.#\n#####\n", "no platform"},
+        {"size: 7 3 3\nplatform: 2\nlayer 1\n#######\n#SM.N.#\n#######\n", "no button"},
+    };
+    for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK(!chamber_parse(bad[i][0], &lv, NULL, NULL, err, sizeof(err)) && strstr(err, bad[i][1]) != NULL,
+              "refused (%s): %s", bad[i][1], err);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1530,6 +1582,7 @@ int main(void) {
     test_bridges();
     test_gel();
     test_pellets();
+    test_relays();
     test_draft_save();
     test_glass();
     test_things();

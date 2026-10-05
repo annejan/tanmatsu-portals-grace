@@ -70,6 +70,7 @@ se_texture_t* se_texture_load(char const* path, uint32_t flags) {
                    : strstr(path, "glass") ? 0xFF9ED8F0u
                    : strstr(path, "fizz")  ? 0xFF60B0FFu
                    : strstr(path, "jump")  ? 0xFFE08020u
+                   : strstr(path, "field") ? 0xFFD03A26u
                                            : 0xFF30D060u;
     return t;
 }

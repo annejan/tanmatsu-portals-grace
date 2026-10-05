@@ -127,6 +127,19 @@ def fizz(rng):
     return img
 
 
+def field(rng):
+    """A laser field's sheet: red streaks, like a fizzler's but angry. Its
+    patterns repeat in N both ways, so it tiles without a seam."""
+    img = Image.new("RGB", (N, N))
+    px = img.load()
+    for x in range(N):
+        bright = rng.uniform(0.4, 1.0) if x % 4 == 1 else rng.uniform(0.0, 0.25)
+        for y in range(N):
+            w = bright * (0.6 + 0.4 * ((y * 5 + x * 3) % 16) / 16)
+            px[x, y] = (clamp(200 + 55 * w), clamp(40 + 90 * w), clamp(30 + 40 * w))
+    return img
+
+
 def jump(rng):
     """A faith plate: orange rings on a dark plate."""
     img = panel((70, 64, 58), (30, 28, 26), 3, rng)
@@ -152,6 +165,7 @@ def main():
         "glass.png": glass(rng),
         "fizz.png": fizz(rng),
         "jump.png": jump(rng),
+        "field.png": field(rng),
     }
     for name, img in textures.items():
         img.save(os.path.join(OUT, name), optimize=True)

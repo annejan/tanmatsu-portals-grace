@@ -172,12 +172,13 @@ static int gather_boxes(game_t const* g, int skip, aabb_t* out) {
         if (i != skip && i != g->held) out[n++] = cube_aabb(&g->cubes[i]);
     if (skip >= 0 && skip != g->held) out[n++] = player_aabb(&g->pl);
     if (g->lv.n_platforms) out[n++] = platform_aabb(g);
-    // A pedestal: its post and head, half a cell across.
+    // A pedestal: its post and head, half a cell across. A laser relay: its
+    // post, slimmer.
     for (int b = 0; b < g->lv.n_buttons; b++) {
         button_t const* bt = &g->lv.buttons[b];
-        if (!bt->pedestal) continue;
-        float const x = (float)bt->x, y = (float)bt->y, z = (float)bt->z;
-        out[n++] = (aabb_t){v3(x + 0.25f, y, z + 0.25f), v3(x + 0.75f, y + 1.0f, z + 0.75f)};
+        if (!bt->pedestal && !bt->relay) continue;
+        float const x = (float)bt->x, y = (float)bt->y, z = (float)bt->z, r = bt->pedestal ? 0.25f : 0.2f;
+        out[n++] = (aabb_t){v3(x + 0.5f - r, y, z + 0.5f - r), v3(x + 0.5f + r, y + 1.0f, z + 0.5f + r)};
     }
     // A light bridge: a slab 1 m wide and a few cm thick under its line.
     for (int k = 0; k < g->lv.n_bridges; k++)
@@ -220,16 +221,12 @@ static bool box_touches(level_t const* lv, aabb_t const* a, uint8_t m) {
     return false;
 }
 
-static bool in_fizzler(level_t const* lv, aabb_t const* a) {
-    return box_touches(lv, a, MAT_FIZZ);
-}
-
-// Whether a box touched a fizzler anywhere on its way from `from` to `to`
-// this step. Testing only where it ended let anything faster than about
-// 18 m/s at 10 fps jump clean over a fizzler a cell thick. Not across a
-// teleport: there the path is not a line.
-static bool swept_fizzler(level_t const* lv, aabb_t const* from, aabb_t const* to, bool teleported) {
-    if (in_fizzler(lv, to)) return true;
+// Whether a box touched a cell of material `m` (a fizzler, a laser field)
+// anywhere on its way from `from` to `to` this step. Testing only where it
+// ended let anything faster than about 18 m/s at 10 fps jump clean over a
+// sheet a cell thick. Not across a teleport: there the path is not a line.
+static bool swept_touch(level_t const* lv, uint8_t m, aabb_t const* from, aabb_t const* to, bool teleported) {
+    if (box_touches(lv, to, m)) return true;
     if (teleported) return false;
     vec3_t const d = v3_sub(to->lo, from->lo);
     int          n = (int)ceilf(v3_len(d) / 0.25f);
@@ -237,9 +234,13 @@ static bool swept_fizzler(level_t const* lv, aabb_t const* from, aabb_t const* t
     for (int k = 1; k < n; k++) {
         vec3_t const off = v3_scale(d, (float)k / (float)n);
         aabb_t const a   = {v3_add(from->lo, off), v3_add(from->hi, off)};
-        if (in_fizzler(lv, &a)) return true;
+        if (box_touches(lv, &a, m)) return true;
     }
     return false;
+}
+
+static bool swept_fizzler(level_t const* lv, aabb_t const* from, aabb_t const* to, bool teleported) {
+    return swept_touch(lv, MAT_FIZZ, from, to, teleported);
 }
 
 // Whether a box overlaps anything solid in the grid.
@@ -659,6 +660,11 @@ static bool riding(aabb_t const* p, aabb_t const* b) {
 // than move into anything that is not riding it.
 static void move_platform(game_t* g, float dt) {
     if (!g->lv.n_platforms) return;
+    // Driven by a button (a catcher, a relay, anything): it moves while all
+    // of that button's group are down, and stands where it is otherwise.
+    if (g->lv.platform_link >= 0)
+        for (int b = 0; b < g->lv.n_buttons; b++)
+            if (g->lv.buttons[b].link == g->lv.platform_link && !g->lv.buttons[b].pressed) return;
     platform_t const* p   = &g->lv.platform;
     float const       len = v3_len(p->travel);
     if (len < 0.01f) return;
@@ -740,6 +746,8 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             ev |= cube_respawn(g, c) | GAME_EV_FIZZLE;
         }
     }
+    // A laser field: deadly to touch.
+    if (swept_touch(&g->lv, MAT_FIELD, &start, &pbox, ev & PL_EV_TELEPORT)) ev |= PL_EV_DIED;
     // A faith plate.
     jump_t const* j = g->pl.on_ground ? plate_under(&g->lv, g->pl.pos) : NULL;
     if (j != NULL) {
@@ -753,6 +761,21 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     // Lasers: what they light, and whom they burn.
     bool lit[LV_MAX_BUTTONS] = {false}, burnt = false;
     for (int k = 0; k < g->lv.n_lasers; k++) trace_beam(g, k, lit, &burnt);
+    // A relay is lit by any piece of beam through its post.
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        button_t const* bt = &g->lv.buttons[b];
+        if (!bt->relay) continue;
+        float const  x = (float)bt->x, y = (float)bt->y, z = (float)bt->z;
+        aabb_t const post = {v3(x + 0.3f, y, z + 0.3f), v3(x + 0.7f, y + 1.0f, z + 0.7f)};
+        for (int k = 0; k < g->lv.n_lasers && !lit[b]; k++)
+            for (int i = 0; i < g->beam_n[k] && !lit[b]; i++) {
+                vec3_t const d   = v3_sub(g->beam[k][i].b, g->beam[k][i].a);
+                float const  len = v3_len(d);
+                if (len < 1e-4f) continue;
+                float const t = ray_aabb(g->beam[k][i].a, v3_scale(d, 1.0f / len), &post);
+                lit[b]        = t >= 0.0f && t <= len;
+            }
+    }
     if (burnt) {
         if (g->burn_t == 0.0f) ev |= GAME_EV_BURN;
         g->burn_t += dt;
@@ -767,7 +790,9 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     for (int b = 0; b < g->lv.n_buttons; b++) {
         button_t* bt   = &g->lv.buttons[b];
         bool      down = false;
-        if (bt->receiver) {
+        if (bt->relay) {
+            down = lit[b];
+        } else if (bt->receiver) {
             down = bt->pressed;  // latched by step_pellets()
         } else if (bt->laser) {
             down = lit[b];

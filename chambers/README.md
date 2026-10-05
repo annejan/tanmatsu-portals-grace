@@ -87,6 +87,7 @@ Write each line as `key: value`.
 | `facing` | The direction the player faces at the start: `north` (+z), `east` (+x), `south`, `west`, or degrees. |
 | `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. `[Subject-Name-here]` in it becomes the nickname set under Owner in the launcher, if there is one. |
 | `timer` | Optional. How many seconds a pedestal button stays down, from 0.5 to 60. The default is 4. |
+| `platform` | Optional. A button digit, `1` to `8`: the moving platform then moves only while all of that button's group are down, and stands still otherwise. Such a button needs no door. |
 
 ## Layers
 
@@ -125,6 +126,8 @@ cells are metal.
 | `U` `Z` `X` | gel dispensers, in the ceiling, for blue, orange and white gel; the cell under one must be air. They drip all the time. A blob falls, through portals too, and paints a 3 x 3 patch where it lands, of metal and white panels only. Blue gel bounces back up whatever lands on it fast, and a jump from it goes about 3.7 m up. On orange gel you run at up to 11 m/s. White gel makes a surface take portals. |
 | `P` | an energy pellet launcher: a solid cell that fires a glowing pellet out of its one open side, straight, at 6 m/s. The pellet bounces off walls, glass, cubes and the platform, goes through portals and fizzlers, and kills the player it touches. After 10 s it fizzles out, and 1.5 s later the launcher fires another. |
 | `Q` | a pellet receiver: a block, waist high. A button digit on top of it goes down, for good, once a pellet arrives; its launcher then rests. |
+| `\|` | a laser relay: a slim post a beam passes straight through. A button digit on top of it is down while a beam passes. |
+| `*` | a laser field: a red sheet, like a fizzler, that kills the player who touches it. Shots, beams and cubes pass through it. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
 

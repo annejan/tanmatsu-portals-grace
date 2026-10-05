@@ -30,10 +30,11 @@ void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
     memset(d, 0, sizeof(*d));
     snprintf(d->id, sizeof(d->id), "%s", id);
     snprintf(d->name, sizeof(d->name), "%s", id);
-    d->timer = LV_TIMER_S;
-    d->w     = w;
-    d->h     = h;
-    d->d     = dep;
+    d->timer         = LV_TIMER_S;
+    d->platform_link = -1;
+    d->w             = w;
+    d->h             = h;
+    d->d             = dep;
     for (int y = 0; y < h; y++)
         for (int z = 0; z < dep; z++)
             for (int x = 0; x < w; x++) {
@@ -84,11 +85,12 @@ bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, si
     snprintf(d->name, sizeof(d->name), "%s", lv.name);
     snprintf(d->hint, sizeof(d->hint), "%s", lv.hint);
     snprintf(d->story, sizeof(d->story), "%s", lv.story);
-    d->timer = lv.timer;
-    d->w     = lv.w;
-    d->h     = lv.h;
-    d->d     = lv.d;
-    d->yaw   = lv.spawn_yaw;
+    d->timer         = lv.timer;
+    d->platform_link = lv.platform_link;
+    d->w             = lv.w;
+    d->h             = lv.h;
+    d->d             = lv.d;
+    d->yaw           = lv.spawn_yaw;
     for (int y = 0; y < d->h; y++)
         for (int z = 0; z < d->d; z++)
             for (int x = 0; x < d->w; x++) d->grid[y][z][x] = chamber_cell_char(&lv, x, y, z);
@@ -108,6 +110,7 @@ static int write_text(draft_t const* d, char* out, size_t n, bool solution) {
     if (d->hint[0]) PUT("hint: %s\n", d->hint);
     if (d->story[0]) PUT("story: %s\n", d->story);
     if (d->timer != LV_TIMER_S) PUT("timer: %g\n", (double)d->timer);
+    if (d->platform_link >= 0) PUT("platform: %c\n", chamber_button_char(d->platform_link));
     PUT("size: %d %d %d\n", d->w, d->h, d->d);
     char const* const facing = chamber_facing_name(d->yaw);
     if (facing != NULL)

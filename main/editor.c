@@ -149,9 +149,9 @@ static char key_char(uint16_t sc) {
         char const* chars;
     } const rows[] = {
         {BSP_INPUT_SCANCODE_1, "1234567890-="},
-        {BSP_INPUT_SCANCODE_Q, "QWERTYUIOP"},
-        {BSP_INPUT_SCANCODE_A, "ASDFGHJKL"},
-        {BSP_INPUT_SCANCODE_Z, "ZXCVBNM"},
+        {BSP_INPUT_SCANCODE_Q, "QWERTYUIOP[]"},
+        {BSP_INPUT_SCANCODE_A, "ASDFGHJKL;'"},
+        {BSP_INPUT_SCANCODE_Z, "ZXCVBNM,./"},
     };
     for (size_t r = 0; r < sizeof(rows) / sizeof(rows[0]); r++) {
         size_t const n = strlen(rows[r].chars);
