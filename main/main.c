@@ -237,6 +237,9 @@ static void menu_frame(void) {
 static void on_update(float dt, void* user) {
     (void)user;
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
+    static float clock = 0.0f;
+    clock              = fmodf(clock + dt, 3600.0f);  // the goo and fizzlers move by it
+    render_set_time(clock);
     showtime_frame();
     devtest_update();
     if (s_demo >= 0) {

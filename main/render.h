@@ -29,6 +29,9 @@ void render_set_level(level_t const* lv, portal_t const portals[2]);
 void render_frame(pax_buf_t* target, game_t const* g);
 
 void render_set_portal_depth(int depth);  // 1 .. RENDER_PORTAL_DEPTH_MAX
+// Seconds since the start, for what moves by itself: the goo drifts, the
+// fizzlers' streaks fall.
+void render_set_time(float seconds);
 int  render_portal_depth(void);
 
 // Passes drawn and triangles submitted by the last frame, for the HUD.

@@ -56,6 +56,17 @@ static int     s_nclear;
 static int     s_depth = 2;
 static int     s_stat_passes, s_stat_tris;
 static vec3_t  s_light;
+static float   s_time;  // render_set_time()
+
+// Texture drift, in texture widths a second: the goo slowly sideways, a
+// fizzler's streaks falling.
+#define GOO_DRIFT_U 0.05f
+#define GOO_DRIFT_V 0.03f
+#define FIZZ_FALL   0.9f
+
+void render_set_time(float seconds) {
+    s_time = seconds;
+}
 
 void render_init(char const* texture_dir) {
     char path[192];
@@ -223,11 +234,14 @@ static void submit_level(cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < s_nquads; i++) {
         mquad_t const*         q    = &s_quads[i];
         material_info_t const* m    = &s_mat[q->mat];
+        bool const             goo  = q->mat == MAT_GOO;
+        float const            ou   = goo ? fmodf(s_time * GOO_DRIFT_U, 1.0f) : 0.0f;
+        float const            ov   = goo ? fmodf(s_time * GOO_DRIFT_V, 1.0f) : 0.0f;
         cvert_t const          v[4] = {
-            {q->origin, 0, 0},
-            {v3_add(q->origin, q->du), q->su, 0},
-            {v3_add(v3_add(q->origin, q->du), q->dv), q->su, q->sv},
-            {v3_add(q->origin, q->dv), 0, q->sv},
+            {q->origin, ou, ov},
+            {v3_add(q->origin, q->du), q->su + ou, ov},
+            {v3_add(v3_add(q->origin, q->du), q->dv), q->su + ou, q->sv + ov},
+            {v3_add(q->origin, q->dv), ou, q->sv + ov},
         };
         submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
     }
@@ -565,11 +579,12 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         mquad_t const*         q = &s_clear[i];
         material_info_t const* m = &s_mat[q->mat];
         if (m->tex == NULL) continue;
+        float const   ov   = q->mat == MAT_FIZZ ? fmodf(s_time * FIZZ_FALL, 1.0f) : 0.0f;  // its streaks fall
         cvert_t const v[4] = {
-            {q->origin, 0, 0},
-            {v3_add(q->origin, q->du), 1, 0},
-            {v3_add(v3_add(q->origin, q->du), q->dv), 1, 1},
-            {v3_add(q->origin, q->dv), 0, 1},
+            {q->origin, 0, ov},
+            {v3_add(q->origin, q->du), 1, ov},
+            {v3_add(v3_add(q->origin, q->du), q->dv), 1, 1 + ov},
+            {v3_add(q->origin, q->dv), 0, 1 + ov},
         };
         submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
     }

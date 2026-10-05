@@ -236,6 +236,7 @@ static int demo_shots(int argc, char** argv) {
         snprintf(name, sizeof(name), "%s_%05d", argv[2], (int)(t * 1000.0f + 0.5f));
         for (int p = 0; p < W * H; p++) s_px[p] = 0xFFFF00FFu;
         render_set_level(&st.g.lv, st.g.portals);
+        render_set_time(t);
         render_frame(NULL, &st.g);
         save(name);
         printf("   eye %.2f %.2f %.2f yaw %.2f pitch %.2f\n", player_eye(&st.g.pl).x, player_eye(&st.g.pl).y,
