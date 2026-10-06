@@ -538,8 +538,8 @@ static void hud(pax_buf_t* fb) {
     }
     pax_simple_rect(fb, 0xFFFFFFFFu, cx - 1, cy - 1, 2, 2);
 
-    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_game.lv.name);
-    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_game.lv.hint);
+    rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, s_game.lv.name);
+    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, s_game.lv.hint);
 
     // Watching a recording: its timer, where the keys' help goes -- the run
     // so far, and this chamber's.
@@ -549,15 +549,15 @@ static void hud(pax_buf_t* fb) {
         snprintf(big, sizeof(big), "%d:%05.2f", (int)(total / 60.0f), (double)fmodf(total, 60.0f));
         snprintf(small, sizeof(small), "%s  %.2f", s_recording.name,
                  (double)(s_rec_hold > 0.0f && s_rec_times[s_rec_k] >= 0.0f ? s_rec_times[s_rec_k] : s_rec_run));
-        pax_vec2f const bs = pax_text_size(pax_font_sky_mono, 24, big);
+        pax_vec2f const bs = rendertext_size(pax_font_sky_mono, 24, big);
         pax_simple_rect(fb, 0xC0000000u, DISPLAY_LOG_W - bs.x - 20, 4, bs.x + 14, 46);
-        pax_draw_text(fb, 0xFF78FF8Cu, pax_font_sky_mono, 24, DISPLAY_LOG_W - bs.x - 13, 6, big);
-        pax_vec2f const ss = pax_text_size(pax_font_sky_mono, 12, small);
-        pax_draw_text(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - ss.x - 13, 34, small);
+        rendertext_draw(fb, 0xFF78FF8Cu, pax_font_sky_mono, 24, DISPLAY_LOG_W - bs.x - 13, 6, big);
+        pax_vec2f const ss = rendertext_size(pax_font_sky_mono, 12, small);
+        rendertext_draw(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - ss.x - 13, 34, small);
         draw_subtitle(fb, draw_story(fb));
         if (s_msg_t > 0.0f) {
-            pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
-            pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
+            pax_vec2f const sz = rendertext_size(pax_font_sky_mono, 24, s_msg);
+            rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
         }
         return;
     }
@@ -567,8 +567,8 @@ static void hud(pax_buf_t* fb) {
              input_key_name(input_key(ACT_BLUE), blue, sizeof(blue)),
              input_key_name(input_key(ACT_ORANGE), orange, sizeof(orange)),
              input_key_name(input_key(ACT_USE), use, sizeof(use)));
-    pax_vec2f const hs = pax_text_size(pax_font_sky_mono, 12, help);
-    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - hs.x, 6, help);
+    pax_vec2f const hs = rendertext_size(pax_font_sky_mono, 12, help);
+    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - hs.x, 6, help);
 
     if (s_demo >= 0) return;  // a device test's shots: nothing that varies run to run
     int  passes, tris;
@@ -576,12 +576,12 @@ static void hud(pax_buf_t* fb) {
     render_stats(&passes, &tris);
     snprintf(stat, sizeof(stat), "%2.0f fps %3lld ms  %d pass %d tri%s%s", s_fps, s_render_us / 1000, passes, tris,
              settings_half_res() && s_half_ok ? "  half" : "", settings_gyro() ? "  gyro" : "");
-    pax_draw_text(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
+    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
     draw_subtitle(fb, draw_story(fb));
 
     if (s_msg_t > 0.0f) {
-        pax_vec2f const sz = pax_text_size(pax_font_sky_mono, 24, s_msg);
-        pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
+        pax_vec2f const sz = rendertext_size(pax_font_sky_mono, 24, s_msg);
+        rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, cx - sz.x * 0.5f, cy - 70, s_msg);
     }
 }
 
@@ -615,7 +615,7 @@ static int draw_story(pax_buf_t* fb) {
     }
     for (int i = 0; i < n; i++) {
         float const y = (float)(DISPLAY_LOG_H - 44 - (n - 1 - i) * 18);
-        pax_draw_text(fb, 0xFFFFE08Au, pax_font_sky_mono, 14, 16, y, line[i]);
+        rendertext_draw(fb, 0xFFFFE08Au, pax_font_sky_mono, 14, 16, y, line[i]);
     }
     return n;
 }
@@ -626,7 +626,7 @@ static void draw_subtitle(pax_buf_t* fb, int above) {
     if (s_sub_t <= 0.0f || s_sub == NULL) return;
     char text[48];
     snprintf(text, sizeof(text), "Turret: %s", s_sub);
-    pax_draw_text(fb, 0xFFFF7A6Au, pax_font_sky_mono, 14, 16, (float)(DISPLAY_LOG_H - 44 - above * 18), text);
+    rendertext_draw(fb, 0xFFFF7A6Au, pax_font_sky_mono, 14, 16, (float)(DISPLAY_LOG_H - 44 - above * 18), text);
 }
 
 static void on_render(pax_buf_t* fb, void* user) {

@@ -551,7 +551,7 @@ void editor_draw(pax_buf_t* fb) {
                              cy + s * r * 0.6f + co * r * 0.5f);
             }
             if (label[0] && cs >= 12)
-                pax_draw_text(fb, 0xFF000000u, pax_font_sky_mono, (float)cs * 0.7f, px + cs * 0.25f, py + cs * 0.1f,
+                rendertext_draw(fb, 0xFF000000u, pax_font_sky_mono, (float)cs * 0.7f, px + cs * 0.25f, py + cs * 0.1f,
                               label);
         }
     }
@@ -569,12 +569,12 @@ void editor_draw(pax_buf_t* fb) {
     // The panel on the right.
     float const tx = 570;
     char        line[96];
-    pax_draw_text(fb, 0xFFFFFF6Bu, pax_font_sky_mono, 18, tx, 8, "EDITOR");
-    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 32, s_d.id);
+    rendertext_draw(fb, 0xFFFFFF6Bu, pax_font_sky_mono, 18, tx, 8, "EDITOR");
+    rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 32, s_d.id);
     snprintf(line, sizeof(line), "layer %d of %d  (Q/E)", s_y, s_d.h - 1);
-    pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 52, line);
+    rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 52, line);
     snprintf(line, sizeof(line), "x %d  z %d   %dx%dx%d", s_x, s_z, s_d.w, s_d.h, s_d.d);
-    pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 68, line);
+    rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 68, line);
 
     // The brushes: every glyph with a key, in the legend's order.
     int row = 0;
@@ -586,16 +586,16 @@ void editor_draw(pax_buf_t* fb) {
         bool const  sel = s_brush == ch;
         pax_simple_rect(fb, cell_colour(ch, true), tx, y + 1, 10, 10);
         snprintf(line, sizeof(line), "%c %s", g->key, brush_name(ch));
-        pax_draw_text(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y, line);
+        rendertext_draw(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y, line);
     }
     static char const* const help[] = {
         "arrows  move",       "Space   paint (hold)", "B       box, twice", "Bksp    erase",
         "R       turn start", "P       play-test",    "F       save",       "Esc     menu",
     };
     for (int i = 0; i < 8; i++)
-        pax_draw_text(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 94.0f + (float)row * 12.0f + (float)i * 15.0f,
+        rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 94.0f + (float)row * 12.0f + (float)i * 15.0f,
                       help[i]);
-    if (s_msg_t > 0.0f) pax_draw_text(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
+    if (s_msg_t > 0.0f) rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
 
     if (s_menu) {
         se_menu_def_t def;
