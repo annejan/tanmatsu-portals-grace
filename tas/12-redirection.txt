@@ -1,8 +1,9 @@
-walk_to 8.40 4.66
-grab
-walk_to 3.73 1.4
-look 3.20 1.34 3.08
-wait 0.08
-use
-walk_to 12.39 10.81
-walk_to 12.5 12.5
+shoot orange 3.9 1.0 2.5
+shoot blue 8.5 1.0 6.2
+wait 0.18
+shoot blue 8.5 1.0 4.9
+wait 0
+shoot orange 12.5 1.0 9.4
+walk_to 8.5 9.0 0.18
+shoot orange 2.3 1.0 7.5
+walk_to 12.45 12.5

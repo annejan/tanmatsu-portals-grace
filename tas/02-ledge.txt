@@ -1,4 +1,4 @@
-shoot blue 1.0 1.9 4.5
-shoot orange 4.99 6.9 13.0
-walk_to 0.07 4.5
-walk_to 5 11.5
+shoot blue 1.0 1.9 2.5
+shoot orange 4.5 6.9 13.0
+walk_to 0.07 2.5
+walk_to 4.5 9.5

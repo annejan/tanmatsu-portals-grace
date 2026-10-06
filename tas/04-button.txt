@@ -1,7 +1,12 @@
-walk_to 6.60 3.31
-look 8.5 1.3 3.5
+face 22.108 0
+walk 0.092
+look 8.227 1.579 3.294
 use
-walk_to 5.24 4.20
-look 3.5 1.3 4.5
+face -17.888 40.505
+walk 0.108
+face -68.962 29.539
+walk 0.065
 use
-walk_to 6 11.49
+face 3.244 0
+walk 0.13
+walk_to 6.572 11.404
