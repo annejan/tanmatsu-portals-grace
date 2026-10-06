@@ -55,13 +55,6 @@ bool recording_parse(char const* text, recording_t* r, char* err, size_t err_n) 
         char* const s = trim(buf);
         if (strncmp(s, "name:", 5) == 0) {
             snprintf(r->name, sizeof(r->name), "%s", trim(s + 5));
-        } else if (strncmp(s, "step:", 5) == 0) {
-            char* end = NULL;
-            r->step   = strtof(s + 5, &end);
-            if (end == s + 5 || !(r->step >= 0.005f && r->step <= 0.1f)) {
-                snprintf(err, err_n, "line %d: step: seconds, from 0.005 to 0.1", line);
-                return false;
-            }
         } else if (strncmp(s, "chamber:", 8) == 0) {
             if (!close_run(r, section, err, err_n)) return false;
             if (r->n >= RECORDING_MAX) {

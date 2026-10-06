@@ -552,7 +552,7 @@ void editor_draw(pax_buf_t* fb) {
             }
             if (label[0] && cs >= 12)
                 rendertext_draw(fb, 0xFF000000u, pax_font_sky_mono, (float)cs * 0.7f, px + cs * 0.25f, py + cs * 0.1f,
-                                label);
+                              label);
         }
     }
     // The box being marked, and the cursor.
@@ -594,7 +594,7 @@ void editor_draw(pax_buf_t* fb) {
     };
     for (int i = 0; i < 8; i++)
         rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 94.0f + (float)row * 12.0f + (float)i * 15.0f,
-                        help[i]);
+                      help[i]);
     if (s_msg_t > 0.0f) rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
 
     if (s_menu) {
