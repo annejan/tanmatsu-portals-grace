@@ -316,6 +316,8 @@ void sound_set_voice(bool on) {
 // preset's progressions and arps, but at 76-88 BPM, a sine arp, a
 // warm pad in front, a kick on the one and nothing else for drums.
 
+#define MUSIC_SEED 0x9047A1u
+
 static se_music_config_t             s_music;
 static se_music_drum_pattern_t const s_drums[] = {
     {.kick = 0x0001, .snare = 0x0000, .hat = 0x0000},
@@ -342,8 +344,14 @@ void sound_init(void) {
     s_music.kick.gain          *= 0.6f;
     s_music.snare_voice         = NULL;
     s_music.hat_voice           = NULL;
-    audio_mixer_set_music(music_procedural_create(&s_music, 0x9047A1u));
+    audio_mixer_set_music(music_procedural_create(&s_music, MUSIC_SEED));
     audio_mixer_set_music_volume(100);
+}
+
+void sound_restart_music(void) {
+    // A new generator, from the first bar: the mixer swaps it in under its
+    // lock and shuts the old one down.
+    audio_mixer_set_music(music_procedural_create(&s_music, MUSIC_SEED));
 }
 
 void sound_set_music(bool on) {

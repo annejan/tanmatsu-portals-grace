@@ -205,6 +205,10 @@ static void rec_start(char const* id) {
         return;
     }
     snprintf(s_rec_id, sizeof(s_rec_id), "%s", id);
+    // From the start, as a new game: the music from its first bar, and the
+    // first chamber's story told even if that chamber is the one in play.
+    sound_restart_music();
+    s_story_of  = -2;
     s_rec       = true;
     s_rec_total = 0.0f;
     for (int i = 0; i < RECORDING_MAX; i++) s_rec_times[i] = -1.0f;

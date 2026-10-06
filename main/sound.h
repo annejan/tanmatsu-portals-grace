@@ -40,6 +40,8 @@ void sound_play(sound_t s);
 void sound_events(int ev);
 // Gates, from the settings.
 void sound_set_music(bool on);
+// The music from its first bar again, as when the game starts.
+void sound_restart_music(void);
 void sound_set_effects(bool on);
 void sound_set_voice(bool on);
 
