@@ -4,6 +4,7 @@
 // recording). A recording is a text file in RECORDING_DIR:
 //
 //   name: TAS, Portals 0.10.2
+//   step: 0.1
 //   chamber: 01-gap
 //   shoot blue 1.0 1.9 3.5
 //   ...
@@ -11,8 +12,11 @@
 //   ...
 //
 // each chamber named by its id (a chamber file's name, the card's too),
-// its steps a solution's (chambers/README.md). tools/tas.py writes the TAS
-// as one.
+// its steps a solution's (chambers/README.md). With `step:`, the game is
+// stepped in exactly that many seconds at a time, however fast the badge
+// draws: a run made so plays out the same on every badge, and on the PC
+// (a tool-assisted run is). Without it, each frame is one step of its own
+// length, as a player at the keys. tools/tas.py writes the TAS as one.
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -31,6 +35,7 @@ typedef struct {
 
 typedef struct {
     char            name[RECORDING_NAME_N];
+    float           step;  // s a step, or 0: one a frame
     int             n;
     recording_run_t runs[RECORDING_MAX];
 } recording_t;

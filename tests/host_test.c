@@ -1276,18 +1276,19 @@ static void test_recordings(void) {
     static recording_t r;
     char               err[96];
     char const* const  ok =
-        "name: Two quick ones\nchamber: 01-gap\nshoot blue 1 1.9 3.5\n// a comment\nwalk 1\n\n"
+        "name: Two quick ones\nstep: 0.1\nchamber: 01-gap\nshoot blue 1 1.9 3.5\n// a comment\nwalk 1\n\n"
         "chamber: 02-ledge\nwait 0.5\n";
     CHECK(recording_parse(ok, &r, err, sizeof(err)) && r.n == 2 && strcmp(r.name, "Two quick ones") == 0 &&
               strcmp(r.runs[0].id, "01-gap") == 0 && r.runs[0].steps[0].op == OP_SHOOT &&
               r.runs[0].steps[1].op == OP_WALK && r.runs[0].steps[2].op == OP_END &&
-              strcmp(r.runs[1].id, "02-ledge") == 0 && r.runs[1].steps[0].op == OP_WAIT,
-          "a recording of two chambers: %s", err);
+              strcmp(r.runs[1].id, "02-ledge") == 0 && r.runs[1].steps[0].op == OP_WAIT && fabsf(r.step - 0.1f) < 1e-6f,
+          "a recording of two chambers, in steps of 0.1 s: %s", err);
     char const* const bad[][2] = {
         {"walk 1\nchamber: 01-gap\nwalk 1\n", "before any"},
         {"chamber: 01-gap\nfly 3\n", "chamber 01-gap"},
         {"chamber: 01-gap\nchamber: 02-ledge\nwalk 1\n", "no steps"},
         {"name: empty\n", "no chambers"},
+        {"step: 0.5\nchamber: 01-gap\nwalk 1\n", "step:"},
     };
     for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
         CHECK(!recording_parse(bad[i][0], &r, err, sizeof(err)) && strstr(err, bad[i][1]) != NULL, "refused (%s): %s",

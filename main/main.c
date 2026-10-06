@@ -178,12 +178,14 @@ static char          s_rec_id[CHAMBER_ID_N];
 static int           s_rec_k;  // the run
 static demo_player_t s_rec_player;
 static float         s_rec_run, s_rec_total, s_rec_hold;
+static float         s_rec_owed;                  // with a fixed step: real time not yet stepped
 static float         s_rec_times[RECORDING_MAX];  // each run's time, or -1: lost its way
 
 static void rec_begin(int k) {
     s_rec_k     = k;
     s_rec_run   = 0.0f;
     s_rec_hold  = 0.0f;
+    s_rec_owed  = 0.0f;
     int const c = chamber_find(s_recording.runs[k].id);
     if (c < 0) {
         char msg[96];
@@ -268,9 +270,22 @@ static void rec_update(float dt) {
         }
         return;
     }
-    // The game's own clock: game_step() takes no step longer than 0.1 s.
-    int const ev  = demo_player_step(&s_rec_player, &s_game, dt, 0.0f);
-    s_rec_run    += fminf(dt, 0.1f);
+    // One step of the frame's own length -- or, with the recording's fixed
+    // step, as many of those as the real time owed, at most a few.
+    int   ev   = 0;
+    float step = s_recording.step;
+    if (step <= 0.0f) {
+        step       = fminf(dt, 0.1f);  // the game's own clock: game_step() takes no more
+        ev         = demo_player_step(&s_rec_player, &s_game, step, 0.0f);
+        s_rec_run += step;
+    } else {
+        s_rec_owed += dt;
+        for (int i = 0; i < 8 && s_rec_owed >= step - 1e-6f && !(ev & (PL_EV_EXIT | PL_EV_DIED)); i++) {
+            ev         |= demo_player_step(&s_rec_player, &s_game, step, 0.0f);
+            s_rec_owed -= step;
+            s_rec_run  += step;
+        }
+    }
     sound_events(ev);
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     if (ev & PL_EV_EXIT) {
