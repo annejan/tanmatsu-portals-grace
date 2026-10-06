@@ -7,7 +7,7 @@ They are made for the badge as it now draws: 20 to 35 frames a second,
 each frame one step of its own length. A route must reach the exit at 20,
 25, 30 and 35 frames a second and on frames of uneven length in that range
 (`build/host_tas -jitter SEED`), and is scored on the uneven ones; on
-frames it has never seen, a whole run finishes about 49 times in 50.
+frames it has never seen, a whole run finishes about 9 times in 10.
 
 On the PC, `make tas` plays each against the chamber's own solution, and `make tas TASFILM=tas.mp4` films them one after the
 other, with a timer. On the badge, `make tas-upload` puts them on the card
@@ -19,8 +19,9 @@ them.
 The routes were found by trimming the solutions, then by random search: a
 step dropped, nudged, a jump put in, kept only if the run still reaches
 the exit, sooner. They take what the physics allows: chamber 5 skips its
-cube over the wall, 17 runs the gauntlet before the crushers get going, 19
-drops onto the exit past a turret that never looks up.
+cube, jumping the gap from its ledge; 9 never boards the ferry, going
+floor to floor by portal; 17 runs the gauntlet before the crushers get
+going; 19 drops onto the exit past a turret that never looks up.
 
 ```
 chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a second)
@@ -28,12 +29,12 @@ chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a
 02-ledge                      2.37      1.37
 03-fling                      2.70      2.57
 04-button                     5.47      2.07
-05-delivery                   7.37      3.03
+05-delivery                   7.37      2.47
 06-faith-plate                1.57      1.57
-07-the-grill                 11.40      3.27
+07-the-grill                 11.40      3.37
 08-through-the-glass          2.63      1.93
-09-the-ferry                  6.33      5.37
-10-two-buttons               10.43      4.03
+09-the-ferry                  6.33      1.33
+10-two-buttons               10.43      3.87
 11-against-the-clock          9.63      5.63
 12-redirection               16.37      4.77
 13-hard-light                 3.03      2.37
@@ -44,5 +45,5 @@ chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a
 18-edgeless                   8.67      3.37
 19-sentry                     4.67      0.90
 20-excursion                  7.17      3.17
-total                       126.05     61.43
+total                       126.05     56.77
 ```
