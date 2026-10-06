@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The tool-assisted runs: tas/NN-name.txt is a chamber's fastest known
 route, as a solution script (chambers/README.md) for the chamber of the
-same name. Each is played in steps of 0.1 s -- the badge's, as it plays
-them -- against the chamber's own solution, and the times are printed; with --film, the runs are filmed one
+same name. Each is played at 30 frames a second -- the middle of the
+badge's 20 to 35 -- against the chamber's own solution, and the times are
+printed; with --film, the runs are filmed one
 after the other, with a timer (tools/make_movie.py).
 
     tools/tas.py [--film OUT.mp4]
@@ -18,7 +19,7 @@ import subprocess
 import sys
 
 
-STEP = "0.1"  # s: the badge's
+STEP = "0.033333"  # s: a step at 30 frames a second, the middle of the badge's 20-35
 
 
 def main():
@@ -60,15 +61,14 @@ def main():
 
     env = dict(os.environ, PORTALS_CHAMBERS=build)
     tool = os.path.join(root, "build", "host_tas")
-    # At the badge's step: its engine steps no more than 0.1 s, and it draws
-    # the chambers slower than 10 frames a second, so every step is 0.1.
+    # At 30 frames a second: the badge draws 20 to 35, each frame a step.
     runs = subprocess.run([tool, "-dt", STEP] + ["tas-" + c for c in ids], env=env, capture_output=True,
                           text=True).stdout
     sols = subprocess.run([tool, "-dt", STEP] + ids, env=env, capture_output=True, text=True).stdout
     t_tas = dict(line.split("\t") for line in runs.splitlines())
     t_sol = dict(line.split("\t") for line in sols.splitlines())
 
-    print("%-24s %9s %9s   (steps of %s s, as on the badge)" % ("chamber", "solution", "TAS", STEP))
+    print("%-24s %9s %9s   (steps of %s s: 30 frames a second)" % ("chamber", "solution", "TAS", STEP))
     total_sol = total_tas = 0.0
     failed = []
     for c in ids:

@@ -109,7 +109,7 @@ def main():
 
     env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0")
     if a.tas:
-        env["HOST_MOVIE_TICK"] = "0.1"  # the badge's step: its TAS (tools/tas.py)
+        env["HOST_MOVIE_TICK"] = "0.033333"  # 30 frames a second: the badge's TAS (tools/tas.py)
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
