@@ -1465,6 +1465,44 @@ static void test_packs(void) {
     CHECK(chamber_main_n() == inorder && p != NULL && p->chamber[0] >= inorder,
           "pack chambers after those played in order");
     CHECK(pack_load(dir) == 2 && pack_get(0)->chamber[0] == p->chamber[0], "read again: the same, not added twice");
+    CHECK(pack_get(0)->outro_chamber < 0, "no outro: -1");
+
+    // A desk story: its rounds, not its "chamber:" lines (an older build's
+    // room), and its outro.
+    static pack_t d;
+    static char   files[PACK_CHAMBERS][CHAMBER_ID_N];
+    int           n = 0;
+    CHECK(pack_parse("name: Human in the loop\nframe: desk\nround: hold\nround: pressure\noutro: walkout\n"
+                     "chamber: needs-update\n",
+                     &d, files, &n) &&
+              d.desk && n == 2 && strcmp(files[0], "hold") == 0 && strcmp(files[1], "pressure") == 0 &&
+              strcmp(d.outro, "walkout") == 0,
+          "a desk story: its rounds (%d), its outro %s", n, d.outro);
+    // A frame this build does not know: the chamber lines, as before.
+    CHECK(pack_parse("frame: holodeck\nround: hold\noutro: walkout\nchamber: needs-update\n", &d, files, &n) &&
+              !d.desk && n == 1 && strcmp(files[0], "needs-update") == 0 && d.outro[0] == '\0',
+          "an unknown frame: the chamber lines (%d)", n);
+    // Rounds without a frame: not a desk story either.
+    CHECK(!pack_parse("round: hold\n", &d, files, &n) && !d.desk, "rounds without frame: desk");
+    // In a folder of its own: the others' count stays theirs.
+    char desks[220], c[260];
+    snprintf(desks, sizeof(desks), "%s/test_desks", build != NULL && build[0] ? build : "build");
+    snprintf(c, sizeof(c), "%s/desk-story", desks);
+    mkdir(desks, 0755);
+    mkdir(c, 0755);
+    snprintf(text, sizeof(text), "name: Hold\n%s", room);
+    write_file(c, "hold.txt", text);
+    snprintf(text, sizeof(text), "name: Walkout\n%s", room);
+    write_file(c, "walkout.txt", text);
+    snprintf(text, sizeof(text), "name: Update\n%s", room);
+    write_file(c, "needs-update.txt", text);
+    write_file(c, "pack.txt", "name: Desk\nframe: desk\nround: hold\noutro: walkout\nchamber: needs-update\n");
+    CHECK(pack_load(desks) == 1, "the desk story read: %d", pack_count());
+    pack_t const* const s = pack_get(0);
+    CHECK(s != NULL && s->desk && s->n == 1 && strcmp(chamber_id(s->chamber[0]), "desk-story/hold") == 0 &&
+              s->outro_chamber >= 0 && strcmp(chamber_id(s->outro_chamber), "desk-story/walkout") == 0 &&
+              chamber_find("desk-story/needs-update") < 0,
+          "a desk story loaded: its round and outro, not the older builds' room");
 }
 
 // The parser's rules for what it cannot make sense of.

@@ -27,6 +27,34 @@ chamber: momentum
 when the last chamber is done; `[Subject-Name-here]` is the badge owner's
 nickname, as in a chamber's `story:`.
 
+## A story told from a desk
+
+A pack can be a story of review rounds instead (`main/review.h`,
+`chambers/README.md` § Review rounds): GLaDOS's drafts, which you cheese,
+debug or approve from an Aperture terminal.
+
+```
+name: Human in the loop
+frame: desk
+round: hold-the-door
+round: pressure
+outro: walkout
+```
+
+`round:` lines give the rounds, each a chamber file with review keys and,
+after its solution, a `cheese X` route for each flaw; `outro:` is the
+ending's scene; `desk/` holds the terminal's files and mail. A build that
+does not know desk stories reads only `chamber:` lines: the card copy gets
+a `chamber: needs-update`, a room that says to update.
+
+`make dlc` judges every round as the game will, at the badge's frame
+rates: a flawed round's solution is the meant way, each cheese finds its
+flaw, that flaw's fix closes it, and the meant way survives every fix; a
+final round is solved the meant way; a broken one only after its repairs.
+The cheese routes go in the pack's `replays/cheeses.txt`, to watch.
+`make dlc-zip` makes `build/dlc/<pack>.zip`, to unzip into
+`/sd/portals/dlc/`.
+
 ## Sharing one
 
 Copy the folder to `/sd/portals/dlc/` on the badge's card. **Stories** on

@@ -42,6 +42,11 @@ static char* trim(char* s) {
 
 bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_files) {
     *n_files = 0;
+    // A desk story's rounds, until it is known to be one.
+    static char rounds[PACK_CHAMBERS][CHAMBER_ID_N];
+    int         n_rounds = 0;
+    p->desk              = false;
+    p->outro[0]          = '\0';
     char        line[256];
     char const* at = text;
     if (strncmp(at, "\xEF\xBB\xBF", 3) == 0) at += 3;
@@ -64,6 +69,23 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
             snprintf(p->ending, sizeof(p->ending), "%s", trim(s + 7));
         else if (strncmp(s, "chamber:", 8) == 0 && *n_files < PACK_CHAMBERS)
             snprintf(files[(*n_files)++], CHAMBER_ID_N, "%s", trim(s + 8));
+        else if (strncmp(s, "round:", 6) == 0 && n_rounds < PACK_CHAMBERS)
+            snprintf(rounds[n_rounds++], CHAMBER_ID_N, "%s", trim(s + 6));
+        else if (strncmp(s, "outro:", 6) == 0)
+            snprintf(p->outro, sizeof(p->outro), "%s", trim(s + 6));
+        else if (strncmp(s, "frame:", 6) == 0) {
+            // A frame this build does not know: its "chamber:" lines, as an
+            // older build would.
+            p->desk = strcmp(trim(s + 6), "desk") == 0;
+            if (!p->desk) LOGW("frame: %s -- not known to this build", trim(s + 6));
+        }
+    }
+    if (p->desk && n_rounds > 0) {
+        memcpy(files, rounds, sizeof(rounds[0]) * (size_t)n_rounds);
+        *n_files = n_rounds;
+    } else {
+        p->desk     = false;
+        p->outro[0] = '\0';
     }
     return *n_files > 0;
 }
@@ -71,6 +93,7 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
 // The pack in folder `dir`/`id`: its pack.txt, and its chambers added.
 static bool load_one(char const* dir, char const* id, pack_t* p) {
     memset(p, 0, sizeof(*p));
+    p->outro_chamber = -1;
     snprintf(p->id, sizeof(p->id), "%.31s", id);
     snprintf(p->name, sizeof(p->name), "%.47s", id);
     char        path[320];
@@ -110,6 +133,16 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
         for (int k = 0; k < p->n; k++) twice |= p->chamber[k] == c;
         if (twice) LOGW("%s: %s twice -- once is enough", folder, files[i]);
         if (c >= 0 && !twice) p->chamber[p->n++] = c;
+    }
+    if (p->outro[0] != '\0') {
+        char cid[32 + CHAMBER_ID_N];
+        if (strlen(id) + 1 + strlen(p->outro) >= CHAMBER_ID_N) {
+            LOGW("%s/%s: name too long -- no outro", folder, p->outro);
+        } else {
+            snprintf(path, sizeof(path), "%s/%.63s.txt", folder, p->outro);
+            snprintf(cid, sizeof(cid), "%.31s/%.63s", id, p->outro);
+            p->outro_chamber = chamber_find(cid) >= 0 ? chamber_find(cid) : chamber_load_file(path, cid);
+        }
     }
     if (p->n == 0) LOGW("%s: no chamber in it", folder);
     return p->n > 0;

@@ -147,10 +147,14 @@ tas: host_tas $(if $(TASFILM),host_movie)
 # every chamber is solved and builds the packs for the card in build/dlc;
 # `make dlc-upload` puts them in /sd/portals/dlc/, with their solutions as
 # recordings; `make dlc-movies` films each whole story (build/dlc/<pack>.mp4).
-.PHONY: dlc dlc-upload dlc-movies
-dlc: host_tas
+.PHONY: dlc dlc-upload dlc-movies dlc-zip
+dlc: host_tas host_review
 	python3 tools/dlc.py check
 	python3 tools/dlc.py card
+
+# Each card folder as a zip, to unzip into /sd/portals/dlc/: for a release.
+dlc-zip: dlc
+	python3 tools/dlc.py zip
 
 dlc-movies: host_movie
 	python3 tools/dlc.py films
@@ -274,9 +278,10 @@ dlc-upload: dlc
 	cd badgelink/tools; up() { for t in 1 2 3; do ./badgelink.sh $(BADGELINK_CONN) fs upload "$$1" "$$2" && return 0; sleep 1; done; return 1; }; \
 	  for s in $(abspath dlc)/*/; do p=$$(basename $$s); d=$(abspath $(BUILD))/dlc/$$p; \
 	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p || true; \
-	  for f in $$d/*.txt; do up /sd/portals/dlc/$$p/$$(basename $$f) $$f || exit 1; done; \
-	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p/replays || true; \
-	  for f in $$d/replays/*.txt; do up /sd/portals/dlc/$$p/replays/$$(basename $$f) $$f || exit 1; done; done
+	  for sub in $$(cd $$d && find . -mindepth 1 -type d | sort); do \
+	    ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p/$${sub#./} || true; done; \
+	  for f in $$(cd $$d && find . -type f -name '*.txt' | sort); do \
+	    up /sd/portals/dlc/$$p/$${f#./} $$d/$${f#./} || exit 1; done; done
 
 tas-result:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt

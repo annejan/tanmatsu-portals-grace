@@ -16,6 +16,17 @@
 //
 // Each chamber joins the chamber list (chamber.h) as "<pack>/<file>", after
 // the chambers played in order; the title screen's Stories lists the packs.
+//
+// A story told from a desk (review.h) says so, and gives its rounds:
+//
+//   frame: desk        played from an Aperture terminal's desk
+//   round: pressure    review rounds, in order: chambers with review keys
+//   round: momentum
+//   outro: walkout     the ending's scene
+//   chamber: needs-update
+//
+// A build that knows rounds plays them and passes over the "chamber:" lines;
+// an older one knows only those, and plays a room that says to update.
 
 #include <stdbool.h>
 #include "chamber.h"
@@ -31,7 +42,10 @@ typedef struct {
     char about[96];
     char ending[160];  // GLaDOS's, when its last chamber is done
     int  n;
-    int  chamber[PACK_CHAMBERS];  // in the chamber list, in order
+    int  chamber[PACK_CHAMBERS];  // in the chamber list, in order: a desk story's rounds
+    bool desk;                    // frame: desk -- its chambers are review rounds
+    char outro[CHAMBER_ID_N];     // the outro's file, "" for none
+    int  outro_chamber;           // ... in the chamber list, or -1
 } pack_t;
 
 // Read every pack in `dir`, adding their chambers to the chamber list
@@ -41,6 +55,6 @@ int           pack_count(void);
 pack_t const* pack_get(int i);
 // The pack chamber `chamber` is in, and its place in it; -1 if none.
 int           pack_of(int chamber, int* at);
-// Parse a pack.txt's text into `p` (its chambers by file id, in
-// `files`); false if it names no chamber. For the tests too.
+// Parse a pack.txt's text into `p` (its chambers by file id, in `files`:
+// a desk story's rounds); false if it names no chamber. For the tests too.
 bool          pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_files);
