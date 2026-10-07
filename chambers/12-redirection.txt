@@ -72,16 +72,18 @@ solution
 // Fetch the reflection cube.
 walk_to 8.5 5.3
 grab
-wait 0.4
-// Into the beam, facing north, under the catcher's line.
-walk_to 2.2 1.5
-walk_to 3.5 1.4
+// Over to the catcher's line, and over the beam with the cube.
+walk_to 3.5 3.6
+jump
+// The cube goes down south of the beam, facing north: the beam goes up
+// to the catcher.
+walk_to 3.5 1.5
 look 3.5 1.3 2.9
-wait 0.8
+wait 0.4
 use
-wait 1
-// Round the west side of the beam, to the door.
-walk_to 2.4 1.4
-walk_to 2.4 10.2
-walk_to 12.5 10.2
+wait 0.5
+// Over the beam, to the door.
+walk_to 5.5 1.6
+jump
+walk_to 12.5 10.8
 walk_to 12.5 12.5
