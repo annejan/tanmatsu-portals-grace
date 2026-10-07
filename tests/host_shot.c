@@ -8,7 +8,7 @@
 // colour with panel seams from the u, v; with HOST_SHOT_TEXTURES naming a
 // directory of the textures as PPM files (tools/make_movie.py makes one),
 // it samples them, nearest texel, as the engine does. What it does not:
-// the PPA, half resolution, timing.
+// the PPA, timing.
 
 #include <math.h>
 #include <stdio.h>
@@ -25,10 +25,10 @@
 #define W DISPLAY_LOG_W
 #define H DISPLAY_LOG_H
 
-static uint32_t   s_px[W * H];
-static uint8_t    s_owner[W * H];  // which pass of the frame last painted each pixel
-static int        s_pass;
-static float      s_depth[W * H];  // 1/z, 0 = empty -- or the badge's 16-bit depth, as a float (below)
+static uint32_t s_px[W * H];
+static uint8_t  s_owner[W * H];  // which pass of the frame last painted each pixel
+static int      s_pass;
+static float    s_depth[W * H];  // 1/z, 0 = empty -- or the badge's 16-bit depth, as a float (below)
 
 // The badge keeps depth as a whole number, 1/z * 64000 * near clip, in 16
 // bits, and a pixel is drawn only if it is strictly nearer: two surfaces
@@ -36,7 +36,7 @@ static float      s_depth[W * H];  // 1/z, 0 = empty -- or the badge's 16-bit de
 // whichever was drawn first. Drawn so here too, unless
 // HOST_SHOT_FLOAT_DEPTH is set, so the PC shows what the badge shows.
 #define SCENE_DEPTH_SCALE (64000.0f * RENDER_NEAR_CLIP_Z)
-static int s_float_depth = -1;
+static int   s_float_depth = -1;
 static float depth_of(float w) {
     if (s_float_depth < 0) s_float_depth = getenv("HOST_SHOT_FLOAT_DEPTH") != NULL;
     if (s_float_depth) return w;
@@ -45,6 +45,19 @@ static float depth_of(float w) {
     if (d > 65535.0f) d = 65535.0f;
     return d;
 }
+// And in the badge's order: the engine draws all flat triangles before all
+// textured ones, and with depth_order on (glass or a fizzler in the room)
+// sorts each list on its 16-bit key -- which decides who wins a depth tie.
+// HOST_SHOT_SUBMIT_ORDER draws in submission order instead.
+// HOST_SHOT_QUARTER renders at half width and height, sampling (2i, 2j),
+// as the badge's quarter-resolution setting.
+static int  s_quarter = -1, s_border = -1;
+static bool s_depth_order;
+static int  env_flag(int* f, char const* n) {
+    if (*f < 0) *f = getenv(n) != NULL;
+    return *f;
+}
+static void       flush_deferred(void);
 static basis_t    s_basis;
 static vec3_t     s_eye;
 static bool       s_light_on;
@@ -61,14 +74,16 @@ void scene_begin(pax_buf_t* fb) {
     (void)fb;
     s_pass++;
     memset(s_depth, 0, sizeof(s_depth));
+    flush_deferred();
 }
 
 void scene_render(se_render_mode_t mode) {
     (void)mode;
+    flush_deferred();
 }
 
 void scene_set_options(se_scene_options_t const* opts) {
-    (void)opts;
+    s_depth_order = opts->depth_order;
 }
 
 void se_light_set(se_light_t const* light) {
@@ -151,6 +166,7 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
         iz[i] = 1.0f / v[i]->c.z;
         sx[i] = RENDER_HALF_W + RENDER_FOCAL_LEN * v[i]->c.x * iz[i];
         sy[i] = RENDER_HORIZON_Y - RENDER_FOCAL_LEN * v[i]->c.y * iz[i];
+        if (env_flag(&s_quarter, "HOST_SHOT_QUARTER")) sx[i] *= 0.5f, sy[i] *= 0.5f;
         uz[i] = v[i]->u * iz[i];
         vz[i] = v[i]->v * iz[i];
     }
@@ -162,11 +178,12 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
     int y1 = (int)ceilf(fmaxf(sy[0], fmaxf(sy[1], sy[2])));
     if (x0 < 0) x0 = 0;
     if (y0 < 0) y0 = 0;
-    if (x1 > W - 1) x1 = W - 1;
-    if (y1 > H - 1) y1 = H - 1;
+    int const qw = s_quarter ? W / 2 : W, qh = s_quarter ? H / 2 : H;
+    if (x1 > qw - 1) x1 = qw - 1;
+    if (y1 > qh - 1) y1 = qh - 1;
     for (int y = y0; y <= y1; y++) {
         for (int x = x0; x <= x1; x++) {
-            float const px = (float)x + 0.5f, py = (float)y + 0.5f;
+            float const px = (float)x + (s_quarter ? 0.0f : 0.5f), py = (float)y + (s_quarter ? 0.0f : 0.5f);
             float const w0 = ((sx[1] - px) * (sy[2] - py) - (sx[2] - px) * (sy[1] - py)) / area;
             float const w1 = ((sx[2] - px) * (sy[0] - py) - (sx[0] - px) * (sy[2] - py)) / area;
             float const w2 = 1.0f - w0 - w1;
@@ -204,6 +221,50 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
     }
 }
 
+typedef struct {
+    rv_t                v[3];
+    uint32_t            col;
+    se_texture_t const* tex;
+    float               lit;
+    uint32_t            blend;
+    bool                textured;
+    int                 idx;
+} dtri_t;
+static dtri_t   s_dl[65536];
+static int      s_dn;
+static uint32_t dkey(dtri_t const* t) {
+    float ws = 0.0f;
+    for (int i = 0; i < 3; i++) ws += 1.0f / fmaxf(t->v[i].c.z, RENDER_NEAR_CLIP_Z);
+    uint32_t bits;
+    memcpy(&bits, &ws, sizeof(bits));
+    uint32_t const d = (bits >> 16) & 0x7FFFu;
+    return t->blend ? (0x8000u | d) : (0x7FFFu - d);
+}
+static int dcmp(void const* pa, void const* pb) {
+    dtri_t const * a = pa, *b = pb;
+    uint32_t const ka = dkey(a), kb = dkey(b);
+    if (ka != kb) return ka < kb ? -1 : 1;
+    return a->idx - b->idx;  // stable, as the radix sort
+}
+static void flush_deferred(void) {
+    if (s_dn == 0) return;
+    static dtri_t tmp[65536];
+    int           n = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        int const from = n;
+        for (int i = 0; i < s_dn; i++)
+            if (s_dl[i].textured == (pass == 1)) tmp[n++] = s_dl[i];
+        if (s_depth_order) qsort(tmp + from, (size_t)(n - from), sizeof(dtri_t), dcmp);
+    }
+    for (int i = 0; i < n; i++) {
+        s_tex   = tmp[i].tex;
+        s_lit   = tmp[i].lit;
+        s_blend = tmp[i].blend;
+        raster(&tmp[i].v[0], &tmp[i].v[1], &tmp[i].v[2], tmp[i].col, tmp[i].textured);
+    }
+    s_dn = 0;
+}
+
 static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32_t argb, uint32_t flags, bool seams) {
     // Per-face light, after se_light: a floor of fill plus a directional share.
     uint32_t col = argb;
@@ -234,6 +295,11 @@ static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32
         }
     }
     s_blend = flags & SE_TRI_BLEND;
+    if (!env_flag(&s_border, "HOST_SHOT_SUBMIT_ORDER")) {
+        for (int i = 1; i + 1 < n && s_dn < (int)(sizeof(s_dl) / sizeof(s_dl[0])); i++)
+            s_dl[s_dn++] = (dtri_t){{buf[0][0], buf[0][i], buf[0][i + 1]}, col, s_tex, s_lit, s_blend, seams, s_dn};
+        return;
+    }
     for (int i = 1; i + 1 < n; i++) raster(&buf[0][0], &buf[0][i], &buf[0][i + 1], col, seams);
 }
 
@@ -265,7 +331,8 @@ static void save(char const* name) {
     }
     fprintf(f, "P6\n%d %d\n255\n", W, H);
     for (int i = 0; i < W * H; i++) {
-        uint8_t const rgb[3] = {(uint8_t)(s_px[i] >> 16), (uint8_t)(s_px[i] >> 8), (uint8_t)s_px[i]};
+        int const     j      = s_quarter > 0 ? (i / W / 2) * W + (i % W) / 2 : i;
+        uint8_t const rgb[3] = {(uint8_t)(s_px[j] >> 16), (uint8_t)(s_px[j] >> 8), (uint8_t)s_px[j]};
         fwrite(rgb, 1, 3, f);
     }
     fclose(f);
