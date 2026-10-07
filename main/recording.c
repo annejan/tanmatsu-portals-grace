@@ -1,4 +1,5 @@
 #include "recording.h"
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,12 +24,95 @@ static char* trim(char* s) {
     return s;
 }
 
+// --- Frames ---------------------------------------------------------------
+
+static int32_t whole(float v, float unit) {
+    return (int32_t)lroundf(v / unit);
+}
+
+recording_frame_t recording_frame(float dt, game_input_t const* in) {
+    float const dt_c = dt < 0.0f ? 0.0f : dt > 1.0f ? 1.0f : dt;
+    return (recording_frame_t){
+        .dt_us       = (uint32_t)whole(dt_c, 1e-6f),
+        .dyaw_urad   = whole(in->dyaw, 1e-6f),
+        .dpitch_urad = whole(in->dpitch, 1e-6f),
+        .fwd         = (int16_t)whole(fmaxf(-1.0f, fminf(1.0f, in->fwd)), 1e-3f),
+        .strafe      = (int16_t)whole(fmaxf(-1.0f, fminf(1.0f, in->strafe)), 1e-3f),
+        .keys = (uint8_t)((in->jump ? REC_JUMP : 0) | (in->fire[0] ? REC_BLUE : 0) | (in->fire[1] ? REC_ORANGE : 0) |
+                          (in->use ? REC_USE : 0)),
+    };
+}
+
+float recording_frame_input(recording_frame_t const* f, game_input_t* in) {
+    *in = (game_input_t){
+        .fwd    = (float)f->fwd * 1e-3f,
+        .strafe = (float)f->strafe * 1e-3f,
+        .dyaw   = (float)f->dyaw_urad * 1e-6f,
+        .dpitch = (float)f->dpitch_urad * 1e-6f,
+        .jump   = (f->keys & REC_JUMP) != 0,
+        .fire   = {(f->keys & REC_BLUE) != 0, (f->keys & REC_ORANGE) != 0},
+        .use    = (f->keys & REC_USE) != 0,
+    };
+    return (float)f->dt_us * 1e-6f;
+}
+
+void recording_free(recording_t* r) {
+    free(r->frame);
+    r->frame    = NULL;
+    r->n_frames = 0;
+}
+
+// Room in r->frame for `more`, with `*cap` what it has now.
+static bool frames_room(recording_t* r, int* cap, int more) {
+    if (r->n_frames + more <= *cap) return true;
+    int n = *cap > 0 ? *cap : 1024;
+    while (n < r->n_frames + more) n *= 2;
+    recording_frame_t* const f = realloc(r->frame, (size_t)n * sizeof(*f));
+    if (f == NULL) return false;
+    r->frame = f;
+    *cap     = n;
+    return true;
+}
+
+// A frame's line: its six whole numbers, in the order recording.h gives.
+static bool parse_frame(char const* s, recording_frame_t* f) {
+    long v[6];
+    for (int i = 0; i < 6; i++) {
+        char* end;
+        v[i] = strtol(s, &end, 10);
+        if (end == s) return false;
+        s = end;
+    }
+    while (*s == ' ' || *s == '\t') s++;
+    if (*s != '\0' || v[0] < 0 || v[0] > 1000000 || v[1] < -1000 || v[1] > 1000 || v[2] < -1000 || v[2] > 1000 ||
+        v[5] < 0 || v[5] > 15)
+        return false;
+    *f = (recording_frame_t){
+        .dt_us       = (uint32_t)v[0],
+        .fwd         = (int16_t)v[1],
+        .strafe      = (int16_t)v[2],
+        .dyaw_urad   = (int32_t)v[3],
+        .dpitch_urad = (int32_t)v[4],
+        .keys        = (uint8_t)v[5],
+    };
+    return true;
+}
+
+// --- Parsing --------------------------------------------------------------
+
 // A chamber's steps, gathered as text and parsed once its section ends.
 static bool close_run(recording_t* r, char const* text, char* err, size_t err_n) {
     if (r->n == 0) return true;
     recording_run_t* const run = &r->runs[r->n - 1];
-    char                   why[96];
-    int                    n = 0;
+    if (run->frames > 0) {
+        if (text[0] != '\0') {
+            snprintf(err, err_n, "chamber %s: steps and frames both", run->id);
+            return false;
+        }
+        return true;
+    }
+    char why[96];
+    int  n = 0;
     if (!chamber_parse_steps(text, run->steps, &n, why, sizeof(why))) {
         snprintf(err, err_n, "chamber %s: %s", run->id, why);
         return false;
@@ -41,7 +125,9 @@ static bool close_run(recording_t* r, char const* text, char* err, size_t err_n)
 }
 
 bool recording_parse(char const* text, recording_t* r, char* err, size_t err_n) {
+    recording_free(r);
     memset(r, 0, sizeof(*r));
+    int cap = 0;  // frames r->frame has room for
     if (err_n > 0) err[0] = '\0';
     static char section[8192];  // the chamber's steps so far
     size_t      used = 0;
@@ -55,6 +141,8 @@ bool recording_parse(char const* text, recording_t* r, char* err, size_t err_n) 
         char* const s = trim(buf);
         if (strncmp(s, "name:", 5) == 0) {
             snprintf(r->name, sizeof(r->name), "%s", trim(s + 5));
+        } else if (strncmp(s, "version:", 8) == 0) {
+            snprintf(r->version, sizeof(r->version), "%s", trim(s + 8));
         } else if (strncmp(s, "chamber:", 8) == 0) {
             if (!close_run(r, section, err, err_n)) return false;
             if (r->n >= RECORDING_MAX) {
@@ -64,6 +152,28 @@ bool recording_parse(char const* text, recording_t* r, char* err, size_t err_n) 
             snprintf(r->runs[r->n++].id, CHAMBER_ID_N, "%s", trim(s + 8));
             used       = 0;
             section[0] = '\0';
+        } else if (strncmp(s, "frames:", 7) == 0) {
+            // A recorded run: its frames follow, one a line.
+            recording_run_t* const run = r->n > 0 ? &r->runs[r->n - 1] : NULL;
+            long const             n   = strtol(s + 7, NULL, 10);
+            if (run == NULL || run->frames > 0 || used > 0 || n <= 0 || n > 1000000) {
+                snprintf(err, err_n, "line %d: \"frames:\" out of place", line);
+                return false;
+            }
+            if (!frames_room(r, &cap, (int)n)) {
+                snprintf(err, err_n, "line %d: no memory for %ld frames", line, n);
+                return false;
+            }
+            run->frame0 = r->n_frames;
+            for (long k = 0; k < n; k++) {
+                if (!line_of(&p, buf, sizeof(buf)) || !parse_frame(trim(buf), &r->frame[r->n_frames])) {
+                    snprintf(err, err_n, "line %ld: not a frame", (long)line + k + 1);
+                    return false;
+                }
+                r->n_frames++;
+            }
+            line        += (int)n;
+            run->frames  = (int)n;
         } else if (*s != '\0' && strncmp(s, "//", 2) != 0) {
             if (r->n == 0) {
                 snprintf(err, err_n, "line %d: a step before any \"chamber:\"", line);
@@ -94,7 +204,7 @@ static char* read_file(char const* path) {
     fseek(f, 0, SEEK_END);
     long const size = ftell(f);
     fseek(f, 0, SEEK_SET);
-    char* text = size > 0 && size < 256 * 1024 ? malloc((size_t)size + 1) : NULL;
+    char* text = size > 0 && size < 4 * 1024 * 1024 ? malloc((size_t)size + 1) : NULL;  // a recorded hour: 2.5 MB
     if (text != NULL && fread(text, 1, (size_t)size, f) == (size_t)size) {
         text[size] = '\0';
     } else {
@@ -125,11 +235,16 @@ int recording_list(char const* dir, char ids[][CHAMBER_ID_N], char names[][RECOR
         snprintf(ids[i], CHAMBER_ID_N, "%.*s", (int)strlen(found[i]) - 4, found[i]);
         // Its name, from its first lines; else its file's.
         snprintf(names[i], RECORDING_NAME_N, "%s", ids[i]);
+        // Only its first lines: a recorded run can be megabytes long.
         char path[192];
         snprintf(path, sizeof(path), "%s/%s", dir, found[i]);
-        char* const text = read_file(path);
-        if (text == NULL) continue;
-        char const* p = text;
+        FILE* const f = fopen(path, "rb");
+        if (f == NULL) continue;
+        char         head[1024];
+        size_t const got = fread(head, 1, sizeof(head) - 1, f);
+        fclose(f);
+        head[got]     = '\0';
+        char const* p = head;
         char        buf[256];
         for (int k = 0; k < 8 && line_of(&p, buf, sizeof(buf)); k++) {
             char* const s = trim(buf);
@@ -138,7 +253,65 @@ int recording_list(char const* dir, char ids[][CHAMBER_ID_N], char names[][RECOR
                 break;
             }
         }
-        free(text);
     }
     return n;
+}
+
+// --- Recording a run ------------------------------------------------------
+
+void recording_capture_start(recording_capture_t* c) {
+    recording_capture_free(c);
+}
+
+void recording_capture_chamber(recording_capture_t* c, char const* id) {
+    recording_capture_again(c);
+    if (c->r.n >= RECORDING_MAX) return;
+    recording_run_t* const run = &c->r.runs[c->r.n];
+    snprintf(run->id, CHAMBER_ID_N, "%s", id);
+    run->steps[0].op = OP_END;
+    run->frame0      = c->r.n_frames;
+    run->frames      = 0;
+    c->open          = true;
+}
+
+void recording_capture_again(recording_capture_t* c) {
+    if (!c->open) return;
+    c->r.n_frames            = c->r.runs[c->r.n].frame0;
+    c->r.runs[c->r.n].frames = 0;
+}
+
+bool recording_capture_frame(recording_capture_t* c, recording_frame_t const* f) {
+    if (!c->open) return true;  // between chambers: nothing to keep
+    if (!frames_room(&c->r, &c->cap, 1)) return false;
+    c->r.frame[c->r.n_frames++] = *f;
+    c->r.runs[c->r.n].frames++;
+    return true;
+}
+
+void recording_capture_done(recording_capture_t* c) {
+    if (!c->open) return;
+    c->open = false;
+    c->r.n++;
+}
+
+bool recording_capture_write(recording_capture_t const* c, char const* path, char const* name, char const* version) {
+    if (c->r.n == 0) return false;
+    FILE* f = fopen(path, "w");
+    if (f == NULL) return false;
+    bool ok = fprintf(f, "name: %s\nversion: %s\n", name, version) > 0;
+    for (int k = 0; k < c->r.n && ok; k++) {
+        recording_run_t const* const run = &c->r.runs[k];
+        ok                               = fprintf(f, "\nchamber: %s\nframes: %d\n", run->id, run->frames) > 0;
+        for (int i = 0; i < run->frames && ok; i++) {
+            recording_frame_t const* const q = &c->r.frame[run->frame0 + i];
+            ok = ok && fprintf(f, "%lu %d %d %ld %ld %d\n", (unsigned long)q->dt_us, q->fwd, q->strafe,
+                               (long)q->dyaw_urad, (long)q->dpitch_urad, q->keys);
+        }
+    }
+    return fclose(f) == 0 && ok;
+}
+
+void recording_capture_free(recording_capture_t* c) {
+    recording_free(&c->r);
+    memset(c, 0, sizeof(*c));
 }

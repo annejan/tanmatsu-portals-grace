@@ -54,7 +54,7 @@ def main():
     with open(os.path.join(root, "metadata", "metadata.json")) as f:
         version = json.load(f)["version"]
     with open(os.path.join(root, "build", "tas-recording.txt"), "w") as f:
-        f.write("name: TAS, Portals %s\n" % version)
+        f.write("name: TAS, Portals %s\nversion: %s\n" % (version, version))
         for c in ids:
             with open(os.path.join(root, "tas", c + ".txt")) as r:
                 f.write("\nchamber: %s\n%s" % (c, r.read()))

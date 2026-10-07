@@ -153,6 +153,11 @@ void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
              input_key_name(input_key(ACT_USE), use, sizeof(use)));
     pax_vec2f const hs = rendertext_size(pax_font_sky_mono, 12, help);
     rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - hs.x, 6, help);
+    if (info->recording) {
+        pax_vec2f const rs = rendertext_size(pax_font_sky_mono, 14, "REC");
+        pax_simple_circle(fb, 0xFFFF3030u, DISPLAY_LOG_W - 14, 30, 5);
+        rendertext_draw(fb, 0xFFFF6060u, pax_font_sky_mono, 14, DISPLAY_LOG_W - 24 - rs.x, 23, "REC");
+    }
 
     if (info->test) return;
     int  passes, tris;

@@ -21,6 +21,7 @@ typedef enum {
     SCR_CONTROLS,
     SCR_CHAMBERS,
     SCR_RECORDINGS,
+    SCR_TIMES,
     SCR_COUNT
 } screen_t;
 
@@ -78,6 +79,7 @@ void menu_open(int current_chamber) {
 typedef enum {
     T_CONTINUE,
     T_NEW,
+    T_RECORD,
     T_CHAMBERS,
     T_WATCH,
     T_EDITOR,
@@ -87,8 +89,8 @@ typedef enum {
     T_COUNT
 } title_row_t;
 static char const* const s_title_labels[T_COUNT] = {
-    "Continue",       "New game", "Chamber select", "Watch a recording",
-    "Chamber editor", "Settings", "Controls",       "Quit to launcher",
+    "Continue",       "New game", "Record a run", "Chamber select",   "Watch a recording",
+    "Chamber editor", "Settings", "Controls",     "Quit to launcher",
 };
 
 // Under the title: the game's version, from metadata/metadata.json.
@@ -237,8 +239,9 @@ void menu_event(bsp_input_event_t const* ev) {
 
 // --- The screens --------------------------------------------------------
 
-#define PAUSE_ROWS 9
-static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
+#define PAUSE_ROWS   10
+#define PAUSE_RECORD 7  // its label: "Record from here", or "Stop recording"
+static se_menu_row_t s_pause_rows[PAUSE_ROWS] = {
     {.label = "Resume"},
     {.label = "Restart chamber"},
     {.label = "Chamber select"},
@@ -246,9 +249,24 @@ static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
     {.label = "Settings"},
     {.label = "Controls"},
     {.label = "Watch a recording"},
+    {.label = "Record from here"},
     {.label = "Title screen"},
     {.label = "Quit to launcher"},
 };
+static bool s_recording;
+
+void menu_set_recording(bool on) {
+    s_recording                      = on;
+    s_pause_rows[PAUSE_RECORD].label = on ? "Stop recording" : "Record from here";
+}
+
+// A recording's times (menu_times): copied, as the strings may not last.
+#define TIMES_VALUE_N 32
+static char          s_t_name[RECORDING_NAME_N + 40];  // and its version
+static char          s_t_label[RECORDING_MAX][32], s_t_value[RECORDING_MAX][TIMES_VALUE_N], s_t_total[24];
+static int           s_t_n;
+static screen_t      s_t_back;  // what was up under it, or SCR_NONE
+static se_menu_row_t s_t_rows[RECORDING_MAX + 2];
 
 enum {
     SET_GYRO,
@@ -258,6 +276,7 @@ enum {
     SET_SFX,
     SET_VOICE,
     SET_LEDS,
+    SET_FRAMES,
     SET_VOLUME,
     SET_SCREEN,
     SET_KEYS,
@@ -347,6 +366,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                 (se_menu_row_t){.label = "GLaDOS voice", .kind = SE_MENU_VAL_CHECK, .checked = settings_voice()};
             s_set_rows[SET_LEDS] =
                 (se_menu_row_t){.label = "Portal LEDs", .kind = SE_MENU_VAL_CHECK, .checked = settings_leds()};
+            s_set_rows[SET_FRAMES] =
+                (se_menu_row_t){.label = "Frame times", .kind = SE_MENU_VAL_CHECK, .checked = settings_frame_times()};
             s_set_rows[SET_VOLUME] =
                 (se_menu_row_t){.label = "Volume", .kind = SE_MENU_VAL_RANGE, .range_pct = se_hw_get_volume()};
             s_set_rows[SET_SCREEN] = (se_menu_row_t){
@@ -384,6 +405,16 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             def->row_count = n + 1;
             return n + 1;
         }
+        case SCR_TIMES:
+            for (int i = 0; i < s_t_n; i++)
+                s_t_rows[i] = (se_menu_row_t){.label = s_t_label[i], .kind = SE_MENU_VAL_TEXT, .value = s_t_value[i]};
+            s_t_rows[s_t_n]     = (se_menu_row_t){.label = "Total", .kind = SE_MENU_VAL_TEXT, .value = s_t_total};
+            s_t_rows[s_t_n + 1] = (se_menu_row_t){.label = "Back"};
+            def->title          = "TIMES";
+            def->subtitle       = s_t_name;
+            def->rows           = s_t_rows;
+            def->row_count      = s_t_n + 2;
+            return s_t_n + 2;
         case SCR_RECORDINGS: {
             for (int i = 0; i < s_n_recs; i++) s_rec_rows[i] = (se_menu_row_t){.label = s_rec_names[i]};
             s_rec_rows[s_n_recs] = (se_menu_row_t){.label = "Back"};
@@ -434,6 +465,11 @@ menu_cmd_t menu_update(void) {
                     s_scr       = SCR_NONE;
                     cmd.kind    = MENU_CMD_CHAMBER;
                     cmd.chamber = s_chamber;
+                    break;
+                case T_RECORD:
+                    s_scr       = SCR_NONE;
+                    cmd.kind    = MENU_CMD_RECORD;
+                    cmd.chamber = -1;
                     break;
                 case T_NEW:
                     s_scr    = SCR_NONE;
@@ -493,11 +529,16 @@ menu_cmd_t menu_update(void) {
                     case 6:
                         go(SCR_RECORDINGS);
                         break;
-                    case 7:
+                    case PAUSE_RECORD:
+                        s_scr       = SCR_NONE;
+                        cmd.kind    = s_recording ? MENU_CMD_RECORD_STOP : MENU_CMD_RECORD;
+                        cmd.chamber = s_chamber;
+                        break;
+                    case 8:
                         s_scr    = SCR_NONE;
                         cmd.kind = MENU_CMD_TITLE;
                         break;
-                    case 8:
+                    case 9:
                         cmd.kind = MENU_CMD_QUIT;
                         break;
                 }
@@ -523,6 +564,8 @@ menu_cmd_t menu_update(void) {
                 sound_set_voice(settings_voice());
             } else if (cur == SET_LEDS && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_leds(!settings_leds());
+            } else if (cur == SET_FRAMES && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_frame_times(!settings_frame_times());
             } else if (cur == SET_DEPTH && (r == SE_MENU_RESULT_ACTIVATED || (act & A_RIGHT))) {
                 settings_set_portal_depth(settings_portal_depth() % 3 + 1);
             } else if (cur == SET_DEPTH && (act & A_LEFT)) {
@@ -569,6 +612,17 @@ menu_cmd_t menu_update(void) {
             }
             break;
 
+        case SCR_TIMES:
+            if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
+                if (s_t_back == SCR_NONE) {
+                    s_scr    = SCR_NONE;
+                    cmd.kind = MENU_CMD_RESUME;
+                } else {
+                    go(s_t_back);
+                }
+            }
+            break;
+
         case SCR_RECORDINGS:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
                 go(s_home);
@@ -591,4 +645,23 @@ void menu_draw(pax_buf_t* fb) {
     build(s_scr, &def);
     se_menu_t const m = {.def = &def, .cursor = s_cursor[s_scr]};
     se_menu_draw(&m, fb);
+}
+
+void menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total) {
+    snprintf(s_t_name, sizeof(s_t_name), "%s", name);
+    s_t_n = n < RECORDING_MAX ? n : RECORDING_MAX;
+    for (int i = 0; i < s_t_n; i++) {
+        // The chamber's name, if it is still on the list.
+        int const at = chamber_find(ids[i]);
+        if (at < 0 || !level_load(&s_lv, at)) snprintf(s_lv.name, sizeof(s_lv.name), "%s", ids[i]);
+        snprintf(s_t_label[i], sizeof(s_t_label[i]), "%s", s_lv.name);
+        snprintf(s_t_value[i], sizeof(s_t_value[i]), "%s", values[i]);
+    }
+    snprintf(s_t_total, sizeof(s_t_total), "%s", total);
+    s_t_back = s_scr;
+    if (s_scr == SCR_NONE) s_home = SCR_PAUSE;  // no menu up: Back resumes, and its screens go to the pause menu
+    s_act               = 0;
+    s_opened_us         = esp_timer_get_time();
+    s_cursor[SCR_TIMES] = s_t_n;  // on the total
+    go(SCR_TIMES);
 }

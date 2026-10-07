@@ -17,6 +17,8 @@ typedef enum {
     MENU_CMD_EDITOR,    // open the chamber editor on menu_cmd_t.chamber
     MENU_CMD_WATCH,     // play back the recording menu_cmd_t.recording
     MENU_CMD_TITLE,     // back to the title screen
+    MENU_CMD_RECORD,    // record from the start of menu_cmd_t.chamber on (title: a new game)
+    MENU_CMD_RECORD_STOP,
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;
 
@@ -36,6 +38,11 @@ bool       menu_on_title(void);
 bool       menu_title_shown(void);
 // Whatever is up, closed: a device test is taking over the screen.
 void       menu_close(void);
+// Whether a run is being recorded: the pause menu stops it.
+void       menu_set_recording(bool on);
+// A recording's times, on a screen of their own over whatever is up:
+// each chamber `ids[k]` and its `values[k]`, then the total. Back closes it.
+void       menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total);
 bool       menu_active(void);
 // Every input event while the menu is open; also Esc, to open it.
 void       menu_event(bsp_input_event_t const* ev);

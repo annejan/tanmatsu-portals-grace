@@ -36,6 +36,7 @@ typedef struct {
     int                render_ms;
     bool               half, gyro;  // as the settings are
     bool               test;        // a device test's shots: nothing that varies run to run
+    bool               recording;   // a run being recorded: REC, under the keys
     hud_timer_t const* timer;       // or NULL
 } hud_info_t;
 

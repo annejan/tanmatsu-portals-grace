@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "app.h"
 #include "attract.h"
 #include "bsp/device.h"
@@ -29,6 +30,7 @@
 #include "pax_gfx.h"
 #include "player.h"
 #include "portal.h"
+#include "recording.h"
 #include "render.h"
 #include "settings.h"
 #include "sound.h"
@@ -109,15 +111,87 @@ static void play_chamber(int index) {
     settings_set_chamber(chamber_id(index));
 }
 
+// --- Recording a run ------------------------------------------------------
+//
+// Esc -> Record from here (or Record a run, on the title): what you press,
+// frame by frame, from the chamber's start, through every chamber you get
+// through, until Stop recording or until play goes elsewhere. A death or
+// a restart starts the chamber's recording over, so a run keeps only the
+// clean ones. Saved to RECORDING_DIR/run-NN.txt, for Watch a recording.
+
+#if __has_include("app_version.h")
+#include "app_version.h"
+#endif
+#ifndef APP_VERSION
+#define APP_VERSION ""
+#endif
+
+static recording_capture_t s_cap;
+static bool                s_capturing;
+
+// The recording so far, saved; and recording stops.
+static void record_stop(void) {
+    if (!s_capturing) return;
+    s_capturing = false;
+    menu_set_recording(false);
+    int const kept = s_cap.r.n;
+    if (kept == 0) {
+        hud_message("Nothing recorded: no chamber finished");
+        recording_capture_free(&s_cap);
+        return;
+    }
+    mkdir("/sd/portals", 0755);
+    mkdir(RECORDING_DIR, 0755);
+    char path[96], name[RECORDING_NAME_N], nick[32];
+    int  k = 1;
+    for (; k < 100; k++) {  // the first run-NN not taken
+        snprintf(path, sizeof(path), "%s/run-%02d.txt", RECORDING_DIR, k);
+        FILE* f = fopen(path, "r");
+        if (f == NULL) break;
+        fclose(f);
+    }
+    if (nvs_settings_get_owner_nickname(nick, sizeof(nick), "") == ESP_OK && nick[0] != '\0')
+        snprintf(name, sizeof(name), "%.24s, run %02d", nick, k);
+    else
+        snprintf(name, sizeof(name), "Run %02d", k);
+    char msg[HUD_MESSAGE_N];
+    if (k < 100 && recording_capture_write(&s_cap, path, name, APP_VERSION))
+        snprintf(msg, sizeof(msg), "Saved run-%02d: %d chamber%s", k, kept, kept == 1 ? "" : "s");
+    else
+        snprintf(msg, sizeof(msg), "Could not save the recording");
+    ESP_LOGI(TAG, "%s (%s)", msg, path);
+    hud_message(msg);
+    recording_capture_free(&s_cap);
+}
+
+// Recording starts, from chamber `index`'s start -- or, at -1, a new game's.
+static void record_start(int index) {
+    if (index < 0) {
+        sound_restart_music();
+        s_story_of = -2;
+        index      = 0;
+    }
+    play_chamber(index);
+    recording_capture_start(&s_cap);
+    recording_capture_chamber(&s_cap, chamber_id(index));
+    s_capturing = true;
+    menu_set_recording(true);
+    hud_message("Recording");
+}
+
 // The chamber in play, again from its start.
 static void restart_chamber(void) {
     s_pending_chamber = -1;
     load_chamber(s_game.chamber);
     hud_message(s_game.lv.name);
+    // Its recording from the start again -- or, restarted after its exit,
+    // recorded once more.
+    if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
 }
 
 // To the title screen, the chambers playing behind it.
 static void to_title(void) {
+    record_stop();
     sound_hush();            // GLaDOS stops mid-sentence ...
     s_story_of        = -2;  // ... and tells the chamber's story again on the way back in
     s_pending_chamber = -1;
@@ -250,8 +324,24 @@ static void back_to_editor(void) {
     editor_resume();
 }
 
+// Back to the launcher: a recording saved first.
+static void quit(void) {
+    record_stop();
+    sound_say(NULL);
+    leds_release();          // the system LEDs back to the coprocessor
+    audio_mixer_shutdown();  // se_audio.h: before the restart, or the speaker buzzes
+    bsp_device_restart_to_launcher();
+}
+
 static void on_input(bsp_input_event_t const* ev, void* user) {
     (void)user;
+    // F1: back to the launcher, from anywhere -- here, not in the engine
+    // (f1_exits), so a recording is saved first.
+    if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state &&
+        ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_F1) {
+        quit();
+        return;
+    }
     if (s_mode == MODE_EDIT) {
         editor_event(ev);
         return;
@@ -287,9 +377,18 @@ static void menu_frame(void) {
             restart_chamber();
             break;
         case MENU_CMD_CHAMBER:
+            record_stop();
             play_chamber(cmd.chamber);
             break;
+        case MENU_CMD_RECORD:
+            record_stop();
+            record_start(cmd.chamber);
+            break;
+        case MENU_CMD_RECORD_STOP:
+            record_stop();
+            break;
         case MENU_CMD_NEW_GAME:
+            record_stop();
             // From the start: the music from its first bar, and the first
             // chamber's story told.
             sound_restart_music();
@@ -299,6 +398,7 @@ static void menu_frame(void) {
         case MENU_CMD_EDITOR:
             // By name: saving in the editor re-reads the SD card, and the
             // list's order -- its indices -- may change.
+            record_stop();
             snprintf(s_play_id, sizeof(s_play_id), "%s", chamber_id(cmd.chamber));
             s_pending_chamber = -1;
             s_edit_title      = title;
@@ -306,6 +406,7 @@ static void menu_frame(void) {
             s_mode = MODE_EDIT;
             break;
         case MENU_CMD_WATCH:
+            record_stop();
             s_pending_chamber = -1;
             if (!watch_start(cmd.recording, title, chamber_id(s_game.chamber)) && title) {
                 char err[HUD_MESSAGE_N];
@@ -318,10 +419,7 @@ static void menu_frame(void) {
             to_title();
             break;
         case MENU_CMD_QUIT:
-            sound_say(NULL);
-            leds_release();          // the system LEDs back to the coprocessor
-            audio_mixer_shutdown();  // se_audio.h: before the restart, or the speaker buzzes
-            bsp_device_restart_to_launcher();
+            quit();
             break;
         default:
             break;
@@ -369,6 +467,7 @@ static void play_frame(float dt) {
     if (s_mode != MODE_PLAY) s_pending_chamber = -1;
     if (s_pending_chamber >= 0 && !hud_message_up()) {
         play_chamber(s_pending_chamber);
+        if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
         return;
     }
     if (s_pending_chamber >= 0) return;  // the chamber is done; wait out the message
@@ -382,7 +481,16 @@ static void play_frame(float dt) {
         .fire   = {in.fire[0], in.fire[1]},
         .use    = in.use,
     };
-    int const ev = game_step(&s_game, &gin, dt);
+    game_input_t step_in = gin;
+    float        st      = dt;
+    if (s_capturing && s_mode == MODE_PLAY) {
+        // Recording: played on the frame's whole numbers, as a playback
+        // of them will be.
+        recording_frame_t const f = recording_frame(dt, &gin);
+        st                        = recording_frame_input(&f, &step_in);
+        if (!recording_capture_frame(&s_cap, &f)) record_stop();  // out of memory: what there is, kept
+    }
+    int const ev = game_step(&s_game, &step_in, st);
     sound_events(ev);
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     if (s_mode == MODE_TEST) {
@@ -398,12 +506,17 @@ static void play_frame(float dt) {
     if (ev & PL_EV_DIED) {
         load_chamber(s_game.chamber);
         hud_message("Test subject lost. Again.");
+        if (s_capturing) recording_capture_again(&s_cap);
     } else if (ev & PL_EV_EXIT) {
         int const next = s_game.chamber + 1;
         hud_message(next < level_count() ? "Chamber complete" : "All chambers complete. Cake later.");
         s_pending_chamber = next % level_count();
         // Continue: the next one, even if play stops before it loads.
         settings_set_chamber(chamber_id(s_pending_chamber));
+        if (s_capturing) {
+            recording_capture_done(&s_cap);
+            if (next >= level_count()) record_stop();  // the last one: the run is done
+        }
     }
 }
 
@@ -487,6 +600,7 @@ static void on_render(pax_buf_t* fb, void* user) {
             .half      = half,
             .gyro      = settings_gyro(),
             .test      = s_demo >= 0,
+            .recording = s_capturing,
             .timer     = watch_timer(&timer) ? &timer : NULL,
         };
         hud_draw(fb, &s_game, &info);
@@ -512,7 +626,7 @@ static void on_render(pax_buf_t* fb, void* user) {
 
 void app_main(void) {
     static se_app_config_t const cfg = {
-        .f1_exits      = true,
+        .f1_exits      = false,  // on_input: F1 saves a recording first
         .backdrop_argb = 0xFF000000u,
     };
     static se_app_callbacks_t const cb = {

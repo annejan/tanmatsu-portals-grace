@@ -1295,6 +1295,70 @@ static void test_recordings(void) {
               bad[i][1], err);
 }
 
+// A run recorded on the badge, frame by frame, written, read back and
+// played again: the same game to the last bit, whatever the frames.
+static void test_record_replay(void) {
+    static game_t              g, h;
+    static recording_capture_t c;
+    static recording_t         r;
+    char                       err[96];
+    int const                  chamber = demo_chamber(demo_find("01-gap"));
+    game_load(&g, chamber);
+    recording_capture_start(&c);
+    recording_capture_chamber(&c, "01-gap");
+    // A false start: dropped.
+    recording_frame_t junk = {0};
+    recording_capture_frame(&c, &junk);
+    recording_capture_again(&c);
+    CHECK(c.r.runs[0].frames == 0, "starting a chamber over drops its frames");
+    unsigned seed = 99u;
+    int      n    = 0;
+    for (; n < 400; n++) {
+        seed                  = seed * 1103515245u + 12345u;
+        float const        dt = 1.0f / 35.0f + (1.0f / 20.0f - 1.0f / 35.0f) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
+        float const        t  = (float)n * 0.03f;
+        game_input_t const want = {
+            .fwd    = n < 300 ? 1.0f : 0.0f,
+            .strafe = sinf(t) * 0.7f,
+            .dyaw   = 0.02f * sinf(t * 1.7f),
+            .dpitch = 0.01f * cosf(t * 2.3f),
+            .jump   = (n / 40) % 3 == 1,
+            .fire   = {n == 30, n == 90},
+            .use    = n == 150,
+        };
+        recording_frame_t const f = recording_frame(dt, &want);
+        game_input_t            in;
+        float const             st = recording_frame_input(&f, &in);
+        CHECK(recording_capture_frame(&c, &f), "frame %d kept", n);
+        game_step(&g, &in, st);
+    }
+    recording_capture_done(&c);
+    char const* const path = "build/test-run.txt";
+    CHECK(recording_capture_write(&c, path, "Test run", "9.9.9"), "written");
+    CHECK(recording_load("build", "test-run", &r, err, sizeof(err)), "read back: %s", err);
+    CHECK(r.n == 1 && r.runs[0].frames == n && strcmp(r.runs[0].id, "01-gap") == 0 && strcmp(r.version, "9.9.9") == 0 &&
+              strcmp(r.name, "Test run") == 0,
+          "a run of %d frames, version and name kept (%d frames, version %s)", n, r.runs[0].frames, r.version);
+    game_load(&h, chamber);
+    for (int i = 0; i < r.runs[0].frames; i++) {
+        game_input_t in;
+        float const  st = recording_frame_input(&r.frame[r.runs[0].frame0 + i], &in);
+        game_step(&h, &in, st);
+    }
+    CHECK(memcmp(&g.pl, &h.pl, sizeof(g.pl)) == 0 && memcmp(g.portals, h.portals, sizeof(g.portals)) == 0,
+          "played back the same: (%.3f %.3f %.3f) and (%.3f %.3f %.3f)", (double)g.pl.pos.x, (double)g.pl.pos.y,
+          (double)g.pl.pos.z, (double)h.pl.pos.x, (double)h.pl.pos.y, (double)h.pl.pos.z);
+    CHECK(g.portals[0].open && g.portals[1].open, "the run shot both portals");
+    remove(path);
+    // A frame line the parser cannot read.
+    CHECK(!recording_parse("chamber: 01-gap\nframes: 2\n33000 1000 0 0 0 0\n33000 5000 0 0 0 0\n", &r, err,
+                           sizeof(err)) &&
+              strstr(err, "not a frame") != NULL,
+          "a bad frame refused: %s", err);
+    recording_capture_free(&c);
+    recording_free(&r);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -2018,6 +2082,7 @@ int main(void) {
     test_turrets();
     test_funnels();
     test_recordings();
+    test_record_replay();
     test_draft_save();
     test_glass();
     test_things();

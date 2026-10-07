@@ -79,6 +79,8 @@ The menu has:
   With Portal LEDs on, the badge's user LEDs show the portals while you
   play: A orange while the orange portal is open, B blue for the blue one.
   The system LEDs are dark meanwhile, and come back when you quit.
+  With Frame times on, a recording's times also show the badge's frame
+  rate in each chamber and its slowest frame.
 - **Controls**.
 
 Settings are kept in NVS.
@@ -86,6 +88,24 @@ Settings are kept in NVS.
 Aim portals at white panels. On a wall, a portal sits on the lower of the two
 panels it could use, so a shot at eye height stands on the floor, where you can
 walk into it.
+
+## Recordings
+
+**Record a run** on the title screen (from the first chamber), or Esc →
+**Record from here** (from the start of the chamber you are in), records
+what you press, frame by frame, until Esc → **Stop recording**, or until
+you leave for the title screen, another chamber or the editor. A death or
+a restart starts that chamber's recording over, so the run keeps the
+clean attempts. Each chamber you finish is saved to
+`/sd/portals/recordings/run-NN.txt`, with the game's version.
+
+**Watch a recording** plays one back, timed by the badge's own clock, and
+then shows each chamber's time and the total; they are written to
+`/sd/portals/<recording>-times.txt` too. A recorded run plays exactly as it
+was played, at whatever frame rate the badge manages; a run recorded on
+another version of the game may go otherwise, and the badge says so.
+Scripted runs, such as the tool-assisted one (`make tas`), are recordings
+too: see `main/recording.h` for both forms.
 
 ## The chamber editor
 

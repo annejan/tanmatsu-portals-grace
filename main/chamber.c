@@ -949,10 +949,14 @@ static int list_dir(char const* dir) {
 
 int chamber_list_dir(char const* dir, char const** names, int max) {
     init();
-    int const n = list_dir(dir);
-    int       k = 0;
-    for (; k < n && k < max; k++) names[k] = s_found[k];
-    qsort(names, (size_t)k, sizeof(names[0]), by_name);
+    int const   n = list_dir(dir);
+    int         k = 0;
+    // All of them sorted, then the first `max`: not whichever the card
+    // happened to list first.
+    char const* all[CHAMBER_MAX];
+    for (int i = 0; i < n; i++) all[i] = s_found[i];
+    qsort(all, (size_t)n, sizeof(all[0]), by_name);
+    for (; k < n && k < max; k++) names[k] = all[k];
     return k;
 }
 

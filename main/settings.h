@@ -22,6 +22,8 @@ bool        settings_leds(void);  // the portals on user LEDs A and B
 void        settings_set_leds(bool on);
 int         settings_portal_depth(void);
 void        settings_set_portal_depth(int depth);
+bool        settings_frame_times(void);  // a recording's summary shows the frame rate in each chamber
+void        settings_set_frame_times(bool on);
 // The chamber play was last in, by its id ("" if none yet): Continue, on
 // the title screen. Written only when it changes.
 char const* settings_chamber(void);
