@@ -171,18 +171,43 @@ void render_stats(int* passes, int* tris) {
 
 // --- Submitting ----------------------------------------------------------
 
+// Decals: a ring or a lens on a face, a light on a door, a few mm off
+// their surface. The badge keeps depth as 1/z in 16 bits, DEPTH_PER_M
+// steps to 1/m -- a step is z^2 / 3200 m, 8 mm at 5 m, 3 cm at 10 m --
+// and a tie goes to the triangle drawn first: closer than a step, a
+// decal flickers with what it lies on. So each is drawn DECAL_STEPS
+// steps nearer for each layer it lies on, DECAL(1) on a surface and
+// DECAL(2) on another decal: slid toward the eye, on the same pixels.
+#define DEPTH_PER_M  (64000.0f * RENDER_NEAR_CLIP_Z)  // the engine's SCENE_DEPTH_SCALE
+#define DECAL_STEPS  2.0f
+#define DECAL_SHIFT  30  // flag bits of our own, above the engine's: taken off before it sees them
+#define DECAL(layer) ((uint32_t)(layer) << DECAL_SHIFT)
+
+static cam_t s_eye;  // the pass's camera (set_camera)
+
+// p, slid toward the eye until its 1/z is `steps` steps more.
+static vec3_t nearer(vec3_t p, float steps) {
+    vec3_t const d = v3_sub(p, s_eye.pos);
+    return v3_mad(s_eye.pos, d, 1.0f / (1.0f + steps * v3_dot(d, s_eye.b.fwd) / DEPTH_PER_M));
+}
+
 static void emit_poly(cvert_t const* v, int n, material_info_t const* m, uint32_t argb, uint32_t flags) {
+    float const lift  = DECAL_STEPS * (float)(flags >> DECAL_SHIFT);
+    flags            &= ~DECAL(3);
     for (int i = 1; i + 1 < n; i++) {
+        cvert_t t[3] = {v[0], v[i], v[i + 1]};
+        if (lift > 0.0f)
+            for (int k = 0; k < 3; k++) t[k].p = nearer(t[k].p, lift);
         if (m != NULL && m->tex != NULL) {
-            se_tex_vertex_t const t[3] = {
-                {v[0].p.x, v[0].p.y, v[0].p.z, v[0].u, v[0].v},
-                {v[i].p.x, v[i].p.y, v[i].p.z, v[i].u, v[i].v},
-                {v[i + 1].p.x, v[i + 1].p.y, v[i + 1].p.z, v[i + 1].u, v[i + 1].v},
+            se_tex_vertex_t const tv[3] = {
+                {t[0].p.x, t[0].p.y, t[0].p.z, t[0].u, t[0].v},
+                {t[1].p.x, t[1].p.y, t[1].p.z, t[1].u, t[1].v},
+                {t[2].p.x, t[2].p.y, t[2].p.z, t[2].u, t[2].v},
             };
-            scene_textured_tri(t, m->tex, flags);
+            scene_textured_tri(tv, m->tex, flags);
         } else {
-            scene_tri(v[0].p.x, v[0].p.y, v[0].p.z, v[i].p.x, v[i].p.y, v[i].p.z, v[i + 1].p.x, v[i + 1].p.y,
-                      v[i + 1].p.z, argb, flags);
+            scene_tri(t[0].p.x, t[0].p.y, t[0].p.z, t[1].p.x, t[1].p.y, t[1].p.z, t[2].p.x, t[2].p.y, t[2].p.z, argb,
+                      flags);
         }
         s_stat_tris++;
     }
@@ -222,12 +247,37 @@ static void emit(cvert_t const* v, int n, material_info_t const* m, uint32_t arg
     clip_subtract(&s_cut[0], v, n, 0, emit_cut0, &p);
 }
 
+// While set, every polygon is carried in through s_via[0] and out of
+// s_via[1] before it is drawn: the copy of a cube part way through a
+// portal (submit_things).
+static portal_t const* s_via[2];
+
+// And while it has a plane, every polygon is cut to its front: each copy
+// of a thing part way through a portal stays on its own portal's side.
+static clipset_t s_keep;
+
+static void keep_front(portal_t const* p) {
+    s_keep.n    = 1;
+    s_keep.p[0] = (plane_t){p->n, 0.002f - v3_dot(p->n, p->center)};
+}
+
 // A quad, if it faces the eye, clipped to `cs` when there is one.
 // A convex polygon of `n` corners facing `n`ormal: dropped if it faces
 // away from the eye, clipped to `cs`, and drawn.
 static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, clipset_t const* cs,
                         material_info_t const* m, uint32_t argb, uint32_t flags) {
+    static cvert_t moved[CLIP_MAX_VERTS], kept[CLIP_MAX_VERTS];  // static: off the task's stack
+    if (s_via[0] != NULL) {
+        for (int i = 0; i < nq; i++) moved[i] = (cvert_t){portal_map_point(s_via[0], s_via[1], q[i].p), q[i].u, q[i].v};
+        q = moved;
+        n = portal_map_dir(s_via[0], s_via[1], n);
+    }
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
+    if (s_keep.n) {
+        nq = clip_polygon(&s_keep, q, nq, kept);
+        if (nq < 3) return;
+        q = kept;
+    }
     if (cs == NULL) {
         emit(q, nq, m, argb, flags);
         return;
@@ -348,20 +398,45 @@ static void submit_box(vec3_t lo, vec3_t hi, cam_t const* cam, clipset_t const* 
 }
 
 // A piece of laser beam: a thin glowing strip from a to b, turned to face
-// the eye (both ways round, whichever way the engine culls).
-static void beam_strip(vec3_t a, vec3_t b, float half, uint32_t argb, cam_t const* cam, clipset_t const* cs) {
+// the eye.
+static void beam_face(vec3_t a, vec3_t b, float half, uint32_t argb, uint32_t flags, cam_t const* cam,
+                      clipset_t const* cs) {
     vec3_t const along = v3_sub(b, a);
     vec3_t const to    = v3_sub(cam->pos, v3_scale(v3_add(a, b), 0.5f));
     vec3_t       side  = v3_cross(along, to);
     float const  len   = v3_len(side);
     if (v3_len(along) < 1e-3f || len < 1e-6f) return;
-    side               = v3_scale(side, half / len);
-    vec3_t const  n    = v3_scale(to, 1.0f / v3_len(to));
-    cvert_t const q[4] = {
-        {v3_sub(a, side), 0, 0}, {v3_sub(b, side), 1, 0}, {v3_add(b, side), 1, 1}, {v3_add(a, side), 0, 1}};
-    cvert_t const r[4] = {q[3], q[2], q[1], q[0]};
-    submit_quad(q, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
-    submit_quad(r, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE);
+    side               = v3_scale(side, 1.0f / len);
+    // At least a pixel wide at each end: narrower, a far beam fell between
+    // the pixel centres and was gone.
+    float const   ha   = fmaxf(half, v3_dot(v3_sub(a, cam->pos), cam->b.fwd) / RENDER_FOCAL_LEN);
+    float const   hb   = fmaxf(half, v3_dot(v3_sub(b, cam->pos), cam->b.fwd) / RENDER_FOCAL_LEN);
+    cvert_t const q[4] = {{v3_mad(a, side, -ha), 0, 0},
+                          {v3_mad(b, side, -hb), 1, 0},
+                          {v3_mad(b, side, hb), 1, 1},
+                          {v3_mad(a, side, ha), 0, 1}};
+    // Culled by its own normal, turned to the eye: culled by `to`, the
+    // whole beam went with the eye anywhere in the ball on its first half --
+    // beside it, near the emitter. One side will do: the engine culls nothing.
+    vec3_t        n    = v3_cross(along, side);
+    if (v3_dot(to, n) < 0.0f) n = v3_scale(n, -1.0f);
+    submit_quad(q, n, cam, cs, NULL, argb, SE_TRI_EMISSIVE | flags);
+}
+
+// The same, for a copy (s_via) carried through the portals first: turned
+// to the eye where it is drawn, not where the thing it is a copy of is --
+// turned there, it was edge on or culled from half the room.
+static void beam_strip(vec3_t a, vec3_t b, float half, uint32_t argb, uint32_t flags, cam_t const* cam,
+                       clipset_t const* cs) {
+    portal_t const* const via[2] = {s_via[0], s_via[1]};
+    if (via[0] != NULL) {
+        a        = portal_map_point(via[0], via[1], a);
+        b        = portal_map_point(via[0], via[1], b);
+        s_via[0] = s_via[1] = NULL;
+    }
+    beam_face(a, b, half, argb, flags, cam, cs);
+    s_via[0] = via[0];
+    s_via[1] = via[1];
 }
 
 // A rectangle c +- a +- b, turned to face the eye whichever side it is on.
@@ -379,7 +454,7 @@ static void card(vec3_t c, vec3_t a, vec3_t b, uint32_t argb, uint32_t flags, ca
 static void lens(vec3_t c, vec3_t d, float half, uint32_t argb, cam_t const* cam, clipset_t const* cs) {
     vec3_t const h =
         v3(fabsf(d.x) > 0.5f ? 0.005f : half, fabsf(d.y) > 0.5f ? 0.005f : half, fabsf(d.z) > 0.5f ? 0.005f : half);
-    submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, argb, SE_TRI_EMISSIVE);
+    submit_box(v3_sub(c, h), v3_add(c, h), cam, cs, NULL, argb, SE_TRI_EMISSIVE | DECAL(1));  // a cm off its face
 }
 
 // A cube with its edges and corners bevelled off, `k` deep: six faces
@@ -517,14 +592,14 @@ static void submit_pedestal(button_t const* bt, float timer, cam_t const* cam, c
             {v3(x + r0 * cosf(a1), h, z + r0 * sinf(a1)), 0, 0},
         };
         bool const on = k < lit;
-        submit_poly(q, 4, up, cam, cs, NULL, on ? 0xFF2C8CFFu : 0xFF30343Au, on ? SE_TRI_EMISSIVE : 0);
+        submit_poly(q, 4, up, cam, cs, NULL, on ? 0xFF2C8CFFu : 0xFF30343Au, (on ? SE_TRI_EMISSIVE : 0) | DECAL(1));
     }
     // The button: down and glowing while it holds the door.
     float const h = bt->pressed ? 0.025f : 0.06f;
     submit_box(v3(x - 0.12f, top, z - 0.12f), v3(x + 0.12f, top + h, z + 0.12f), cam, cs, NULL,
                bt->pressed ? 0xFFC02818u : 0xFF901E10u, 0);
     octagon(v3(x, top + h + 0.002f, z), up, ux, uz, 0.15f, bt->pressed ? 0xFFFF6040u : 0xFFB02818u,
-            bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
+            (bt->pressed ? SE_TRI_EMISSIVE : 0) | DECAL(1), cam, cs);
 }
 
 // A turret: a white egg on three legs, a red eye, and a thin red line
@@ -538,7 +613,8 @@ static void submit_turret(game_t const* g, int i, cam_t const* cam, clipset_t co
     if (t->down) {
         vec3_t const c = v3(p.x, p.y + 0.2f, p.z);
         submit_ball(c, v3_scale(up, 0.2f), v3_scale(s, 0.2f), v3_scale(f, 0.42f), sk, seam, seam, false, cam, cs);
-        octagon(v3_add(c, v3_add(v3_scale(f, 0.19f), v3_scale(up, 0.18f))), up, f, s, 0.045f, 0xFF401010u, 0, cam, cs);
+        octagon(v3_add(c, v3_add(v3_scale(f, 0.19f), v3_scale(up, 0.18f))), up, f, s, 0.045f, 0xFF401010u, DECAL(1),
+                cam, cs);
         return;
     }
     for (int k = 0; k < 3; k++) {  // one leg behind, two in front
@@ -550,17 +626,24 @@ static void submit_turret(game_t const* g, int i, cam_t const* cam, clipset_t co
     vec3_t const c = v3(p.x, p.y + 0.56f, p.z);
     submit_ball(c, v3_scale(f, 0.2f), v3_scale(s, 0.2f), v3_scale(up, 0.42f), sk, seam, seam, false, cam, cs);
     vec3_t const eye = v3_add(v3(p.x, p.y + TURRET_EYE, p.z), v3_scale(f, 0.18f));
-    octagon(eye, f, s, up, 0.045f, 0xFFFF2A1Cu, SE_TRI_EMISSIVE, cam, cs);
-    ray_hit_t const h = level_raycast(&g->lv, eye, f, TURRET_RANGE);
-    beam_strip(eye, v3_mad(eye, f, h.hit ? h.dist : TURRET_RANGE), 0.008f, 0xFFFF2A1Cu, cam, cs);
-    if (!turret_firing(g, i)) return;
+    octagon(eye, f, s, up, 0.045f, 0xFFFF2A1Cu, SE_TRI_EMISSIVE | DECAL(1), cam, cs);  // a few mm off the egg
+    // A copy's sight is cast from where the eye is: out of the other
+    // portal once the eye has gone through, else where the turret stands
+    // (it ends on the portal, as any turret's does).
+    bool const      out = s_via[0] != NULL && portal_local(s_via[0], eye).z < 0.0f;
+    vec3_t const    se  = out ? portal_map_point(s_via[0], s_via[1], eye) : eye;
+    vec3_t const    sf  = out ? portal_map_dir(s_via[0], s_via[1], f) : f;
+    ray_hit_t const h   = level_raycast(&g->lv, se, sf, TURRET_RANGE);
+    beam_strip(eye, v3_mad(eye, f, h.hit ? h.dist : TURRET_RANGE), 0.008f, 0xFFFF2A1Cu, 0, cam, cs);
+    // A copy does not fire: the turret shoots from where it is.
+    if (s_via[0] != NULL || !turret_firing(g, i)) return;
     vec3_t const at    = v3(g->pl.pos.x, g->pl.pos.y + 1.0f, g->pl.pos.z);
     bool const   flash = fmodf(g->burst_t, TURRET_BURST) < TURRET_BURST * 0.5f;
     for (int k = -1; k <= 1; k += 2) {
         vec3_t const muzzle = v3_add(c, v3_add(v3_scale(s, 0.21f * (float)k), v3_scale(f, 0.05f)));
         float const  j      = g->burst_t * 97.0f + (float)k;
         vec3_t const miss   = v3_add(v3_scale(s, 0.2f * sinf(j)), v3_scale(up, 0.15f * cosf(j * 1.3f)));
-        beam_strip(muzzle, v3_add(at, miss), 0.012f, 0xFFFFE070u, cam, cs);
+        beam_strip(muzzle, v3_add(at, miss), 0.012f, 0xFFFFE070u, 0, cam, cs);
         if (flash) octagon(muzzle, f, s, up, 0.08f, 0xFFFFF0A0u, SE_TRI_EMISSIVE, cam, cs);
     }
 }
@@ -576,19 +659,64 @@ static bool sphere_home(game_t const* g, int i) {
     return false;
 }
 
+// Cube i: a cube, a reflection cube, a sphere or a turret.
+static void submit_body(game_t const* g, int i, cam_t const* cam, clipset_t const* cs) {
+    aabb_t const b = cube_aabb(&g->cubes[i]);
+    if (g->lv.cube_turret[i])
+        submit_turret(g, i, cam, cs);
+    else if (g->lv.cube_sphere[i])
+        submit_sphere(body_center(&g->cubes[i].body), CUBE_HALF, g->cubes[i].spin[0], g->cubes[i].spin[1],
+                      sphere_home(g, i), cam, cs);
+    else if (!g->lv.cube_reflect[i])
+        submit_cube(&b, 0.07f, cam, cs, &s_cube, s_cube.argb, 0xFF6E7278u);
+    else {
+        // A reflection cube: reddish, with a red lens on the side the beam
+        // leaves by -- out along f to the surface: further on a diagonal,
+        // to the edge.
+        submit_cube(&b, 0.07f, cam, cs, NULL, 0xFFA48A8Au, 0xFF8A7070u);
+        body_t const* p = &g->cubes[i].body;
+        vec3_t const  f = v3(sinf(g->cubes[i].yaw), 0.0f, cosf(g->cubes[i].yaw));
+        float const   t = CUBE_HALF / fmaxf(fabsf(f.x), fabsf(f.z)) + 0.01f;
+        vec3_t const  c = v3_mad(v3(p->pos.x, p->pos.y + CUBE_HALF, p->pos.z), f, t);
+        submit_box(v3(c.x - 0.08f, c.y - 0.08f, c.z - 0.08f), v3(c.x + 0.08f, c.y + 0.08f, c.z + 0.08f), cam, cs, NULL,
+                   0xFFFF3A28u, SE_TRI_EMISSIVE);
+    }
+}
+
+// The portal cube i is part way through -- its box across the plane,
+// its middle over the opening -- or -1.
+static int body_portal(game_t const* g, int i) {
+    if (!g->portals[0].open || !g->portals[1].open) return -1;
+    aabb_t const b = cube_aabb(&g->cubes[i]);
+    vec3_t const c = v3_scale(v3_add(b.lo, b.hi), 0.5f), h = v3_scale(v3_sub(b.hi, b.lo), 0.5f);
+    for (int k = 0; k < 2; k++) {
+        portal_t const* p  = &g->portals[k];
+        vec3_t const    l  = portal_local(p, c);
+        float const     hn = fabsf(p->n.x) * h.x + fabsf(p->n.y) * h.y + fabsf(p->n.z) * h.z;
+        if (fabsf(l.z) < hn && fabsf(l.x) < PORTAL_HALF_W && fabsf(l.y) < PORTAL_HALF_H) return k;
+    }
+    return -1;
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
-        aabb_t const b = cube_aabb(&g->cubes[i]);
         if (g->cubes[i].gone) continue;
-        if (g->lv.cube_turret[i])
-            submit_turret(g, i, cam, cs);
-        else if (g->lv.cube_sphere[i])
-            submit_sphere(body_center(&g->cubes[i].body), CUBE_HALF, g->cubes[i].spin[0], g->cubes[i].spin[1],
-                          sphere_home(g, i), cam, cs);
-        else if (g->lv.cube_reflect[i])  // a reflection cube: reddish, and a lens (below)
-            submit_cube(&b, 0.07f, cam, cs, NULL, 0xFFA48A8Au, 0xFF8A7070u);
-        else
-            submit_cube(&b, 0.07f, cam, cs, &s_cube, s_cube.argb, 0xFF6E7278u);
+        // Part way through a portal: drawn again, carried out of the other
+        // one. Drawn once, what had gone past the plane was missing, and
+        // through the portal the cut cube showed hollow, flickering as it
+        // crossed. Each copy is cut at its own portal's plane: a turret's
+        // sight went on through a thin wall into the room behind.
+        int const k = body_portal(g, i);
+        if (k >= 0) keep_front(&g->portals[k]);
+        submit_body(g, i, cam, cs);
+        s_keep.n = 0;
+        if (k < 0) continue;
+        s_via[0] = &g->portals[k];
+        s_via[1] = &g->portals[k ^ 1];
+        keep_front(s_via[1]);
+        submit_body(g, i, cam, cs);
+        s_keep.n = 0;
+        s_via[0] = s_via[1] = NULL;
     }
     // The moving platform: a metal slab with a glowing edge.
     if (g->lv.n_platforms) {
@@ -634,9 +762,9 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         if (bt->sphere_only) {
             // A cup: a flat ring of light the sphere sits in.
             octagon(v3(x + 0.5f, top + 0.042f, z + 0.5f), v3(0, 1, 0), v3(1, 0, 0), v3(0, 0, 1), 0.4f,
-                    bt->pressed ? lit : off, bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
-            octagon(v3(x + 0.5f, top + 0.044f, z + 0.5f), v3(0, 1, 0), v3(1, 0, 0), v3(0, 0, 1), 0.28f, 0xFF3A4048u, 0,
-                    cam, cs);
+                    bt->pressed ? lit : off, (bt->pressed ? SE_TRI_EMISSIVE : 0) | DECAL(1), cam, cs);
+            octagon(v3(x + 0.5f, top + 0.044f, z + 0.5f), v3(0, 1, 0), v3(1, 0, 0), v3(0, 0, 1), 0.28f, 0xFF3A4048u,
+                    DECAL(2), cam, cs);
             continue;
         }
         submit_box(v3(x + 0.2f, top, z + 0.2f), v3(x + 0.8f, top + h, z + 0.8f), cam, cs, NULL, bt->pressed ? lit : off,
@@ -649,7 +777,7 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         lens(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.505f), d, 0.25f, 0xFFFF3A28u,
              cam, cs);
         for (int i = 0; i < g->beam_n[k]; i++)
-            beam_strip(g->beam[k][i].a, g->beam[k][i].b, 0.025f, 0xFFFF3A28u, cam, cs);
+            beam_strip(g->beam[k][i].a, g->beam[k][i].b, 0.025f, 0xFFFF3A28u, 0, cam, cs);
     }
     // Light bridges: a pale blue slab, with glowing edges, along each piece.
     for (int k = 0; k < g->lv.n_bridges; k++) {
@@ -668,10 +796,11 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             vec3_t const      e    = on_x ? v3(0, 0, 0.04f) : v3(0.04f, 0, 0);  // its two edges, lit
             vec3_t const      up   = v3(0, 0.01f, 0);
             submit_box(v3_sub(lo, w), v3_add(hi, w), cam, cs, NULL, 0xFF78C0E8u, 0);
+            // The edges share the slab's side and bottom: decals.
             submit_box(v3_sub(lo, w), v3_add(v3_add(v3_sub(hi, w), e), up), cam, cs, NULL, 0xFFB8ECFFu,
-                       SE_TRI_EMISSIVE);
+                       SE_TRI_EMISSIVE | DECAL(1));
             submit_box(v3_sub(v3_add(lo, w), e), v3_add(v3_add(hi, w), up), cam, cs, NULL, 0xFFB8ECFFu,
-                       SE_TRI_EMISSIVE);
+                       SE_TRI_EMISSIVE | DECAL(1));
         }
     }
     // Excursion funnels: the edges of a tube of light, blue -- orange while
@@ -700,14 +829,15 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
                 vec3_t const other[4] = {v, v, u, u};
                 for (int w = 0; w < 4; w++) {  // its four edges
                     vec3_t const e = v3_add(v3_scale(u, w & 1 ? 0.48f : -0.48f), v3_scale(v, w & 2 ? 0.48f : -0.48f));
-                    beam_strip(v3_add(s->a, e), v3_add(s->b, e), 0.02f, wall, cam, cs);
+                    beam_strip(v3_add(s->a, e), v3_add(s->b, e), 0.02f, wall, DECAL(1), cam,
+                               cs);  // along a wall or floor
                 }
                 for (float t = ceilf(run - ph) + ph; t < run + len; t += 1.0f) {
                     if (t < run) continue;
                     vec3_t const p = v3_mad(s->a, a, t - run);
                     for (int w = 0; w < 4; w++)
                         card(v3_mad(p, side[w], 0.49f), v3_scale(a, 0.04f), v3_scale(other[w], 0.49f), ring,
-                             SE_TRI_EMISSIVE, cam, cs);
+                             SE_TRI_EMISSIVE | DECAL(1), cam, cs);
                 }
                 run += len;
             }
@@ -728,17 +858,6 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         vec3_t const h = v3(0.07f, 0.07f, 0.07f);
         submit_box(v3_sub(b->pos, h), v3_add(b->pos, h), cam, cs, NULL, gel_argb[b->gel], SE_TRI_EMISSIVE);
     }
-    // A reflection cube: a red lens on the side the beam leaves by.
-    for (int i = 0; i < g->n_cubes; i++) {
-        if (!g->lv.cube_reflect[i]) continue;
-        body_t const* b = &g->cubes[i].body;
-        vec3_t const  f = v3(sinf(g->cubes[i].yaw), 0.0f, cosf(g->cubes[i].yaw));
-        // Out along f to the surface: further on a diagonal, to the edge.
-        float const   t = CUBE_HALF / fmaxf(fabsf(f.x), fabsf(f.z)) + 0.01f;
-        vec3_t const  c = v3_mad(v3(b->pos.x, b->pos.y + CUBE_HALF, b->pos.z), f, t);
-        submit_box(v3(c.x - 0.08f, c.y - 0.08f, c.z - 0.08f), v3(c.x + 0.08f, c.y + 0.08f, c.z + 0.08f), cam, cs, NULL,
-                   0xFFFF3A28u, SE_TRI_EMISSIVE);
-    }
     // Energy pellets: a white-hot ball in an orange glow, turned to the eye.
     for (int k = 0; k < g->lv.n_launchers; k++) {
         pellet_t const* p = &g->pellets[k];
@@ -749,7 +868,7 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         u              = v3_norm(u);
         vec3_t const v = v3_cross(u, to);
         octagon(p->pos, to, u, v, 0.22f, 0xFFFF8A1Cu, SE_TRI_EMISSIVE, cam, cs);
-        octagon(v3_mad(p->pos, to, 0.01f), to, u, v, 0.12f, 0xFFFFF4C8u, SE_TRI_EMISSIVE, cam, cs);
+        octagon(v3_mad(p->pos, to, 0.01f), to, u, v, 0.12f, 0xFFFFF4C8u, SE_TRI_EMISSIVE | DECAL(1), cam, cs);
     }
     // A launcher's mouth: a dark ring round an orange glow.
     for (int k = 0; k < g->lv.n_launchers; k++) {
@@ -758,9 +877,9 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         vec3_t const     u = fabsf(n.y) > 0.5f ? v3(1, 0, 0) : v3(fabsf(n.z), 0, fabsf(n.x));
         vec3_t const     v = fabsf(n.y) > 0.5f ? v3(0, 0, 1) : v3(0, 1, 0);
         vec3_t const     c = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), n, 0.503f);
-        octagon(c, n, u, v, 0.40f, 0xFF2A2A2Eu, 0, cam, cs);
+        octagon(c, n, u, v, 0.40f, 0xFF2A2A2Eu, DECAL(1), cam, cs);
         octagon(v3_mad(c, n, 0.003f), n, u, v, 0.18f, g->pellets[k].done ? 0xFF4A3018u : 0xFFFF8A1Cu,
-                g->pellets[k].done ? 0 : SE_TRI_EMISSIVE, cam, cs);
+                (g->pellets[k].done ? 0 : SE_TRI_EMISSIVE) | DECAL(2), cam, cs);
     }
     // Laser catchers and pellet receivers: a lens on each open side, in a
     // metal ring, dark until a beam or a pellet lights it.
@@ -775,10 +894,10 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             if (level_solid(&g->lv, bt->x + dx, bt->y + dy, bt->z + dz)) continue;
             vec3_t const n = dir_vec(face);
             vec3_t const u = v3(fabsf(n.z), 0, fabsf(n.x)), v = v3(0, 1, 0);
-            octagon(v3_mad(mid, n, 0.503f), n, u, v, 0.40f, 0xFF8A8E96u, 0, cam, cs);
+            octagon(v3_mad(mid, n, 0.503f), n, u, v, 0.40f, 0xFF8A8E96u, DECAL(1), cam, cs);
             uint32_t const glow = bt->receiver ? 0xFFFF8A1Cu : 0xFFFF3A28u;
             octagon(v3_mad(mid, n, 0.506f), n, u, v, 0.30f, bt->pressed ? glow : 0xFF1A1414u,
-                    bt->pressed ? SE_TRI_EMISSIVE : 0, cam, cs);
+                    (bt->pressed ? SE_TRI_EMISSIVE : 0) | DECAL(2), cam, cs);
         }
     }
     // Droppers: a dark hatch under the ceiling cell, with a light round
@@ -813,11 +932,12 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
         uint32_t const light = d->open > 0.5f ? 0xFF2C8CFFu : 0xFFFF8A1Cu;
         vec3_t const   llo   = along_x ? v3(a0, y1 - 0.08f, t0 - 0.01f) : v3(t0 - 0.01f, y1 - 0.08f, a0);
         vec3_t const   lhi   = along_x ? v3(a1, y1, t1 + 0.01f) : v3(t1 + 0.01f, y1, a1);
-        submit_box(llo, lhi, cam, cs, NULL, light, SE_TRI_EMISSIVE);
+        submit_box(llo, lhi, cam, cs, NULL, light, SE_TRI_EMISSIVE | DECAL(1));  // 1 cm proud of the panels
     }
 }
 
 static void set_camera(cam_t const* cam) {
+    s_eye = *cam;
     float yaw, pitch, roll;
     basis_to_angles(&cam->b, &yaw, &pitch, &roll);
     render_set_camera_6dof(cam->pos.x, cam->pos.y, cam->pos.z, yaw, pitch, roll);
