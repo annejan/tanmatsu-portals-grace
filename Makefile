@@ -135,6 +135,18 @@ host_tas: chambers_c
 tas: host_tas $(if $(TASFILM),host_movie)
 	python3 tools/tas.py $(if $(TASFILM),--film $(TASFILM))
 
+# The extra chambers in dlc/ (tools/dlc.py): `make dlc` checks each is
+# solved and builds them for the card in build/dlc; `make dlc-upload` puts
+# them on it, with their solutions as a recording; `make dlc-movies` films
+# each (build/dlc/<id>.mp4).
+.PHONY: dlc dlc-upload dlc-movies
+dlc: host_tas
+	python3 tools/dlc.py check
+	python3 tools/dlc.py card
+
+dlc-movies: host_movie
+	python3 tools/dlc.py films
+
 textures:
 	python3 tools/make_textures.py
 
@@ -245,6 +257,13 @@ tas-upload: tas
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/tas.txt $(abspath $(BUILD))/tas-recording.txt
+
+dlc-upload: dlc
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/chambers || true
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
+	cd badgelink/tools; for f in $(abspath $(BUILD))/dlc/chambers/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/chambers/$$(basename $$f) $$f; done
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/dlc-solutions.txt $(abspath $(BUILD))/dlc/dlc-solutions.txt
 
 tas-result:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt
