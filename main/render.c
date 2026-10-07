@@ -137,7 +137,21 @@ static void build_clear(level_t const* lv) {
             }
 }
 
+static int      s_last_shot;  // the portal last moved: Chell's gun glows its colour
+static portal_t s_prev[2];
+
 void render_set_level(level_t const* lv, portal_t const portals[2]) {
+    {
+        // The one portal that moved since last time is the last shot.
+        int moved = 0;
+        for (int i = 0; i < 2; i++)
+            if (portals[i].open && (!s_prev[i].open || v3_len(v3_sub(portals[i].center, s_prev[i].center)) > 1e-3f ||
+                                    portals[i].face != s_prev[i].face))
+                moved |= 1 << i;
+        if (moved == 1 || moved == 2) s_last_shot = moved >> 1;
+        s_prev[0] = portals[0];
+        s_prev[1] = portals[1];
+    }
     hole_t holes[4];
     int    nh = 0;
     for (int i = 0; i < 2; i++) {
@@ -936,6 +950,191 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
     }
 }
 
+// --- The player -----------------------------------------------------------
+
+// Chell, the test subject: never drawn in the eye's own pass (the camera
+// is in her head), only in the views through the portals, so you can see
+// yourself. Chunky like the turrets and cubes: boxes and faceted balls in
+// flat colours. Body turned by yaw, the gun pointing by yaw and pitch.
+
+static bool s_chell_pass;  // draw_pass: a view through a portal
+
+// A box round c with half axes a, b, w (at right angles): the faces that
+// face the eye.
+static void obox(vec3_t c, vec3_t a, vec3_t b, vec3_t w, uint32_t argb, uint32_t flags, cam_t const* cam,
+                 clipset_t const* cs) {
+    vec3_t const ax[3] = {a, b, w};
+    for (int k = 0; k < 3; k++)
+        for (int s = -1; s <= 1; s += 2) {
+            vec3_t const  n  = v3_scale(ax[k], (float)s);
+            vec3_t const  fc = v3_add(c, n);
+            vec3_t const  u = ax[(k + 1) % 3], v = ax[(k + 2) % 3];
+            cvert_t const q[4] = {{v3_sub(v3_sub(fc, u), v), 0, 0},
+                                  {v3_sub(v3_add(fc, u), v), 0, 0},
+                                  {v3_add(v3_add(fc, u), v), 0, 0},
+                                  {v3_add(v3_sub(fc, u), v), 0, 0}};
+            submit_poly(q, 4, n, cam, cs, NULL, argb, flags);
+        }
+}
+
+// A limb: a box from a to b, `w` across (along cross(b - a, hint)) and
+// `h` the other way, both half widths.
+static void limb(vec3_t a, vec3_t b, float w, float h, vec3_t hint, uint32_t argb, cam_t const* cam,
+                 clipset_t const* cs) {
+    vec3_t const ax = v3_scale(v3_sub(b, a), 0.5f);
+    vec3_t       s  = v3_cross(ax, hint);
+    if (v3_len(s) < 1e-5f) s = v3_cross(ax, v3(1, 0, 0));
+    s              = v3_norm(s);
+    vec3_t const t = v3_norm(v3_cross(s, ax));
+    obox(v3_add(a, ax), ax, v3_scale(s, w), v3_scale(t, h), argb, 0, cam, cs);
+}
+
+// A faceted ball round c, half axes u, v and w (w through its poles):
+// `lat` rings of `lon` faces.
+static void facet_ball(vec3_t c, vec3_t u, vec3_t v, vec3_t w, int lat, int lon, uint32_t argb, cam_t const* cam,
+                       clipset_t const* cs) {
+    vec3_t p[9][12];
+    for (int i = 0; i <= lat; i++)
+        for (int j = 0; j < lon; j++) {
+            float const a = ((float)i / (float)lat - 0.5f) * 3.14159265f,
+                        b = ((float)j + 0.5f) * (6.2831853f / (float)lon);
+            p[i][j] =
+                v3_add(v3_add(v3_scale(u, cosf(a) * cosf(b)), v3_scale(v, cosf(a) * sinf(b))), v3_scale(w, sinf(a)));
+        }
+    for (int i = 0; i < lat; i++)
+        for (int j = 0; j < lon; j++) {
+            int const    k   = (j + 1) % lon;
+            vec3_t const out = v3_add(v3_add(p[i][j], p[i][k]), v3_add(p[i + 1][j], p[i + 1][k]));
+            vec3_t       n   = v3_norm(v3_cross(v3_sub(p[i + 1][k], p[i][j]), v3_sub(p[i][k], p[i + 1][j])));
+            if (v3_dot(n, out) < 0.0f) n = v3_scale(n, -1.0f);
+            cvert_t q[4];
+            int     nq = 0;
+            q[nq++]    = (cvert_t){v3_add(c, p[i][j]), 0, 0};
+            if (i > 0) q[nq++] = (cvert_t){v3_add(c, p[i][k]), 0, 0};
+            q[nq++] = (cvert_t){v3_add(c, p[i + 1][k]), 0, 0};
+            if (i < lat - 1) q[nq++] = (cvert_t){v3_add(c, p[i + 1][j]), 0, 0};
+            submit_poly(q, nq, n, cam, cs, NULL, argb, 0);
+        }
+}
+
+#define CH_ORANGE 0xFFE8701Cu  // the jumpsuit
+#define CH_TIED   0xFFC0561Au  // its top, tied round the waist
+#define CH_TANK   0xFFECECE6u
+#define CH_SKIN   0xFFD9A07Au
+#define CH_HAIR   0xFF2E1E14u
+#define CH_BOOT   0xFF5E636Bu
+#define CH_SOLE   0xFF16181Cu
+#define CH_SPRING 0xFFB8BCC4u
+#define CH_GUN    0xFFEEF0F2u
+#define CH_GUN_DK 0xFF1C1E22u
+
+static void submit_chell_at(player_t const* pl, cam_t const* cam, clipset_t const* cs) {
+    vec3_t const  o  = pl->pos;
+    float const   sy = sinf(pl->yaw), cy = cosf(pl->yaw);
+    vec3_t const  f = v3(sy, 0, cy), r = v3(cy, 0, -sy), up = v3(0, 1, 0);
+    basis_t const view = player_view(pl);
+    vec3_t const  d = view.fwd, gu = view.up, gr = view.right;
+    // A point of her, from her feet: x right, y up, z forward.
+#define P(x, y, z) v3_add(o, v3_add(v3_scale(r, (x)), v3_add(v3_scale(up, (y)), v3_scale(f, (z)))))
+#define BOX(x, y, z, hx, hy, hz, col) \
+    obox(P(x, y, z), v3_scale(r, hx), v3_scale(up, hy), v3_scale(f, hz), col, 0, cam, cs)
+    for (int s = -1; s <= 1; s += 2) {
+        float const x = 0.085f * (float)s;
+        // Long fall boots: a black sole under the front of the foot, the
+        // grey boot up the shin, and the spring blade down the back of
+        // the calf to the heel.
+        BOX(x, 0.035f, 0.07f, 0.055f, 0.03f, 0.12f, CH_SOLE);
+        BOX(x, 0.20f, 0.0f, 0.062f, 0.15f, 0.07f, CH_BOOT);
+        BOX(x, 0.17f, -0.10f, 0.025f, 0.16f, 0.018f, CH_SPRING);
+        // The leg.
+        BOX(x, 0.61f, 0.0f, 0.066f, 0.26f, 0.075f, CH_ORANGE);
+    }
+    BOX(0.0f, 0.93f, 0.0f, 0.165f, 0.08f, 0.092f, CH_ORANGE);  // hips
+    BOX(0.0f, 0.985f, 0.0f, 0.178f, 0.04f, 0.104f, CH_TIED);   // the sleeves round the waist
+    BOX(0.0f, 0.95f, 0.115f, 0.045f, 0.04f, 0.02f, CH_TIED);   // the knot
+    BOX(-0.045f, 0.84f, 0.105f, 0.028f, 0.08f, 0.015f, CH_TIED);
+    BOX(0.05f, 0.85f, 0.105f, 0.028f, 0.07f, 0.015f, CH_TIED);
+    BOX(0.0f, 0.86f, -0.108f, 0.15f, 0.10f, 0.016f, CH_TIED);  // the top's back, hanging
+    BOX(0.0f, 1.13f, 0.0f, 0.135f, 0.12f, 0.08f, CH_TANK);     // tank top
+    BOX(0.0f, 1.31f, 0.0f, 0.165f, 0.08f, 0.09f, CH_TANK);
+    BOX(0.0f, 1.43f, 0.0f, 0.04f, 0.05f, 0.04f, CH_SKIN);  // neck
+    // Head and hair: the hair a size bigger and further back, so the face
+    // shows in front.
+    facet_ball(P(0.0f, 1.565f, 0.01f), v3_scale(r, 0.092f), v3_scale(f, 0.105f), v3_scale(up, 0.115f), 4, 8, CH_SKIN,
+               cam, cs);
+    facet_ball(P(0.0f, 1.59f, -0.025f), v3_scale(r, 0.104f), v3_scale(f, 0.112f), v3_scale(up, 0.122f), 4, 8, CH_HAIR,
+               cam, cs);
+    limb(P(0.0f, 1.64f, -0.11f), P(0.0f, 1.40f, -0.19f), 0.04f, 0.035f, r, CH_HAIR, cam, cs);  // ponytail
+    // The portal gun, held at her right side, pointing where she looks.
+    vec3_t const g = P(0.12f, 1.10f, 0.20f);
+#define G(x, y, z) v3_add(g, v3_add(v3_scale(gr, (x)), v3_add(v3_scale(gu, (y)), v3_scale(d, (z)))))
+#define GBOX(x, y, z, hx, hy, hz, col, fl) \
+    obox(G(x, y, z), v3_scale(gr, hx), v3_scale(gu, hy), v3_scale(d, hz), col, fl, cam, cs)
+    GBOX(0.0f, 0.0f, -0.08f, 0.072f, 0.075f, 0.19f, CH_GUN, 0);                           // the white body
+    GBOX(0.0f, -0.10f, -0.06f, 0.026f, 0.05f, 0.035f, CH_GUN_DK, 0);                      // the grip
+    GBOX(0.0f, 0.0f, 0.14f, 0.058f, 0.058f, 0.035f, CH_GUN_DK, 0);                        // the black collar
+    GBOX(0.0f, 0.0f, 0.24f, 0.026f, 0.026f, 0.07f, s_rim[s_last_shot], SE_TRI_EMISSIVE);  // the glowing tip
+    GBOX(0.0f, 0.054f, 0.26f, 0.014f, 0.016f, 0.10f, CH_GUN_DK, 0);                       // its three claws
+    GBOX(0.05f, -0.03f, 0.26f, 0.016f, 0.014f, 0.10f, CH_GUN_DK, 0);
+    GBOX(-0.05f, -0.03f, 0.26f, 0.016f, 0.014f, 0.10f, CH_GUN_DK, 0);
+    // Bare arms: the right hand on the grip, the left under the front.
+    vec3_t const hand[2] = {G(-0.06f, -0.07f, 0.06f), G(0.0f, -0.12f, -0.06f)};
+    for (int s = 0; s < 2; s++) {
+        float const  side     = s ? 1.0f : -1.0f;
+        vec3_t const shoulder = P(0.195f * side, 1.35f, 0.0f);
+        vec3_t const elbow =
+            v3_add(v3_scale(v3_add(shoulder, hand[s]), 0.5f), v3_add(v3_scale(r, 0.06f * side), v3_scale(up, -0.09f)));
+        limb(shoulder, elbow, 0.042f, 0.042f, f, CH_SKIN, cam, cs);
+        limb(elbow, hand[s], 0.036f, 0.036f, up, CH_SKIN, cam, cs);
+    }
+#undef GBOX
+#undef G
+#undef BOX
+#undef P
+}
+
+// Her box across a portal's plane, over the opening: the portal she is
+// part way through, or -1. As body_portal.
+static int chell_portal(game_t const* g, player_t const* pl) {
+    if (!g->portals[0].open || !g->portals[1].open) return -1;
+    vec3_t const c = v3(pl->pos.x, pl->pos.y + PL_HEIGHT * 0.5f, pl->pos.z);
+    vec3_t const h = v3(PL_HALF_W, PL_HEIGHT * 0.5f, PL_HALF_W);
+    for (int k = 0; k < 2; k++) {
+        portal_t const* p  = &g->portals[k];
+        vec3_t const    l  = portal_local(p, c);
+        float const     hn = fabsf(p->n.x) * h.x + fabsf(p->n.y) * h.y + fabsf(p->n.z) * h.z;
+        if (fabsf(l.z) < hn && fabsf(l.x) < PORTAL_HALF_W && fabsf(l.y) < PORTAL_HALF_H) return k;
+    }
+    return -1;
+}
+
+// Not a copy with the eye in her head: stepping through a portal, the
+// view through it is seen from where her copy out of the other one is.
+static bool chell_eye_inside(player_t const* pl, cam_t const* cam) {
+    vec3_t e = player_eye(pl);
+    if (s_via[0] != NULL) e = portal_map_point(s_via[0], s_via[1], e);
+    return v3_len(v3_sub(cam->pos, e)) < 0.5f;
+}
+
+static void submit_chell(game_t const* g, cam_t const* cam, clipset_t const* cs) {
+    if (!s_chell_pass) return;
+    player_t const* const pl = &g->pl;
+    // Part way through a portal: as a cube, drawn twice, each copy cut at
+    // its own portal's plane.
+    int const             k  = chell_portal(g, pl);
+    if (k >= 0) keep_front(&g->portals[k]);
+    if (!chell_eye_inside(pl, cam)) submit_chell_at(pl, cam, cs);
+    s_keep.n = 0;
+    if (k >= 0) {
+        s_via[0] = &g->portals[k];
+        s_via[1] = &g->portals[k ^ 1];
+        keep_front(s_via[1]);
+        if (!chell_eye_inside(pl, cam)) submit_chell_at(pl, cam, cs);
+        s_keep.n = 0;
+        s_via[0] = s_via[1] = NULL;
+    }
+}
+
 static void set_camera(cam_t const* cam) {
     s_eye = *cam;
     float yaw, pitch, roll;
@@ -957,6 +1156,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         if (cut & (1 << i)) portal_behind(&portals[i], cam->pos, &s_cut[s_ncut++]);
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
+    submit_chell(s_game, cam, cs);
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
         portal_frame(&portals[i], cam, cs);
@@ -1038,7 +1238,9 @@ static void draw_through(pax_buf_t* target, portal_t const portals[2], int which
     // From beyond `out` the only portal that can be in view is `in`.
     bool const deeper = depth + 1 < s_depth && portal_visible(in, &v, cs);
     if (deeper) draw_through(target, portals, which, &v, cs, depth + 1);
+    s_chell_pass = true;
     draw_pass(target, &v, cs, portals, deeper ? 0 : 1 << which, deeper ? 1 << which : 0, s_deep);
+    s_chell_pass = false;
 }
 
 void render_frame(pax_buf_t* target, game_t const* g) {
