@@ -819,10 +819,11 @@ static int step_pellets(game_t* g, float dt) {
             vec3_t const     d  = dir_vec(L->dir);
             p->pos              = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.6f);
             p->vel              = v3_scale(d, PELLET_SPEED);
-            // Long enough to cross the chamber end to end, corner to
-            // corner: a big chamber's pellet does not fizzle half way.
-            float const span    = sqrtf((float)(g->lv.w * g->lv.w + g->lv.h * g->lv.h + g->lv.d * g->lv.d));
-            p->life             = fmaxf(PELLET_LIFE, span / PELLET_SPEED);
+            // Long enough to cross what its launcher fires across, wall to
+            // wall -- a long hall's pellet does not fizzle half way -- and
+            // no longer: a miss in a small room is refired as soon as ever.
+            ray_hit_t const line = level_raycast(&g->lv, p->pos, d, LV_REACH);
+            p->life              = fmaxf(PELLET_LIFE, (line.hit ? line.dist : LV_REACH) / PELLET_SPEED);
             p->live             = true;
             ev                 |= GAME_EV_PELLET;
             continue;
