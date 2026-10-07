@@ -45,7 +45,12 @@ the same way, and rolls when you walk into it. A turret shoots you if it
 sees you for long enough; drop something on it to knock it over. An
 excursion funnel carries you, and cubes, along it, through portals too. A door stays open while
 all of its buttons are pressed, and does not shut on anything standing in
-it.
+it. Look through a portal at the other one and you see yourself.
+
+The game begins on a title screen, the chambers playing themselves
+behind it: **Continue** goes back to the chamber you were last in, and
+**New game** starts from the first. Esc in a chamber opens the menu,
+which can go back to the title screen.
 
 ## Controls
 
