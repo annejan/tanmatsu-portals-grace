@@ -262,11 +262,13 @@ dlc-upload: dlc
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
-	cd badgelink/tools; for s in $(abspath dlc)/*/; do p=$$(basename $$s); d=$(abspath $(BUILD))/dlc/$$p; \
+	# Each upload tried three times: badgelink times out now and then.
+	cd badgelink/tools; up() { for t in 1 2 3; do ./badgelink.sh $(BADGELINK_CONN) fs upload "$$1" "$$2" && return 0; sleep 1; done; return 1; }; \
+	  for s in $(abspath dlc)/*/; do p=$$(basename $$s); d=$(abspath $(BUILD))/dlc/$$p; \
 	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p || true; \
-	  for f in $$d/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/dlc/$$p/$$(basename $$f) $$f; done; \
+	  for f in $$d/*.txt; do up /sd/portals/dlc/$$p/$$(basename $$f) $$f || exit 1; done; \
 	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p/replays || true; \
-	  for f in $$d/replays/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/dlc/$$p/replays/$$(basename $$f) $$f; done; done
+	  for f in $$d/replays/*.txt; do up /sd/portals/dlc/$$p/replays/$$(basename $$f) $$f || exit 1; done; done
 
 tas-result:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt
