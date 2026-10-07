@@ -4,15 +4,16 @@
 // recording). A recording is a text file in RECORDING_DIR:
 //
 //   name: TAS, Portals 0.10.2
-//   version: 0.10.2
+//   version: 0.10.2 v0.10.2-3-g1a2b3c4d5e
 //   chamber: 01-gap
 //   shoot blue 1.0 1.9 3.5
 //   ...
 //   chamber: 02-ledge
 //   ...
 //
-// the version the game's it was made for (on another, a run may go
-// otherwise), each chamber named by its id (a chamber file's name, the
+// the version the game's it was made for, the release and the build (on
+// another, a run may go otherwise; a file giving only the release is
+// matched on that), each chamber named by its id (a chamber file's name, the
 // card's too), its steps a solution's (chambers/README.md). tools/tas.py writes the TAS
 // as one.
 //
@@ -63,7 +64,7 @@ typedef struct {
 
 typedef struct {
     char               name[RECORDING_NAME_N];
-    char               version[16];  // the game's it was made for ("version:"), or ""
+    char               version[48];  // the game's it was made for ("version:"), or ""
     int                n;
     recording_run_t    runs[RECORDING_MAX];
     recording_frame_t* frame;  // the recorded runs' frames, all of them (malloc'd)

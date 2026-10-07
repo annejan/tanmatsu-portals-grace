@@ -947,6 +947,25 @@ static int list_dir(char const* dir) {
 }
 #endif
 
+#ifdef ESP_PLATFORM
+bool chamber_remove_file(char const* path) {
+    char const* rel = strncmp(path, "/sd", 3) == 0 ? path + 3 : strncmp(path, "/int", 4) == 0 ? path + 4 : path;
+    char        cand[192];
+    for (int i = 0; i < 4; i++) {
+        if (i == 0) snprintf(cand, sizeof(cand), "%s", rel);
+        if (i == 1) snprintf(cand, sizeof(cand), "0:%s", rel);
+        if (i == 2) snprintf(cand, sizeof(cand), "1:%s", rel);
+        if (i == 3) snprintf(cand, sizeof(cand), "%s", path);
+        if (f_unlink(cand) == FR_OK) return true;
+    }
+    return false;
+}
+#else
+bool chamber_remove_file(char const* path) {
+    return remove(path) == 0;
+}
+#endif
+
 int chamber_list_dir(char const* dir, char const** names, int max) {
     init();
     int const   n = list_dir(dir);

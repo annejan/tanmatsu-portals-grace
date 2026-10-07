@@ -308,7 +308,9 @@ bool recording_capture_write(recording_capture_t const* c, char const* path, cha
                                (long)q->dyaw_urad, (long)q->dpitch_urad, q->keys);
         }
     }
-    return fclose(f) == 0 && ok;
+    ok = fclose(f) == 0 && ok;
+    if (!ok) chamber_remove_file(path);  // not half a run on the card
+    return ok;
 }
 
 void recording_capture_free(recording_capture_t* c) {

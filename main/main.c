@@ -125,6 +125,9 @@ static void play_chamber(int index) {
 #ifndef APP_VERSION
 #define APP_VERSION ""
 #endif
+#ifndef APP_GIT_HASH
+#define APP_GIT_HASH "unknown"
+#endif
 
 static recording_capture_t s_cap;
 static bool                s_capturing;
@@ -155,7 +158,7 @@ static void record_stop(void) {
     else
         snprintf(name, sizeof(name), "Run %02d", k);
     char msg[HUD_MESSAGE_N];
-    if (k < 100 && recording_capture_write(&s_cap, path, name, APP_VERSION))
+    if (k < 100 && recording_capture_write(&s_cap, path, name, APP_VERSION " " APP_GIT_HASH))
         snprintf(msg, sizeof(msg), "Saved run-%02d: %d chamber%s", k, kept, kept == 1 ? "" : "s");
     else
         snprintf(msg, sizeof(msg), "Could not save the recording");

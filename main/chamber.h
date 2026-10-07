@@ -127,6 +127,8 @@ int         chamber_load_dir(char const* dir);
 // The .txt files in `dir`, by name, at most `max`: names valid until the
 // next listing.
 int         chamber_list_dir(char const* dir, char const** names, int max);
+// Delete a file on the card: Graceloader exports no remove(); through FatFs.
+bool        chamber_remove_file(char const* path);
 // Forget the chambers chamber_load_dir() added, and read `dir` again.
 int         chamber_reload_dir(char const* dir);
 // How many of the list are built in.

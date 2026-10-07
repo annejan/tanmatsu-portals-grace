@@ -54,7 +54,10 @@ def main():
     with open(os.path.join(root, "metadata", "metadata.json")) as f:
         version = json.load(f)["version"]
     with open(os.path.join(root, "build", "tas-recording.txt"), "w") as f:
-        f.write("name: TAS, Portals %s\nversion: %s\n" % (version, version))
+        # The release and the build, as the badge writes them (main/recording.h).
+        build_id = subprocess.run(["git", "describe", "--always", "--dirty", "--abbrev=10"], cwd=root,
+                                  capture_output=True, text=True).stdout.strip() or "unknown"
+        f.write("name: TAS, Portals %s\nversion: %s %s\n" % (version, version, build_id))
         for c in ids:
             with open(os.path.join(root, "tas", c + ".txt")) as r:
                 f.write("\nchamber: %s\n%s" % (c, r.read()))

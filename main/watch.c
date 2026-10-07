@@ -22,6 +22,17 @@ static char const TAG[] = "watch";
 #ifndef APP_VERSION
 #define APP_VERSION ""
 #endif
+#ifndef APP_GIT_HASH
+#define APP_GIT_HASH "unknown"
+#endif
+
+// Whether a recording made on `version` (release, then build) was made on
+// this build -- or, if it gives only a release, on this release.
+static bool same_version(char const* version) {
+    if (version[0] == '\0' || APP_VERSION[0] == '\0') return true;
+    if (strchr(version, ' ') == NULL) return strcmp(version, APP_VERSION) == 0;
+    return strcmp(version, APP_VERSION " " APP_GIT_HASH) == 0;
+}
 
 #define REC_HOLD_S 1.2f   // "Chamber complete", then the next
 #define REC_GIVE_S 60.0f  // a run this long has lost its way
@@ -88,9 +99,9 @@ bool watch_start(char const* id, bool to_title, char const* back) {
     for (int i = 0; i < RECORDING_MAX; i++) s_times[i] = -1.0f;
     begin(0);
     // Recorded on another version, the same frames may go otherwise.
-    if (s_recording.version[0] && APP_VERSION[0] && strcmp(s_recording.version, APP_VERSION) != 0) {
+    if (!same_version(s_recording.version)) {
         char msg[HUD_MESSAGE_N];
-        snprintf(msg, sizeof(msg), "Recorded on %s; this is %s", s_recording.version, APP_VERSION);
+        snprintf(msg, sizeof(msg), "Recorded on another build: %.36s", s_recording.version);
         hud_message(msg);
     }
     return true;
@@ -140,7 +151,9 @@ static void summary(void) {
     snprintf(total, sizeof(total), "%d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
     char name[RECORDING_NAME_N + 40];
     if (s_recording.version[0])
-        snprintf(name, sizeof(name), "%s (version %s)", s_recording.name, s_recording.version);
+        // The release only: the build is in the file.
+        snprintf(name, sizeof(name), "%s (version %.*s)", s_recording.name, (int)strcspn(s_recording.version, " ") & 15,
+                 s_recording.version);
     else
         snprintf(name, sizeof(name), "%s", s_recording.name);
     menu_times(name, s_recording.n, ids, values, total);
