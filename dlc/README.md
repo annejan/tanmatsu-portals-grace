@@ -6,7 +6,7 @@ with its solution.
 
 | Pack | |
 |---|---|
-| `after-hours/` | **After hours**: the tests are over; the testing is not. *Overtime* (everything you have learned, in the right order), then *Momentum* (nothing in there gives you speed: make your own, then pass it on). |
+| `after-hours/` | **After hours**: the tests are over; the testing is not. *Overtime* (everything you have learned, in the right order), *Momentum* (nothing in there gives you speed: make your own, then pass it on), then *Spire*, 100 x 32 x 40 m (a fall keeps its speed through a portal, and only the top is high enough). `tools/spire_gen.py` makes Spire. |
 
 ## Making one
 
