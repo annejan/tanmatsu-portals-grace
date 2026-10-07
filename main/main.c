@@ -34,8 +34,10 @@
 #include "portal.h"
 #include "recording.h"
 #include "render.h"
+#include "review.h"
 #include "settings.h"
 #include "sound.h"
+#include "story.h"
 #include "synthengine3d.h"
 #include "testkit/devtest.h"
 #include "testkit/showtime.h"
@@ -96,12 +98,66 @@ static void personalise(char* story, size_t n) {
     snprintf(story, n, "%.*s", (int)n - 1, out);  // fits: checked above
 }
 
-static bool load_chamber(int index) {
-    if (!game_load(&s_game, index)) {
-        // A file on the card that does not read: the chamber in play stays.
+// --- A story told from a desk: its review rounds (story.h) -----------------
+//
+// Stories -> a desk story plays its rounds: each GLaDOS's draft of a
+// chamber, patched with the flaws found so far. A death or a restart plays
+// the same draft again; the exit judges the way there.
+
+static story_t  s_story;
+static bool     s_story_on;  // the chamber in play is s_story's round
+static review_t s_review;    // its file's review keys
+static draft_t* s_round_draft;
+static char*    s_round_text;
+
+// The round in play's chamber, in the chamber list.
+static int round_chamber(void) {
+    pack_t const* const p = pack_get(s_story.pack);
+    return p != NULL && s_story.at < p->n ? p->chamber[s_story.at] : -1;
+}
+
+static void story_off(void) {
+    s_story_on = false;
+    free(s_round_draft);
+    free(s_round_text);
+    s_round_draft = NULL;
+    s_round_text  = NULL;
+}
+
+// The round's draft into s_game: its file, patched. False, with a message,
+// if it cannot be.
+static bool round_load(int index) {
+    char        err[96] = "";
+    char const* text    = chamber_text(index);
+    if (s_round_draft == NULL) s_round_draft = malloc(sizeof(*s_round_draft));
+    if (s_round_text == NULL) s_round_text = malloc(CHAMBER_FILE_MAX);
+    level_t* const lv = level_scratch();
+    bool const     ok = text[0] != '\0' && s_round_draft != NULL && s_round_text != NULL &&
+                        review_parse(text, &s_review, err, sizeof(err)) &&
+                        story_round_text(&s_story, text, &s_review, s_round_draft, s_round_text, CHAMBER_FILE_MAX, err,
+                                         sizeof(err)) >= 0 &&
+                        chamber_parse(s_round_text, lv, NULL, NULL, err, sizeof(err));
+    if (!ok) {
         char msg[HUD_MESSAGE_N];
-        snprintf(msg, sizeof(msg), "Cannot read %.40s", chamber_id(index));
+        snprintf(msg, sizeof(msg), "Cannot read %.29s: %.20s", chamber_id(index), err[0] ? err : "no memory");
+        ESP_LOGW(TAG, "round %s: %s", chamber_id(index), err);
         hud_message(msg);
+        return false;
+    }
+    game_load_level(&s_game, lv);
+    s_game.chamber = index;
+    return true;
+}
+
+static bool load_chamber(int index) {
+    bool const round = s_story_on && index == round_chamber();
+    if (round ? !round_load(index) : !game_load(&s_game, index)) {
+        // A file on the card that does not read: the chamber in play stays.
+        if (!round) {
+            char msg[HUD_MESSAGE_N];
+            snprintf(msg, sizeof(msg), "Cannot read %.40s", chamber_id(index));
+            hud_message(msg);
+        }
         return false;
     }
     bool const fresh = index != s_story_of;  // a restart does not tell it again
@@ -119,7 +175,18 @@ static bool load_chamber(int index) {
 static bool play_chamber(int index) {
     s_pending_chamber = -1;
     s_story_end       = -1;
-    if (!load_chamber(index)) return false;  // it said why
+    if (s_story_on && index != round_chamber()) story_off();  // play has gone elsewhere
+    if (!load_chamber(index)) return false;                   // it said why
+    if (s_story_on) {
+        // The round, not the chamber: Continue stays where it was.
+        char msg[HUD_MESSAGE_N];
+        if (s_story.drafts > 1)
+            snprintf(msg, sizeof(msg), "Round %d: %.30s, draft %d", s_story.round, s_game.lv.name, s_story.drafts);
+        else
+            snprintf(msg, sizeof(msg), "Round %d: %.40s", s_story.round, s_game.lv.name);
+        hud_message(msg);
+        return true;
+    }
     hud_message(s_game.lv.name);
     settings_set_chamber(chamber_id(index));
     return true;
@@ -241,6 +308,7 @@ static void restart_chamber(void) {
 // To the title screen, the chambers playing behind it.
 static void to_title(void) {
     record_stop();
+    story_off();
     s_story_end = -1;
     sound_hush();            // GLaDOS stops mid-sentence ...
     s_story_of        = -2;  // ... and tells the chamber's story again on the way back in
@@ -475,6 +543,17 @@ static void menu_frame(void) {
             snprintf(s_story_back, sizeof(s_story_back), "%s", settings_chamber());
             sound_restart_music();
             s_story_of = -2;
+            if (p->desk) {
+                // Its rounds, from the first.
+                story_off();
+                story_begin(&s_story, cmd.chamber);
+                s_story_on = true;
+                if (!play_chamber(p->chamber[0])) {
+                    story_off();
+                    if (title) title_saying_why();
+                }
+                break;
+            }
             if (!play_from(p->chamber[0]) && title) title_saying_why();
             break;
         }
@@ -539,6 +618,43 @@ static void edit_frame(float dt) {
     input_resync();
 }
 
+// A pack's end: its ending, in the story line's place, said and typed out
+// (so it is read with the voice off too); and Continue back where it was
+// before the story began.
+static void story_ending(int pk) {
+    char msg[HUD_MESSAGE_N];
+    snprintf(msg, sizeof(msg), "%.40s: the end", pack_get(pk)->name);
+    hud_message(msg);
+    snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", pack_get(pk)->ending);
+    personalise(s_game.lv.story, sizeof(s_game.lv.story));
+    hud_story_start();
+    sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
+    if (s_story_back[0]) settings_set_chamber(s_story_back);
+    s_story_end   = pk;
+    s_story_end_t = 0.0f;
+}
+
+// A round's exit: judged, GLaDOS's verdict said and typed out, and the
+// next round waiting until she is done.
+static void round_exit(void) {
+    pack_t const* const  p   = pack_get(s_story.pack);
+    story_result_t const res = story_exit(&s_story, &s_review, &s_game.lv, &s_game.track, p->n);
+    char                 terms[160];
+    review_describe(&s_game.lv, &s_game.track, terms, sizeof(terms));
+    ESP_LOGI(TAG, "round %d: %s (%s); score %d", s_story.round, res.headline, terms, s_story.score);
+    if (res.outcome == STORY_DONE) {
+        story_ending(s_story.pack);
+        return;
+    }
+    hud_message(res.headline);
+    snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", res.line);
+    hud_story_start();
+    sound_say(s_game.lv.story);
+    s_pending_chamber = round_chamber();
+    // The next file's chamber tells its own story; the same one's does not.
+    if (res.outcome == STORY_NEXT) s_story_of = -2;
+}
+
 // A frame of play, or of a play-test.
 static void play_frame(float dt) {
     input_frame_t in;
@@ -568,6 +684,12 @@ static void play_frame(float dt) {
             s_story_end = -1;
             to_title();
         }
+        return;
+    }
+    if (s_pending_chamber >= 0 && s_story_on && !hud_message_up() && !sound_saying()) {
+        // The next round, once GLaDOS has had her say: the same draft, the
+        // same chamber patched, or the next file's.
+        if (!play_chamber(s_pending_chamber)) title_saying_why();
         return;
     }
     if (s_pending_chamber >= 0 && !hud_message_up()) {
@@ -618,6 +740,8 @@ static void play_frame(float dt) {
         }
         hud_message("Test subject lost. Again.");
         if (s_capturing) recording_capture_again(&s_cap);
+    } else if ((ev & PL_EV_EXIT) && s_story_on) {
+        round_exit();
     } else if (ev & PL_EV_EXIT) {
         // The next: in a story pack, its next; else the next played in
         // order, round to the first after the last.
@@ -626,19 +750,7 @@ static void play_frame(float dt) {
         int const  inorder = chamber_main_n();
         bool const last    = pk >= 0 ? at + 1 >= pack_get(pk)->n : s_game.chamber + 1 >= inorder;
         if (pk >= 0 && last) {
-            // The story's end: its ending, in the story line's place, said
-            // and typed out (so it is read with the voice off too); and
-            // Continue back where it was before the story began.
-            char msg[HUD_MESSAGE_N];
-            snprintf(msg, sizeof(msg), "%.40s: the end", pack_get(pk)->name);
-            hud_message(msg);
-            snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", pack_get(pk)->ending);
-            personalise(s_game.lv.story, sizeof(s_game.lv.story));
-            hud_story_start();
-            sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
-            if (s_story_back[0]) settings_set_chamber(s_story_back);
-            s_story_end   = pk;
-            s_story_end_t = 0.0f;
+            story_ending(pk);
         } else {
             hud_message(last ? "All chambers complete. Cake later." : "Chamber complete");
             s_pending_chamber = pk >= 0 ? pack_get(pk)->chamber[at + 1] : (s_game.chamber + 1) % inorder;

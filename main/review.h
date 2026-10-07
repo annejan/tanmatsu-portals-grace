@@ -20,8 +20,8 @@
 // cheeses it so (chamber.h).
 //
 // A term is one of these, `no ` before it to say it did not happen:
-//   portal, cube portal, shots N (at most N), pickup, press, dropper,
-//   button N [by player|cube|sphere|turret|fallen|beam|pellet|hand],
+//   portal, cube portal, gel portal, shots N (at most N), pickup, press,
+//   dropper, button N [by player|cube|sphere|turret|fallen|beam|pellet|hand],
 //   door X, launch [N], cube launch [N], bounce, paint, pellet, topple,
 //   spotted, fizzle, burn, speed, float, ride, ride holding, bridge,
 //   platform

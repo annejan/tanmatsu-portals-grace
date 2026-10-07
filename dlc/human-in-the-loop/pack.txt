@@ -1,0 +1,7 @@
+name: Human in the loop
+author: annejan
+about: Aperture's test generator needs a human to break its drafts. You are the human.
+ending: Review queue empty. Your feedback has been incorporated, [Subject-Name-here]. So have you.
+frame: desk
+round: pressure
+round: momentum

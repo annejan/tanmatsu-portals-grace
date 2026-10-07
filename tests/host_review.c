@@ -24,6 +24,7 @@
 #include "chamber.h"
 #include "demo.h"
 #include "review.h"
+#include "story.h"
 
 static char* slurp(char const* path) {
     FILE* f = fopen(path, "rb");
@@ -473,7 +474,99 @@ static void test_draft(void) {
     free(t);
 }
 
+// A story's rounds on the Pressure draft, played as the badge plays them:
+// each draft the file patched with the flaws found so far.
+static story_result_t play_round(story_t* s, char const* text, review_t const* r, char const* route, bool* exited) {
+    static draft_t scratch;
+    static char    round[CHAMBER_FILE_MAX];
+    static level_t lv;
+    static step_t  steps[SCRIPT_MAX_STEPS];
+    static game_t  g;
+    char           err[160];
+    *exited = false;
+    CHECK(story_round_text(s, text, r, &scratch, round, sizeof(round), err, sizeof(err)) > 0, "round text: %s", err);
+    CHECK(chamber_parse(round, &lv, NULL, NULL, err, sizeof(err)), "round: %s", err);
+    CHECK(chamber_parse_section(text, route, steps, NULL, err, sizeof(err)), "%s: %s", route, err);
+    run_t const run = play(&lv, steps, 1.0f / 30.0f, 0, &g);
+    if (run.exit < 0.0f) return (story_result_t){0};
+    *exited = true;
+    return story_exit(s, r, &lv, &g.track, 2);
+}
+
+static void test_story(void) {
+    char* const     t = slurp("tests/review/pressure.txt");
+    static review_t r;
+    char            err[160];
+    CHECK(t != NULL && review_parse(t, &r, err, sizeof(err)), "pressure: %s", err);
+    if (t == NULL) return;
+    story_t s;
+    story_begin(&s, 0);
+    static struct {
+        char const* route;
+        bool        exits;
+        int         outcome;
+        char const* headline;
+        int         score, round, at;
+    } const steps[] = {
+        // The meant way first: nothing learned.
+        {"solution", true, STORY_AGAIN, "No feedback", 0, 1, 0},
+        // The toppled turret: not a flaw she knows. Once.
+        {"cheese b", true, STORY_AGAIN, "Novel exploit, +2", 2, 1, 0},
+        {"cheese b", true, STORY_AGAIN, "Already logged", 2, 1, 0},
+        // Flaw a: logged, patched; its route then fails.
+        {"cheese a", true, STORY_PATCHED, "Flaw a logged, +1", 3, 2, 0},
+        {"cheese a", false, 0, "", 3, 2, 0},
+        {"solution", true, STORY_AGAIN, "No feedback", 3, 2, 0},
+        // Flaw c: the last one known, so the next draft is final.
+        {"cheese c", true, STORY_PATCHED, "Flaw c logged, +1", 4, 3, 0},
+        {"cheese c", false, 0, "", 4, 3, 0},
+        // The turret still topples, in the final: logged already.
+        {"cheese b", true, STORY_AGAIN, "Already logged", 4, 3, 0},
+        // As meant: approved, on to the next file's round.
+        {"solution", true, STORY_NEXT, "Approved", 4, 4, 1},
+    };
+    for (size_t i = 0; i < sizeof(steps) / sizeof(steps[0]); i++) {
+        bool                 exited = false;
+        story_result_t const res    = play_round(&s, t, &r, steps[i].route, &exited);
+        CHECK(exited == steps[i].exits, "story step %zu (%s): %s the exit", i, steps[i].route,
+              exited ? "reached" : "never reached");
+        if (exited)
+            CHECK(res.outcome == steps[i].outcome && strcmp(res.headline, steps[i].headline) == 0,
+                  "story step %zu (%s): %d \"%s\", not %d \"%s\"", i, steps[i].route, res.outcome, res.headline,
+                  steps[i].outcome, steps[i].headline);
+        CHECK(s.score == steps[i].score && s.round == steps[i].round && s.at == steps[i].at,
+              "story step %zu (%s): score %d round %d at %d", i, steps[i].route, s.score, s.round, s.at);
+        if (i == 6) CHECK(story_final(&s, &r), "every known flaw patched: final");
+        if (i == 0) CHECK(!story_final(&s, &r), "a flawed draft is not final");
+    }
+    // The next file starts afresh.
+    CHECK(s.found == 0 && !s.novel && s.drafts == 1, "the next file: nothing found yet");
+    // The last file approved: done.
+    story_t last;
+    story_begin(&last, 0);
+    last.at                     = 1;
+    last.found                  = 3;
+    bool                 exited = false;
+    story_result_t const res    = play_round(&last, t, &r, "solution", &exited);
+    CHECK(exited && res.outcome == STORY_DONE, "the last round approved: done (%d)", res.outcome);
+    // A patched flaw that still held (a fix that did not take): not logged
+    // again, not patched again.
+    static level_t lv;
+    CHECK(chamber_parse(t, &lv, NULL, NULL, err, sizeof(err)), "pressure: %s", err);
+    track_t tr = {0};
+    for (int b = 0; b < lv.n_buttons; b++)
+        if (lv.buttons[b].link == 2) tr.by[b] = BY_PLAYER;  // button 3 by player: flaw a
+    story_t again;
+    story_begin(&again, 0);
+    again.found               = 1;  // flaw a, patched
+    story_result_t const res2 = story_exit(&again, &r, &lv, &tr, 2);
+    CHECK(res2.outcome == STORY_AGAIN && res2.points == 0 && again.score == 0 && again.round == 1,
+          "a patched flaw again: %d \"%s\"", res2.outcome, res2.headline);
+    free(t);
+}
+
 static int selftest(void) {
+    test_story();
     test_parse_errors();
     test_sections();
     test_patch();

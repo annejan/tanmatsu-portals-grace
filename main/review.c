@@ -24,6 +24,7 @@ typedef struct {
 // Longest first where one begins another ("cube portal", "portal").
 static term_def_t const s_terms[] = {
     {"cube portal", K_SEEN, TRACK_CUBE_PORTAL},
+    {"gel portal", K_SEEN, TRACK_GEL_PORTAL},
     {"cube launch", K_CUBE_PLATE, 0},
     {"ride holding", K_SEEN, TRACK_RIDE_HOLD},
     {"portal", K_EVER, GAME_EV_SHOT_BLUE | GAME_EV_SHOT_ORANGE},

@@ -202,7 +202,7 @@ fix: a 6 1 6 #K
   of these (`#W`: metal to white).
 - `repair: x y z FT`: a repair that works; the tests check it does.
 
-The terms: `portal`, `cube portal`, `shots N` (at most N), `pickup`,
+The terms: `portal`, `cube portal`, `gel portal`, `shots N` (at most N), `pickup`,
 `press`, `dropper`, `button N` (`by player`, `cube`, `sphere`, `turret`,
 `fallen`, `beam`, `pellet` or `hand`), `door X`, `launch` and
 `cube launch` (`N`: that faith plate, in reading order), `bounce`, `paint`,

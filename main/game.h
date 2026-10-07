@@ -91,6 +91,7 @@ enum {
     TRACK_CUBE_PORTAL = 1 << 5,  // a cube went through a portal
     TRACK_PLATFORM    = 1 << 6,  // the platform moved
     TRACK_BOUNCE      = 1 << 7,  // thrown up by blue gel: a bounce, or a jump off it
+    TRACK_GEL_PORTAL  = 1 << 8,  // gel went through a portal
 };
 enum {  // what held a button down (track_t.by)
     BY_PLAYER = 1 << 0,

@@ -788,11 +788,12 @@ static int step_gel(game_t* g, float dt) {
             bool through = false;
             for (int p = 0; p < 2 && !through; p++) {
                 if (!g->portals[0].open || !g->portals[1].open || !in_hole(&g->portals[p], w.point)) continue;
-                d        = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
-                b->vel   = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], b->vel);
-                b->pos   = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], w.point), d, 0.01f);
-                len     -= w.dist;
-                through  = true;
+                d              = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], d);
+                b->vel         = portal_map_dir(&g->portals[p], &g->portals[p ^ 1], b->vel);
+                b->pos         = v3_mad(portal_map_point(&g->portals[p], &g->portals[p ^ 1], w.point), d, 0.01f);
+                len           -= w.dist;
+                through        = true;
+                g->track.seen |= TRACK_GEL_PORTAL;
             }
             if (through) continue;
             if (splat(&g->lv, w.x, w.y, w.z, w.face, b->gel)) ev |= GAME_EV_PAINT;
