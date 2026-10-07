@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "attract.h"
 #include "chamber.h"
 #include "demo.h"
 #include "draft.h"
@@ -1940,8 +1941,60 @@ static void test_more_things(void) {
     CHECK(!game_fire(&g, 0), "a shot at the moving platform places nothing");
 }
 
+// The title screen's attract mode at the badge's 20 to 35 frames a second:
+// every chamber with a solution plays, to its exit, once a round, and
+// never the same one twice running.
+static void test_attract(void) {
+    static game_t g;
+    int           n = 0;
+    for (int i = 0; i < demo_count(); i++)
+        if (strcmp(demo_name(i), chamber_id(demo_chamber(i))) == 0 && demo_has_solution(i)) n++;
+    CHECK(n == level_count(), "attract: %d chambers with a solution of %d", n, level_count());
+    attract_seed(12345u);
+    attract_recount();
+    attract_begin(&g);
+    int const runs0 = attract_runs(), exits0 = attract_exits();
+    int       last = g.chamber, seen[CHAMBER_MAX] = {0}, same = 0;
+    seen[last]++;
+    unsigned seed = 7u;
+    for (float t = 0.0f; attract_runs() - runs0 < 2 * n && t < 3600.0f;) {
+        seed           = seed * 1103515245u + 12345u;
+        float const dt = 1.0f / 35.0f + (1.0f / 20.0f - 1.0f / 35.0f) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
+        int const   r  = attract_runs();
+        attract_update(&g, dt);
+        t += dt;
+        if (attract_runs() != r) {
+            if (g.chamber == last) same++;
+            last = g.chamber;
+            if (attract_runs() - runs0 < n) seen[last]++;
+        }
+        float const lit = attract_lit();
+        CHECK(lit >= 0.0f && lit <= 1.0f, "attract: lit %.2f", (double)lit);
+    }
+    CHECK(attract_runs() - runs0 == 2 * n, "attract: %d runs in an hour", attract_runs() - runs0);
+    CHECK(attract_exits() - exits0 == 2 * n, "attract: %d of %d runs reached the exit", attract_exits() - exits0,
+          2 * n);
+    CHECK(same == 0, "attract: the same chamber twice running %d times", same);
+    for (int c = 0; c < n; c++) CHECK(seen[c] == 1, "attract: chamber %d played %d times in a round", c, seen[c]);
+    // Across a round's end, under many shuffles: never the same twice.
+    same = 0;
+    for (uint32_t s = 1; s <= 200; s++) {
+        attract_seed(s);
+        attract_recount();
+        attract_begin(&g);
+        last = g.chamber;
+        for (int k = 0; k < 2 * n; k++) {
+            attract_begin(&g);
+            if (g.chamber == last) same++;
+            last = g.chamber;
+        }
+    }
+    CHECK(same == 0, "attract: the same chamber twice running %d times in 200 shuffles", same);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);  // every FAIL line out, even if a later test crashes
+    test_attract();
     test_solutions_fps();
     test_floor_portal();
     test_portal_back();

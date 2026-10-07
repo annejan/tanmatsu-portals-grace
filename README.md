@@ -210,9 +210,12 @@ the camera basis and the clip planes all go through that one map
 | `main/demo.*` | scripted runs that solve each chamber, for tests on the PC and the badge |
 | `main/render.*` | the portal passes |
 | `main/input.*` | bindings (se_bindings), keyboard, gyroscope |
-| `main/menu.*` | the pause menu and its screens (se_ui) |
+| `main/menu.*` | the title screen, the pause menu and their screens (se_ui) |
 | `main/settings.*` | settings kept in NVS |
-| `main/main.c` | the run loop, the HUD |
+| `main/main.c` | the run loop: what is on (title, play, editor, a recording, a device test) |
+| `main/hud.*` | what is drawn over the chamber: crosshair, story line, messages, a recording's timer |
+| `main/attract.*` | behind the title screen: the chambers playing themselves |
+| `main/watch.*`, `main/app.h` | Esc → Watch a recording: played back and timed on the badge |
 | `main/testkit/` | device tests (from the template) |
 | `tests/` | host tests and host screenshots |
 | `tools/make_textures.py` | the textures in `textures/` |

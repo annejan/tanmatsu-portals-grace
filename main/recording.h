@@ -1,6 +1,6 @@
 #pragma once
 // Recordings: a run through chambers, kept as a script for each, which
-// the game plays back as the badge's frames come (main.c: Esc -> Watch a
+// the game plays back as the badge's frames come (watch.c: Esc -> Watch a
 // recording). A recording is a text file in RECORDING_DIR:
 //
 //   name: TAS, Portals 0.10.2

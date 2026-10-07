@@ -19,7 +19,7 @@
 
 #define FPS        10
 #define TICK       s_tick  // a step: 1/50 s, or HOST_MOVIE_TICK -- a TAS's, the badge's 0.1
-#define STORY_CPS  30.0f   // as main.c types the story line ...
+#define STORY_CPS  30.0f   // as hud.c types the story line ...
 #define STORY_HOLD 5.0f    // ... and holds it
 #define TURRET_SUB 2.5f    // ... and a turret's words
 #define MESSAGE_S  2.5f    // ... and "Chamber complete": then the next chamber

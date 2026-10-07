@@ -36,7 +36,7 @@ typedef void (*demo_tick_fn)(game_t const* g, int events, float now, void* ctx);
 void demo_run(int i, float t, float dt, demo_state_t* out, demo_tick_fn tick, void* ctx, float pace);
 
 // A script played a step at a time, at whatever pace the caller's frames
-// come: the badge's TAS mode (main.c) steps one with each frame's own
+// come: the badge's TAS mode (watch.c) steps one with each frame's own
 // time, as a player at the keys would; demo_run() is the same at a fixed
 // step.
 typedef struct {

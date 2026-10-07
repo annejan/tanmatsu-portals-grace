@@ -10,6 +10,7 @@ project(app C)
 # App source files — add your .c files here
 set(APP_SOURCES
     main/main.c
+    main/attract.c
     main/crt0.c
     main/chamber.c
     main/demo.c
@@ -17,6 +18,7 @@ set(APP_SOURCES
     main/draft.c
     main/editor.c
     main/game.c
+    main/hud.c
     main/input.c
     main/leds.c
     main/level.c
@@ -28,6 +30,7 @@ set(APP_SOURCES
     main/settings.c
     main/sound.c
     main/speech.c
+    main/watch.c
 )
 
 # SAM, the C64's Software Automatic Mouth: GLaDOS's voice (main/speech.c).

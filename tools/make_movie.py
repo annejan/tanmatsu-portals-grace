@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 FPS = 10
 SCALE = 2  # 800 x 480 drawn at 1600 x 960, so the text stays sharp
-STORY_W, STORY_LINES = 70, 3  # as main.c lays the story line out
+STORY_W, STORY_LINES = 70, 3  # as hud.c lays the story line out
 FADE_S = 0.6  # cards and chambers fade in and out this fast
 YELLOW, RED = (0xFF, 0xE0, 0x8A), (0xFF, 0x7A, 0x6A)
 
@@ -168,7 +168,7 @@ def main():
     f_timer = font(["DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSansMono-Bold.ttf"], 26 * SCALE)
 
     def hud(f):
-        """A frame of play, with the HUD on it as main.c draws it."""
+        """A frame of play, with the HUD on it as hud.c draws it."""
         im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h), Image.LANCZOS)
         d = ImageDraw.Draw(im)
         d.text((8 * SCALE, 6 * SCALE), f["name"], font=f_name, fill=(255, 255, 255))
