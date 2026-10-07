@@ -149,10 +149,10 @@ static void summary(void) {
     }
     char total[24];
     snprintf(total, sizeof(total), "%d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
-    char name[RECORDING_NAME_N + 40];
+    char         name[RECORDING_NAME_N + 40];
+    size_t const release = strcspn(s_recording.version, " ");  // the release only: the build is in the file
     if (s_recording.version[0])
-        // The release only: the build is in the file.
-        snprintf(name, sizeof(name), "%s (version %.*s)", s_recording.name, (int)strcspn(s_recording.version, " ") & 15,
+        snprintf(name, sizeof(name), "%s (version %.*s)", s_recording.name, (int)(release < 16 ? release : 16),
                  s_recording.version);
     else
         snprintf(name, sizeof(name), "%s", s_recording.name);
