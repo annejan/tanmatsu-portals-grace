@@ -43,7 +43,8 @@ static char          s_back[CHAMBER_ID_N];  // else to this chamber
 static int64_t       s_left_us;             // when Esc stopped it
 static recording_t   s_recording;
 static char          s_id[CHAMBER_ID_N];
-static int           s_k;  // the run
+static char          s_pack[32];  // a story pack's replay: its pack, for its chambers' short names
+static int           s_k;         // the run
 static demo_player_t s_player;
 static float         s_run, s_total, s_hold;
 static float         s_times[RECORDING_MAX];  // each run's time, or -1: lost its way
@@ -67,7 +68,12 @@ static void begin(int k) {
     s_acc        = 0.0f;
     s_frames[k]  = 0;
     s_frame_s[k] = s_worst[k] = 0.0f;
-    int const c               = chamber_find(s_recording.runs[k].id);
+    int c                     = chamber_find(s_recording.runs[k].id);
+    if (c < 0 && s_pack[0]) {  // a pack's replay, naming its chamber by the file alone
+        char full[96];
+        snprintf(full, sizeof(full), "%.31s/%.63s", s_pack, s_recording.runs[k].id);
+        c = chamber_find(full);
+    }
     if (c < 0) {
         char msg[96];
         snprintf(msg, sizeof(msg), "No chamber %s", s_recording.runs[k].id);
@@ -75,19 +81,27 @@ static void begin(int k) {
         s_hold = REC_HOLD_S;
         return;
     }
-    app_load_chamber(c);
+    if (!app_load_chamber(c)) {  // on the card, but it does not read: lost, said so
+        s_hold = REC_HOLD_S;
+        return;
+    }
     hud_message(app_game()->lv.name);
     demo_player_start(&s_player, s_recording.runs[k].steps);
 }
 
-bool watch_start(char const* id, bool to_title, char const* back) {
+bool watch_start(char const* dir, char const* id, char const* pack, bool to_title, char const* back) {
     char err[96];
-    if (!recording_load(RECORDING_DIR, id, &s_recording, err, sizeof(err))) {
+    if (!recording_load(dir, id, &s_recording, err, sizeof(err))) {
         ESP_LOGW(TAG, "%s: %s", id, err);
         hud_message(err);
         return false;
     }
-    snprintf(s_id, sizeof(s_id), "%s", id);
+    // Its times file: a pack's replay as <pack>-<id>.
+    if (pack[0])
+        snprintf(s_id, sizeof(s_id), "%.24s-%.36s", pack, id);
+    else
+        snprintf(s_id, sizeof(s_id), "%s", id);
+    snprintf(s_pack, sizeof(s_pack), "%s", pack);
     snprintf(s_back, sizeof(s_back), "%s", back);
     s_title = to_title;
     // From the start, as a new game: the music from its first bar, and the
@@ -167,8 +181,10 @@ static void leave(void) {
         app_to_title();
     } else {
         int const at = chamber_find(s_back);
-        app_load_chamber(at >= 0 ? at : 0);
-        hud_message(app_game()->lv.name);
+        if (app_load_chamber(at >= 0 ? at : 0))
+            hud_message(app_game()->lv.name);
+        else
+            app_to_title();
     }
     input_resync();
 }

@@ -67,11 +67,12 @@ static aabb_t pedestal_pad(button_t const* bt) {
     return (aabb_t){v3(x + 0.05f, top, z + 0.05f), v3(x + 0.95f, top + 0.25f, z + 0.95f)};
 }
 
-void game_load(game_t* g, int chamber) {
+bool game_load(game_t* g, int chamber) {
     level_t* const lv = level_scratch();
-    level_load(lv, chamber);
+    if (!level_load(lv, chamber)) return false;  // g as it was
     game_load_level(g, lv);
     g->chamber = chamber;
+    return true;
 }
 
 void game_load_level(game_t* g, level_t const* lv) {

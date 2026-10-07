@@ -52,6 +52,10 @@ behind it: **Continue** goes back to the chamber you were last in, and
 **New game** starts from the first. Esc in a chamber opens the menu,
 which can go back to the title screen.
 
+**Stories** are packs of chambers played one after another, with an
+ending: folders in `/sd/portals/dlc/` on the card, made and shared as
+`dlc/README.md` says. The first, *After hours*, is in `dlc/`.
+
 ## Controls
 
 The defaults are below. Every one can be rebound in **Esc → Controls**, and
@@ -240,6 +244,7 @@ the camera basis and the clip planes all go through that one map
 | `main/main.c` | the run loop: what is on (title, play, editor, a recording, a device test) |
 | `main/hud.*` | what is drawn over the chamber: crosshair, story line, messages, a recording's timer |
 | `main/attract.*` | behind the title screen: the chambers playing themselves |
+| `main/pack.*` | story packs: the folders in /sd/portals/dlc |
 | `main/watch.*`, `main/app.h` | Esc → Watch a recording: played back and timed on the badge |
 | `main/testkit/` | device tests (from the template) |
 | `tests/` | host tests and host screenshots |

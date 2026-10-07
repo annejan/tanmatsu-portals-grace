@@ -19,6 +19,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -90,6 +91,9 @@ def main():
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
     ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
+    ap.add_argument("--title", help="the opening card's title: a story pack's name, say")
+    ap.add_argument("--about", help="under it: what it is")
+    ap.add_argument("--ending", help="the closing card's words")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
@@ -162,6 +166,12 @@ def main():
         closing = card(w, h, clock, ["%d chambers, tool-assisted, at 50 steps a second" % len(names),
                                      version + " for Tanmatsu  -  github.com/annejan/tanmatsu-portals-grace"],
                        f_big, f_small)
+    # A story pack's film: its own name and blurb, and its ending to close.
+    if a.title:
+        opening = card(w, h, a.title.upper(), [a.about or "", "a story for %s, on the Tanmatsu" % version], f_big,
+                       f_small)
+    if a.ending:
+        closing = card(w, h, "THE END", textwrap.wrap(a.ending, 64) + ["", version + " for Tanmatsu"], f_big, f_small)
     f_name = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 15 * SCALE)
     f_hint = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 11 * SCALE)
     f_msg = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 22 * SCALE)

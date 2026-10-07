@@ -66,10 +66,13 @@ static void shuffle(void) {
 }
 
 static void count(void) {
-    // The chambers with a solution: their demos are named after them.
+    // The built-in chambers with a solution (their demos are named after
+    // them): not the card's, which would be read whole to find out.
     s_n = 0;
     for (int i = 0; i < demo_count() && s_n < CHAMBER_MAX; i++)
-        if (strcmp(demo_name(i), chamber_id(demo_chamber(i))) == 0 && demo_has_solution(i)) s_order[s_n++] = i;
+        if (demo_chamber(i) < chamber_builtin_n() && strcmp(demo_name(i), chamber_id(demo_chamber(i))) == 0 &&
+            demo_has_solution(i))
+            s_order[s_n++] = i;
     shuffle();
     s_k = -1;
 }

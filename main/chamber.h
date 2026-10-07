@@ -31,7 +31,7 @@
 #include "level.h"
 #include "script.h"
 
-#define CHAMBER_MAX      40
+#define CHAMBER_MAX      96
 #define CHAMBER_ID_N     64             // an id is its file's name without .txt
 #define CHAMBER_FILE_MAX (1024 * 1024)  // a chamber file at most: a 128 x 32 x 128 one is about 540 KB
 
@@ -119,18 +119,31 @@ char const* chamber_facing_name(float yaw);
 // The list: built-ins first, then what chamber_load_dir() added.
 int         chamber_count(void);
 char const* chamber_id(int i);
-char const* chamber_text(int i);           // the file as it was read
+char const* chamber_text(int i);  // the file (one on the card read now, and kept a while), or ""
+// Its name, from its first lines (`name:`), else its id: without reading
+// or parsing a whole file on the card.
+void        chamber_name(int i, char* out, size_t n);
 int         chamber_find(char const* id);  // its index in the list, or -1
 bool        chamber_build(int i, level_t* lv, step_t* steps, int* n_steps);
-// Add every *.txt in `dir` that parses, in name order. Returns how many;
-// a file that does not parse is skipped, and logged.
+// Add every *.txt in `dir`, in name order (read when played: one that does
+// not parse says so then). Returns how many.
 int         chamber_load_dir(char const* dir);
 // The .txt files in `dir`, by name, at most `max`: names valid until the
 // next listing.
 int         chamber_list_dir(char const* dir, char const** names, int max);
 // Delete a file on the card: Graceloader exports no remove(); through FatFs.
 bool        chamber_remove_file(char const* path);
-// Forget the chambers chamber_load_dir() added, and read `dir` again.
+// Forget the chambers chamber_load_dir() -- and packs (pack.h) -- added,
+// and read `dir` again.
 int         chamber_reload_dir(char const* dir);
+// One chamber file added to the list as `id` -- its path only: it is read
+// when played. Its index, or -1 if it is not there, or too big.
+int         chamber_load_file(char const* path, char const* id);
+// The list's chambers that are played in order -- built in, then the
+// card's loose ones -- before any pack's (pack.h).
+int         chamber_main_n(void);
+// The folders in `dir`, by name, at most `max`: names valid until the
+// next listing.
+int         chamber_list_subdirs(char const* dir, char const** names, int max);
 // How many of the list are built in.
 int         chamber_builtin_n(void);

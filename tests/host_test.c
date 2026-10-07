@@ -12,6 +12,7 @@
 #include "draft.h"
 #include "game.h"
 #include "level.h"
+#include "pack.h"
 #include "player.h"
 #include "portal.h"
 #include "recording.h"
@@ -1411,6 +1412,53 @@ static void test_big_chamber(void) {
     CHECK(exited, "walked the hall to its exit (at %.1f %.1f)", (double)g.pl.pos.x, (double)g.pl.pos.z);
 }
 
+// Story packs: a folder each, its pack.txt giving the order, its chambers
+// joining the list as "<pack>/<file>" after those played in order; a
+// folder without pack.txt takes its files by name.
+static void test_packs(void) {
+    char const* build = getenv("BUILD");
+    char        dir[200], a[260], b[260];
+    snprintf(dir, sizeof(dir), "%s/test_packs", build != NULL && build[0] ? build : "build");
+    snprintf(a, sizeof(a), "%s/after-hours", dir);
+    snprintf(b, sizeof(b), "%s/loose", dir);
+    mkdir(dir, 0755);
+    mkdir(a, 0755);
+    mkdir(b, 0755);
+    char const* const room = "size: 3 3 3\nlayer 1\n###\n#S#\n###\n";
+    char              text[256];
+    snprintf(text, sizeof(text), "name: Zeta\n%s", room);
+    write_file(a, "zeta.txt", text);
+    snprintf(text, sizeof(text), "name: Alpha\n%s", room);
+    write_file(a, "alpha.txt", text);
+    write_file(a, "pack.txt",
+               "name: After hours\nauthor: tester\nabout: The tests are over.\nending: Go home.\n"
+               "chamber: zeta\nchamber: alpha\nchamber: missing\n");
+    snprintf(text, sizeof(text), "name: One\n%s", room);
+    write_file(b, "1-one.txt", text);
+    snprintf(text, sizeof(text), "name: Two\n%s", room);
+    write_file(b, "2-two.txt", text);
+    int const inorder = chamber_main_n();
+    CHECK(pack_load(dir) == 2, "two packs read: %d", pack_count());
+    pack_t const* const p = pack_get(0);
+    CHECK(p != NULL && strcmp(p->name, "After hours") == 0 && strcmp(p->author, "tester") == 0 &&
+              strcmp(p->ending, "Go home.") == 0 && p->n == 2,
+          "its pack.txt read, the missing chamber left out (%d chambers)", p != NULL ? p->n : -1);
+    if (p != NULL && p->n == 2)
+        CHECK(strcmp(chamber_id(p->chamber[0]), "after-hours/zeta") == 0 &&
+                  strcmp(chamber_id(p->chamber[1]), "after-hours/alpha") == 0,
+              "in pack.txt's order, as <pack>/<file>: %s, %s", chamber_id(p->chamber[0]), chamber_id(p->chamber[1]));
+    pack_t const* const q = pack_get(1);
+    CHECK(q != NULL && strcmp(q->name, "loose") == 0 && q->n == 2 &&
+              strcmp(chamber_id(q->chamber[0]), "loose/1-one") == 0,
+          "without pack.txt: its folder's name, its files by name");
+    int at = -1;
+    CHECK(p != NULL && pack_of(p->chamber[1], &at) == 0 && at == 1 && pack_of(0, NULL) < 0,
+          "a chamber's pack and place");
+    CHECK(chamber_main_n() == inorder && p != NULL && p->chamber[0] >= inorder,
+          "pack chambers after those played in order");
+    CHECK(pack_load(dir) == 2 && pack_get(0)->chamber[0] == p->chamber[0], "read again: the same, not added twice");
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1584,8 +1632,16 @@ static void test_chamber_dir(void) {
         !write_file(dir, "c-broken.txt", "name: Broken\nsize: 3 3 3\nlayer 1\n#X#\n"))
         return;
     int const before = chamber_count();
-    CHECK(chamber_load_dir(dir) == 2, "two of the three files load");
-    CHECK(chamber_count() == before + 2, "they join the list");
+    CHECK(chamber_load_dir(dir) == 3, "the three files listed, read only when played");
+    CHECK(chamber_count() == before + 3, "they join the list");
+    char name[48];
+    chamber_name(before + 1, name, sizeof(name));
+    CHECK(strcmp(name, "Second") == 0, "a name from its file's first lines: %s", name);
+    static level_t broken;
+    CHECK(!level_load(&broken, before + 2), "the broken one says so when it is played");
+    static game_t g0;
+    g0.chamber = 7;
+    CHECK(!game_load(&g0, before + 2) && g0.chamber == 7, "and the game in play stays as it was");
     CHECK(strcmp(chamber_id(before), "a-first") == 0 && strcmp(chamber_id(before + 1), "b-second") == 0,
           "in name order, after the built-in ones");
     CHECK(chamber_find("b-second") == before + 1 && chamber_find(chamber_id(0)) == 0 && chamber_find("no-such") == -1,
@@ -2152,6 +2208,7 @@ int main(void) {
     test_chamber_write();
     test_draft();
     test_chamber_dir();
+    test_packs();
     test_dir_limits();
     if (s_fail) {
         printf("%d check(s) failed\n", s_fail);

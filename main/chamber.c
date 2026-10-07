@@ -813,14 +813,25 @@ int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out
 
 // --- The list ---------------------------------------------------------
 
+// A built-in chamber's text is in the app. One on the card is only its
+// path until it is played: it is read then, and the last few read are
+// kept (s_cache) -- not every file on the card read and held at start-up.
 typedef struct {
     char        id[CHAMBER_ID_N];
-    char const* text;
-    bool        owned;  // read from a file: ours to free
+    char const* text;  // built in; NULL for one on the card
+    char*       path;  // on the card (malloc'd), or NULL
 } entry_t;
+
+#define CACHE_N 3  // card chambers' texts kept: the one in play, and a restart's
+static struct {
+    int   chamber;  // -1: empty
+    char* text;
+} s_cache[CACHE_N] = {{-1, NULL}, {-1, NULL}, {-1, NULL}};
+static int s_cache_next;
 
 static entry_t s_list[CHAMBER_MAX];
 static int     s_n;
+static int     s_main;  // built in, and the card's loose ones (chamber_load_dir); after them, packs' (pack.c)
 static bool    s_init;
 
 static void init(void) {
@@ -849,16 +860,104 @@ int chamber_find(char const* id) {
     return -1;
 }
 
+// A file on the card, read whole (malloc'd), or NULL.
+static char* read_text(char const* path) {
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) return NULL;
+    fseek(f, 0, SEEK_END);
+    long const size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    char* text = size > 0 && size < CHAMBER_FILE_MAX ? malloc((size_t)size + 1) : NULL;
+    if (text != NULL && fread(text, 1, (size_t)size, f) == (size_t)size) {
+        text[size] = '\0';
+    } else {
+        free(text);
+        text = NULL;
+    }
+    fclose(f);
+    return text;
+}
+
+static void cache_drop(void) {
+    for (int k = 0; k < CACHE_N; k++) {
+        free(s_cache[k].text);
+        s_cache[k].text    = NULL;
+        s_cache[k].chamber = -1;
+    }
+}
+
+// Chamber i's text: built in, or read from the card now (and kept a while).
+static char const* text_of(int i) {
+    if (i < 0 || i >= s_n) return NULL;
+    if (s_list[i].path == NULL) return s_list[i].text;
+    for (int k = 0; k < CACHE_N; k++)
+        if (s_cache[k].chamber == i) return s_cache[k].text;
+    char* const text = read_text(s_list[i].path);
+    if (text == NULL) {
+        LOGW("%s: cannot read it", s_list[i].path);
+        return NULL;
+    }
+    int const k  = s_cache_next;
+    s_cache_next = (s_cache_next + 1) % CACHE_N;
+    free(s_cache[k].text);
+    s_cache[k].text    = text;
+    s_cache[k].chamber = i;
+    return text;
+}
+
 char const* chamber_text(int i) {
     init();
-    return i >= 0 && i < s_n ? s_list[i].text : "";
+    char const* const t = text_of(i);
+    return t != NULL ? t : "";
+}
+
+void chamber_name(int i, char* out, size_t n) {
+    init();
+    snprintf(out, n, "%s", chamber_id(i));
+    // Only its first lines: for one on the card, without reading it all.
+    char        head[1024];
+    char const* t = NULL;
+    if (i >= 0 && i < s_n && s_list[i].path != NULL) {
+        FILE* const f = fopen(s_list[i].path, "rb");
+        if (f == NULL) return;
+        size_t const got = fread(head, 1, sizeof(head) - 1, f);
+        fclose(f);
+        head[got] = '\0';
+        t         = head;
+    } else if (i >= 0 && i < s_n) {
+        t = s_list[i].text;
+    }
+    if (t != NULL && strncmp(t, "\xEF\xBB\xBF", 3) == 0) t += 3;
+    // As the parser reads it: a line's key up to ':', spaces round it.
+    while (t != NULL && *t != '\0') {
+        while (*t == ' ' || *t == '\t') t++;
+        char const* const eol = strchr(t, '\n');
+        size_t const      len = eol != NULL ? (size_t)(eol - t) : strlen(t);
+        char const* const col = memchr(t, ':', len);
+        if (col != NULL) {
+            size_t klen = (size_t)(col - t);
+            while (klen > 0 && (t[klen - 1] == ' ' || t[klen - 1] == '\t')) klen--;
+            if (klen == 4 && strncmp(t, "name", 4) == 0) {
+                char const* v = col + 1;
+                while (*v == ' ' || *v == '\t') v++;
+                size_t vlen = len - (size_t)(v - t);
+                while (vlen > 0 && (v[vlen - 1] == '\r' || v[vlen - 1] == ' ' || v[vlen - 1] == '\t')) vlen--;
+                if (vlen > 0) snprintf(out, n, "%.*s", (int)vlen, v);
+                return;
+            }
+        }
+        if (strncmp(t, "layer", 5) == 0 || eol == NULL) return;  // the grid: no name before it
+        t = eol + 1;
+    }
 }
 
 bool chamber_build(int i, level_t* lv, step_t* steps, int* n_steps) {
     init();
     if (i < 0 || i >= s_n) return false;
+    char const* const text = text_of(i);
+    if (text == NULL) return false;
     char err[96];
-    if (!chamber_parse(s_list[i].text, lv, steps, n_steps, err, sizeof(err))) {
+    if (!chamber_parse(text, lv, steps, n_steps, err, sizeof(err))) {
         LOGW("%s: %s", s_list[i].id, err);
         return false;
     }
@@ -901,7 +1000,7 @@ static void keep_name(int* n, char const* name, size_t len) {
 // paths are volume-relative. Try the plausible spellings of the VFS path
 // and keep whichever opens (as SynthMiner's vfs_compat.c and the
 // engine's se_mp3.c do, for the same reason).
-static int list_dir(char const* dir) {
+static int list_dir_of(char const* dir, bool dirs) {
     char const* rel = dir;
     if (strncmp(dir, "/sd", 3) == 0)
         rel = dir + 3;
@@ -933,7 +1032,9 @@ static int list_dir(char const* dir) {
     int n = 0;
     while (f_readdir(&d, &info) == FR_OK && info.fname[0] != '\0') {
         size_t const len = strlen(info.fname);
-        if ((info.fattrib & AM_DIR) || len >= sizeof(s_found[0]) || !ends_txt(info.fname, len)) continue;
+        bool const   sub = (info.fattrib & AM_DIR) != 0;
+        if (len >= sizeof(s_found[0]) || info.fname[0] == '.') continue;
+        if (dirs ? !sub : (sub || !ends_txt(info.fname, len))) continue;
         keep_name(&n, info.fname, len);
     }
     f_closedir(&d);
@@ -941,7 +1042,8 @@ static int list_dir(char const* dir) {
 }
 #else
 #include <dirent.h>
-static int list_dir(char const* dir) {
+#include <sys/stat.h>
+static int list_dir_of(char const* dir, bool dirs) {
     s_listed = 0;
     DIR* d   = opendir(dir);
     if (d == NULL) return 0;
@@ -949,13 +1051,23 @@ static int list_dir(char const* dir) {
     struct dirent* e;
     while ((e = readdir(d)) != NULL) {
         size_t const len = strlen(e->d_name);
-        if (len >= sizeof(s_found[0]) || !ends_txt(e->d_name, len)) continue;
+        if (len >= sizeof(s_found[0]) || e->d_name[0] == '.') continue;
+        char        path[320];
+        struct stat st;
+        snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+        bool const sub = stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+        if (dirs ? !sub : (sub || !ends_txt(e->d_name, len))) continue;
         keep_name(&n, e->d_name, len);
     }
     closedir(d);
     return n;
 }
 #endif
+
+// The .txt files in `dir`, into s_found.
+static int list_dir(char const* dir) {
+    return list_dir_of(dir, false);
+}
 
 #ifdef ESP_PLATFORM
 bool chamber_remove_file(char const* path) {
@@ -995,10 +1107,40 @@ int chamber_builtin_n(void) {
 
 int chamber_reload_dir(char const* dir) {
     init();
-    for (int i = chamber_builtin_n(); i < s_n; i++)
-        if (s_list[i].owned) free((void*)s_list[i].text);
-    s_n = chamber_builtin_n();
+    cache_drop();
+    for (int i = chamber_builtin_n(); i < s_n; i++) {
+        free(s_list[i].path);
+        s_list[i].path = NULL;
+    }
+    s_n    = chamber_builtin_n();
+    s_main = 0;
     return chamber_load_dir(dir);
+}
+
+int chamber_load_file(char const* path, char const* id) {
+    init();
+    if (s_n >= CHAMBER_MAX) {
+        LOGW("%s: the list is full -- not loaded", path);
+        return -1;
+    }
+    // Only that it is there, and not too big: it is read when played.
+    FILE* const f = fopen(path, "rb");
+    if (f == NULL) return -1;
+    fseek(f, 0, SEEK_END);
+    long const size = ftell(f);
+    fclose(f);
+    if (size <= 0 || size >= CHAMBER_FILE_MAX) {
+        LOGW("%s: %ld bytes -- skipped", path, size);
+        return -1;
+    }
+    size_t const n = strlen(path) + 1;
+    char* const  p = malloc(n);
+    if (p == NULL) return -1;
+    memcpy(p, path, n);
+    snprintf(s_list[s_n].id, sizeof(s_list[s_n].id), "%s", id);
+    s_list[s_n].text = NULL;
+    s_list[s_n].path = p;
+    return s_n++;
 }
 
 int chamber_load_dir(char const* dir) {
@@ -1010,36 +1152,29 @@ int chamber_load_dir(char const* dir) {
 
     int added = 0, i = 0;
     for (; i < n && s_n < CHAMBER_MAX; i++) {
-        char path[192];
+        char path[192], id[CHAMBER_ID_N];
         snprintf(path, sizeof(path), "%s/%s", dir, order[i]);
-        FILE* f = fopen(path, "rb");
-        if (f == NULL) continue;
-        fseek(f, 0, SEEK_END);
-        long const size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        char* text = size > 0 && size < CHAMBER_FILE_MAX ? malloc((size_t)size + 1) : NULL;
-        if (text == NULL || fread(text, 1, (size_t)size, f) != (size_t)size) {
-            fclose(f);
-            free(text);
-            LOGW("%s: cannot read it", path);
-            continue;
-        }
-        fclose(f);
-        text[size] = '\0';
-        char err[96];
-        if (!chamber_parse(text, level_scratch(), NULL, NULL, err, sizeof(err))) {
-            LOGW("%s: %s -- skipped", path, err);
-            free(text);
-            continue;
-        }
-        size_t const len = strlen(order[i]) - 4;
-        snprintf(s_list[s_n].id, sizeof(s_list[s_n].id), "%.*s", (int)len, order[i]);
-        s_list[s_n].owned  = true;
-        s_list[s_n++].text = text;
-        LOGI("%s: %s", path, level_scratch()->name);
-        added++;
+        snprintf(id, sizeof(id), "%.*s", (int)strlen(order[i]) - 4, order[i]);
+        if (chamber_load_file(path, id) >= 0) added++;
     }
     int const left = (n - i) + (s_listed - n);
     if (left > 0) LOGW("%s: %d more chamber files than the list has room for -- not loaded", dir, left);
+    s_main = s_n;
     return added;
+}
+
+int chamber_main_n(void) {
+    init();
+    return s_main > 0 ? s_main : s_n;
+}
+
+int chamber_list_subdirs(char const* dir, char const** names, int max) {
+    init();
+    int const   n = list_dir_of(dir, true);
+    char const* all[CHAMBER_MAX];
+    for (int i = 0; i < n; i++) all[i] = s_found[i];
+    qsort(all, (size_t)n, sizeof(all[0]), by_name);
+    int k = 0;
+    for (; k < n && k < max; k++) names[k] = all[k];
+    return k;
 }

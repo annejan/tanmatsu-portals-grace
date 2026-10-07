@@ -19,13 +19,16 @@ typedef enum {
     MENU_CMD_TITLE,     // back to the title screen
     MENU_CMD_RECORD,    // record from the start of menu_cmd_t.chamber on (title: a new game)
     MENU_CMD_RECORD_STOP,
+    MENU_CMD_STORY,  // play story pack menu_cmd_t.chamber (pack.h) from its start
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;
 
 typedef struct {
     menu_cmd_kind_t kind;
     int             chamber;
-    char const*     recording;  // its id: until the menu next opens
+    char const*     recording;      // its id: until the menu next opens
+    char const*     recording_dir;  // ... in this folder
+    char const*     pack;           // ... a story pack's replay: its pack's id, or ""
 } menu_cmd_t;
 
 void       menu_open(int current_chamber);

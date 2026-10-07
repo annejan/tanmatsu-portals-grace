@@ -141,7 +141,8 @@ enum {
     GAME_EV_TOPPLE      = 1 << 30,  // a turret knocked over
 };
 
-void game_load(game_t* g, int chamber);
+// False, and g as it was, if the chamber cannot be read (a file on the card).
+bool game_load(game_t* g, int chamber);
 // The same with a level from elsewhere (the editor's play-test).
 void game_load_level(game_t* g, level_t const* lv);
 // One step; returns PL_EV_* | GAME_EV_* bits.

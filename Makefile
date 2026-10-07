@@ -67,7 +67,7 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c \
+HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c main/pack.c \
                $(BUILD)/generated/chambers_builtin.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
@@ -135,10 +135,10 @@ host_tas: chambers_c
 tas: host_tas $(if $(TASFILM),host_movie)
 	python3 tools/tas.py $(if $(TASFILM),--film $(TASFILM))
 
-# The extra chambers in dlc/ (tools/dlc.py): `make dlc` checks each is
-# solved and builds them for the card in build/dlc; `make dlc-upload` puts
-# them on it, with their solutions as a recording; `make dlc-movies` films
-# each (build/dlc/<id>.mp4).
+# The story packs in dlc/ (tools/dlc.py, main/pack.h): `make dlc` checks
+# every chamber is solved and builds the packs for the card in build/dlc;
+# `make dlc-upload` puts them in /sd/portals/dlc/, with their solutions as
+# recordings; `make dlc-movies` films each whole story (build/dlc/<pack>.mp4).
 .PHONY: dlc dlc-upload dlc-movies
 dlc: host_tas
 	python3 tools/dlc.py check
@@ -260,10 +260,13 @@ tas-upload: tas
 
 dlc-upload: dlc
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals || true
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/chambers || true
+	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
-	cd badgelink/tools; for f in $(abspath $(BUILD))/dlc/chambers/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/chambers/$$(basename $$f) $$f; done
-	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/recordings/dlc-solutions.txt $(abspath $(BUILD))/dlc/dlc-solutions.txt
+	cd badgelink/tools; for s in $(abspath dlc)/*/; do p=$$(basename $$s); d=$(abspath $(BUILD))/dlc/$$p; \
+	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p || true; \
+	  for f in $$d/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/dlc/$$p/$$(basename $$f) $$f; done; \
+	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p/replays || true; \
+	  for f in $$d/replays/*.txt; do ./badgelink.sh $(BADGELINK_CONN) fs upload /sd/portals/dlc/$$p/replays/$$(basename $$f) $$f; done; done
 
 tas-result:
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs download /sd/portals/tas-times.txt $(abspath $(BUILD))/tas-times.txt

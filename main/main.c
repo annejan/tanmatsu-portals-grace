@@ -28,6 +28,7 @@
 #include "level.h"
 #include "menu.h"
 #include "nvs_settings_owner.h"
+#include "pack.h"
 #include "pax_gfx.h"
 #include "player.h"
 #include "portal.h"
@@ -48,7 +49,10 @@ static game_t         s_game;  // the chamber in play: level, player, portals, c
 static bool           s_half_ok;
 static se_ppa_layer_t s_layer;
 
-static int s_pending_chamber = -1;  // load this once the message is read
+static int   s_pending_chamber = -1;      // load this once the message is read
+static int   s_story_end       = -1;      // a story pack done: its index, while its ending is told
+static float s_story_end_t;               // ... for this long so far
+static char  s_story_back[CHAMBER_ID_N];  // where Continue was before the story began: back to it after
 
 // Playing the chambers, editing one, or play-testing the one being edited.
 typedef enum {
@@ -87,29 +91,65 @@ static void personalise(char* story, size_t n) {
     if (nvs_settings_get_owner_nickname(name, sizeof(name), "") != ESP_OK || name[0] == '\0') return;
     // A long nickname in a long line would push its end off: the joke stands.
     if (strlen(story) - strlen(token) + strlen(name) >= n) return;
-    char out[sizeof(s_game.lv.story)];
+    char out[320];
     snprintf(out, sizeof(out), "%.*s%s%s", (int)(at - story), story, name, at + strlen(token));
-    snprintf(story, n, "%s", out);
+    snprintf(story, n, "%.*s", (int)n - 1, out);  // fits: checked above
 }
 
-static void load_chamber(int index) {
+static bool load_chamber(int index) {
+    if (!game_load(&s_game, index)) {
+        // A file on the card that does not read: the chamber in play stays.
+        char msg[HUD_MESSAGE_N];
+        snprintf(msg, sizeof(msg), "Cannot read %.40s", chamber_id(index));
+        hud_message(msg);
+        return false;
+    }
     bool const fresh = index != s_story_of;  // a restart does not tell it again
     if (fresh) hud_story_start();
     s_story_of = index;
-    game_load(&s_game, index);
     personalise(s_game.lv.story, sizeof(s_game.lv.story));
     if (fresh) sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
     render_set_level(&s_game.lv, s_game.portals);
     ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
+    return true;
 }
 
 // Play moves on to chamber `index`: where Continue, on the title screen,
-// comes back to.
-static void play_chamber(int index) {
+// comes back to. False, with a message, if it cannot be read.
+static bool play_chamber(int index) {
     s_pending_chamber = -1;
-    load_chamber(index);
+    s_story_end       = -1;
+    if (!load_chamber(index)) return false;  // it said why
     hud_message(s_game.lv.name);
     settings_set_chamber(chamber_id(index));
+    return true;
+}
+
+// The chamber after `c` in play order: its story pack's next (-1 after its
+// last), else the next played in order, round to the first.
+static int next_after(int c) {
+    int       at;
+    int const pk = pack_of(c, &at);
+    if (pk >= 0) return at + 1 < pack_get(pk)->n ? pack_get(pk)->chamber[at + 1] : -1;
+    return (c + 1) % chamber_main_n();
+}
+
+// Play from chamber `c` -- or, if it cannot be read, from the next that
+// can, in play order. False if none can.
+static bool play_from(int c) {
+    for (int tries = 0; c >= 0 && tries < CHAMBER_MAX; tries++, c = next_after(c))
+        if (play_chamber(c)) return true;
+    return false;
+}
+
+static void to_title(void);
+
+// Play could not go where it was going: to the title screen, saying why.
+static void title_saying_why(void) {
+    char why[HUD_MESSAGE_N];
+    snprintf(why, sizeof(why), "%s", hud_message_text());
+    to_title();
+    hud_message(why);
 }
 
 // --- Recording a run ------------------------------------------------------
@@ -169,24 +209,29 @@ static void record_stop(void) {
 }
 
 // Recording starts, from chamber `index`'s start -- or, at -1, a new game's.
-static void record_start(int index) {
+static bool record_start(int index) {
     if (index < 0) {
         sound_restart_music();
         s_story_of = -2;
         index      = 0;
     }
-    play_chamber(index);
+    if (!play_chamber(index)) return false;
     recording_capture_start(&s_cap);
     recording_capture_chamber(&s_cap, chamber_id(index));
     s_capturing = true;
     menu_set_recording(true);
     hud_message("Recording");
+    return true;
 }
 
 // The chamber in play, again from its start.
 static void restart_chamber(void) {
     s_pending_chamber = -1;
-    load_chamber(s_game.chamber);
+    s_story_end       = -1;
+    if (!load_chamber(s_game.chamber)) {  // gone from the card since
+        title_saying_why();
+        return;
+    }
     hud_message(s_game.lv.name);
     // Its recording from the start again -- or, restarted after its exit,
     // recorded once more.
@@ -196,6 +241,7 @@ static void restart_chamber(void) {
 // To the title screen, the chambers playing behind it.
 static void to_title(void) {
     record_stop();
+    s_story_end = -1;
     sound_hush();            // GLaDOS stops mid-sentence ...
     s_story_of        = -2;  // ... and tells the chamber's story again on the way back in
     s_pending_chamber = -1;
@@ -210,8 +256,8 @@ static void to_title(void) {
 game_t* app_game(void) {
     return &s_game;
 }
-void app_load_chamber(int index) {
-    load_chamber(index);
+bool app_load_chamber(int index) {
+    return load_chamber(index);
 }
 void app_tell_again(void) {
     s_story_of = -2;
@@ -313,6 +359,9 @@ static void on_init(void* user) {
     // The player's own chambers, after the built-in ones.
     int const own = chamber_load_dir(CHAMBER_DIR);
     if (own > 0) ESP_LOGI(TAG, "%d chamber(s) from %s", own, CHAMBER_DIR);
+    // The story packs on the card, after them (pack.h).
+    int const packs = pack_load(PACK_DIR);
+    if (packs > 0) ESP_LOGI(TAG, "%d story pack(s) from %s", packs, PACK_DIR);
 
     // The half-size layer a quarter-resolution frame draws into.
     s_half_ok = false;
@@ -409,22 +458,33 @@ static void menu_frame(void) {
             break;
         case MENU_CMD_CHAMBER:
             record_stop();
-            play_chamber(cmd.chamber);
+            if (!play_chamber(cmd.chamber) && title) title_saying_why();
             break;
         case MENU_CMD_RECORD:
             record_stop();
-            record_start(cmd.chamber);
+            if (!record_start(cmd.chamber) && title) title_saying_why();
             break;
         case MENU_CMD_RECORD_STOP:
             record_stop();
             break;
+        case MENU_CMD_STORY: {
+            // A story pack from its start: the music from its first bar.
+            pack_t const* const p = pack_get(cmd.chamber);
+            if (p == NULL) break;
+            record_stop();
+            snprintf(s_story_back, sizeof(s_story_back), "%s", settings_chamber());
+            sound_restart_music();
+            s_story_of = -2;
+            if (!play_from(p->chamber[0]) && title) title_saying_why();
+            break;
+        }
         case MENU_CMD_NEW_GAME:
             record_stop();
             // From the start: the music from its first bar, and the first
             // chamber's story told.
             sound_restart_music();
             s_story_of = -2;
-            play_chamber(0);
+            if (!play_chamber(0) && title) title_saying_why();
             break;
         case MENU_CMD_EDITOR:
             // By name: saving in the editor re-reads the SD card, and the
@@ -439,7 +499,7 @@ static void menu_frame(void) {
         case MENU_CMD_WATCH:
             record_stop();
             s_pending_chamber = -1;
-            if (!watch_start(cmd.recording, title, chamber_id(s_game.chamber)) && title) {
+            if (!watch_start(cmd.recording_dir, cmd.recording, cmd.pack, title, chamber_id(s_game.chamber)) && title) {
                 char err[HUD_MESSAGE_N];
                 snprintf(err, sizeof(err), "%s", hud_message_text());
                 to_title();
@@ -465,13 +525,16 @@ static void edit_frame(float dt) {
     if (c == EDITOR_CMD_PLAYTEST) start_playtest();
     if (c != EDITOR_CMD_QUIT) return;
     s_mode = MODE_PLAY;
-    attract_recount();  // saving re-read the card: the chambers, counted again
+    pack_load(PACK_DIR);  // saving re-read the card, the packs' chambers dropped: read again
+    attract_recount();    // and the chambers counted again
     if (s_edit_title) {
         to_title();
     } else {
         int const at = chamber_find(s_play_id);
-        load_chamber(at >= 0 ? at : 0);
-        hud_message(s_game.lv.name);
+        if (load_chamber(at >= 0 ? at : 0))
+            hud_message(s_game.lv.name);
+        else
+            title_saying_why();
     }
     input_resync();
 }
@@ -496,9 +559,23 @@ static void play_frame(float dt) {
     // The next chamber, once "Chamber complete" has been read: in play
     // only, never in the editor's play-test.
     if (s_mode != MODE_PLAY) s_pending_chamber = -1;
+    // A story pack's end: its ending told -- typed out, and said -- then the
+    // title screen.
+    if (s_story_end >= 0) {
+        s_story_end_t    += dt;
+        float const told  = (float)strlen(s_game.lv.story) / 30.0f + 3.0f;
+        if (s_story_end_t > fmaxf(told, HUD_MESSAGE_S) && !sound_saying()) {
+            s_story_end = -1;
+            to_title();
+        }
+        return;
+    }
     if (s_pending_chamber >= 0 && !hud_message_up()) {
-        play_chamber(s_pending_chamber);
-        if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
+        // The next -- or, if it cannot be read, the next that can.
+        if (!play_from(s_pending_chamber))
+            title_saying_why();
+        else if (s_capturing)
+            recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
         return;
     }
     if (s_pending_chamber >= 0) return;  // the chamber is done; wait out the message
@@ -535,18 +612,42 @@ static void play_frame(float dt) {
         return;
     }
     if (ev & PL_EV_DIED) {
-        load_chamber(s_game.chamber);
+        if (!load_chamber(s_game.chamber)) {
+            title_saying_why();
+            return;
+        }
         hud_message("Test subject lost. Again.");
         if (s_capturing) recording_capture_again(&s_cap);
     } else if (ev & PL_EV_EXIT) {
-        int const next = s_game.chamber + 1;
-        hud_message(next < level_count() ? "Chamber complete" : "All chambers complete. Cake later.");
-        s_pending_chamber = next % level_count();
-        // Continue: the next one, even if play stops before it loads.
-        settings_set_chamber(chamber_id(s_pending_chamber));
+        // The next: in a story pack, its next; else the next played in
+        // order, round to the first after the last.
+        int        at;
+        int const  pk      = pack_of(s_game.chamber, &at);
+        int const  inorder = chamber_main_n();
+        bool const last    = pk >= 0 ? at + 1 >= pack_get(pk)->n : s_game.chamber + 1 >= inorder;
+        if (pk >= 0 && last) {
+            // The story's end: its ending, in the story line's place, said
+            // and typed out (so it is read with the voice off too); and
+            // Continue back where it was before the story began.
+            char msg[HUD_MESSAGE_N];
+            snprintf(msg, sizeof(msg), "%.40s: the end", pack_get(pk)->name);
+            hud_message(msg);
+            snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", pack_get(pk)->ending);
+            personalise(s_game.lv.story, sizeof(s_game.lv.story));
+            hud_story_start();
+            sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
+            if (s_story_back[0]) settings_set_chamber(s_story_back);
+            s_story_end   = pk;
+            s_story_end_t = 0.0f;
+        } else {
+            hud_message(last ? "All chambers complete. Cake later." : "Chamber complete");
+            s_pending_chamber = pk >= 0 ? pack_get(pk)->chamber[at + 1] : (s_game.chamber + 1) % inorder;
+            // Continue: the next one, even if play stops before it loads.
+            settings_set_chamber(chamber_id(s_pending_chamber));
+        }
         if (s_capturing) {
             recording_capture_done(&s_cap);
-            if (next >= level_count()) record_stop();  // the last one: the run is done
+            if (last) record_stop();  // the last one: the run is done
         }
     }
 }

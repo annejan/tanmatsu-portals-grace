@@ -24,6 +24,7 @@ set(APP_SOURCES
     main/leds.c
     main/level.c
     main/menu.c
+    main/pack.c
     main/physics.c
     main/player.c
     main/portal.c

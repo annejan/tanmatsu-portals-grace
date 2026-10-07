@@ -7,6 +7,7 @@
 #include "esp_timer.h"
 #include "input.h"
 #include "level.h"
+#include "pack.h"
 #include "settings.h"
 #include "sound.h"
 #include "synthengine3d.h"
@@ -22,6 +23,7 @@ typedef enum {
     SCR_CHAMBERS,
     SCR_RECORDINGS,
     SCR_TIMES,
+    SCR_STORIES,
     SCR_COUNT
 } screen_t;
 
@@ -35,9 +37,34 @@ static int64_t  s_opened_us;
 #define CHAMBERS_MAX CHAMBER_MAX
 static char s_names[CHAMBERS_MAX][32];  // chamber names, read once when the list opens
 // The recordings on the card, read when their list opens.
+// The recordings on the card, read when their list opens: RECORDING_DIR's,
+// then each story pack's replays (PACK_DIR/<pack>/replays).
 static char s_rec_ids[RECORDINGS_MAX][CHAMBER_ID_N];
 static char s_rec_names[RECORDINGS_MAX][RECORDING_NAME_N];
+static char s_rec_dirs[RECORDINGS_MAX][96];
+static char s_rec_packs[RECORDINGS_MAX][32];  // its pack's id, or ""
 static int  s_n_recs;
+
+static void list_recordings(void) {
+    s_n_recs = recording_list(RECORDING_DIR, s_rec_ids, s_rec_names);
+    for (int i = 0; i < s_n_recs; i++) {
+        snprintf(s_rec_dirs[i], sizeof(s_rec_dirs[i]), "%s", RECORDING_DIR);
+        s_rec_packs[i][0] = '\0';
+    }
+    static char ids[RECORDINGS_MAX][CHAMBER_ID_N], names[RECORDINGS_MAX][RECORDING_NAME_N];
+    for (int p = 0; p < pack_count() && s_n_recs < RECORDINGS_MAX; p++) {
+        pack_t const* const pk = pack_get(p);
+        char                dir[96];
+        snprintf(dir, sizeof(dir), "%s/%s/replays", PACK_DIR, pk->id);
+        int const n = recording_list(dir, ids, names);
+        for (int i = 0; i < n && s_n_recs < RECORDINGS_MAX; i++, s_n_recs++) {
+            memcpy(s_rec_ids[s_n_recs], ids[i], CHAMBER_ID_N);
+            snprintf(s_rec_names[s_n_recs], RECORDING_NAME_N, "%.20s: %.25s", pk->name, names[i]);
+            snprintf(s_rec_dirs[s_n_recs], sizeof(s_rec_dirs[0]), "%s", dir);
+            snprintf(s_rec_packs[s_n_recs], sizeof(s_rec_packs[0]), "%s", pk->id);
+        }
+    }
+}
 
 enum {
     A_UP    = 1,
@@ -55,14 +82,14 @@ static void go(screen_t s) {
     s_scr = s;
     if (s == SCR_RECORDINGS) {
         s_cursor[s] = 0;
-        s_n_recs    = recording_list(RECORDING_DIR, s_rec_ids, s_rec_names);
+        list_recordings();
     }
     if (s == SCR_CHAMBERS) {
-        s_cursor[s] = s_chamber;
-        // Each name means parsing a whole chamber file: once, not every frame.
-        for (int i = 0; i < level_count() && i < CHAMBERS_MAX; i++) {
-            if (!level_load(&s_lv, i)) snprintf(s_lv.name, sizeof(s_lv.name), "%s (broken)", chamber_id(i));
-            snprintf(s_names[i], sizeof(s_names[i]), "%s", s_lv.name);
+        s_cursor[s] = s_chamber < chamber_main_n() ? s_chamber : 0;
+        // Each name from its file's first lines, once, not every frame --
+        // and only those played in order, not the story packs'.
+        for (int i = 0; i < chamber_main_n() && i < CHAMBERS_MAX; i++) {
+            chamber_name(i, s_names[i], sizeof(s_names[i]));
         }
     }
 }
@@ -80,6 +107,7 @@ void menu_open(int current_chamber) {
 typedef enum {
     T_CONTINUE,
     T_NEW,
+    T_STORIES,
     T_RECORD,
     T_CHAMBERS,
     T_WATCH,
@@ -90,8 +118,8 @@ typedef enum {
     T_COUNT
 } title_row_t;
 static char const* const s_title_labels[T_COUNT] = {
-    "Continue",       "New game", "Record a run", "Chamber select",   "Watch a recording",
-    "Chamber editor", "Settings", "Controls",     "Quit to launcher",
+    "Continue",          "New game",       "Stories",  "Record a run", "Chamber select",
+    "Watch a recording", "Chamber editor", "Settings", "Controls",     "Quit to launcher",
 };
 
 // Under the title: the game's version, from metadata/metadata.json.
@@ -127,9 +155,14 @@ void menu_title(int continue_chamber) {
     bool const cont    = continue_chamber >= 0 && continue_chamber < level_count();
     s_chamber          = cont ? continue_chamber : 0;
     s_continue_name[0] = '\0';
-    if (cont && level_load(&s_lv, continue_chamber)) fit_name(s_continue_name, sizeof(s_continue_name), s_lv.name);
+    if (cont) {
+        char name[sizeof(s_lv.name)];
+        chamber_name(continue_chamber, name, sizeof(name));
+        fit_name(s_continue_name, sizeof(s_continue_name), name);
+    }
     s_title_n = 0;
     for (int t = cont ? T_CONTINUE : T_NEW; t < T_COUNT; t++) {
+        if (t == T_STORIES && pack_count() == 0) continue;  // none on the card
         s_title_of[s_title_n] = (title_row_t)t;
         s_title_rows[s_title_n] =
             t == T_CONTINUE
@@ -268,6 +301,8 @@ static char          s_t_label[RECORDING_MAX][32], s_t_value[RECORDING_MAX][TIME
 static int           s_t_n;
 static screen_t      s_t_back;  // what was up under it, or SCR_NONE
 static se_menu_row_t s_t_rows[RECORDING_MAX + 2];
+static se_menu_row_t s_st_rows[PACK_MAX + 1];  // the story packs
+static char          s_st_sub[100];
 
 enum {
     SET_GYRO,
@@ -328,7 +363,8 @@ static int build(screen_t s, se_menu_def_t* def) {
     if (s == SCR_TITLE) {
         // As se_menu_draw lays it out: 40 px to the title, the title and
         // 14, the subtitle and 16, the rows, and room below the last.
-        def->panel_w  = TITLE_PANEL_W;
+        def->visible_rows = 0;  // all of them: the panel is as high as they need
+        def->panel_w      = TITLE_PANEL_W;
         def->panel_h  = (40.0f + MENU_TITLE_H + 14.0f + 34.0f + (float)n * MENU_ROW_H + 24.0f) / (float)DISPLAY_LOG_H;
         def->value_dx = TITLE_VALUE_DX;
     }
@@ -395,7 +431,7 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             def->hint                 = "Enter: press the new key   Esc: back";
             return CONTROLS_ROWS;
         case SCR_CHAMBERS: {
-            int n = level_count();
+            int n = chamber_main_n();  // not the story packs' (Stories)
             if (n > CHAMBERS_MAX) n = CHAMBERS_MAX;
             for (int i = 0; i < n; i++)
                 s_ch_rows[i] =
@@ -404,6 +440,23 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             def->title     = "CHAMBERS";
             def->rows      = s_ch_rows;
             def->row_count = n + 1;
+            return n + 1;
+        }
+        case SCR_STORIES: {
+            int const n = pack_count();
+            for (int i = 0; i < n; i++) s_st_rows[i] = (se_menu_row_t){.label = pack_get(i)->name};
+            s_st_rows[n]          = (se_menu_row_t){.label = "Back"};
+            // The one the cursor is on: who made it, and what it is.
+            pack_t const* const p = pack_get(s_cursor[SCR_STORIES]);
+            if (p != NULL && p->author[0])
+                snprintf(s_st_sub, sizeof(s_st_sub), "by %.30s: %.60s", p->author, p->about);
+            else
+                snprintf(s_st_sub, sizeof(s_st_sub), "%.90s", p != NULL ? p->about : "Story packs from the card");
+            def->title     = "STORIES";
+            def->subtitle  = s_st_sub;
+            def->rows      = s_st_rows;
+            def->row_count = n + 1;
+            def->hint      = "Copy a pack's folder to " PACK_DIR;
             return n + 1;
         }
         case SCR_TIMES:
@@ -466,6 +519,9 @@ menu_cmd_t menu_update(void) {
                     s_scr       = SCR_NONE;
                     cmd.kind    = MENU_CMD_CHAMBER;
                     cmd.chamber = s_chamber;
+                    break;
+                case T_STORIES:
+                    go(SCR_STORIES);
                     break;
                 case T_RECORD:
                     s_scr       = SCR_NONE;
@@ -613,6 +669,16 @@ menu_cmd_t menu_update(void) {
             }
             break;
 
+        case SCR_STORIES:
+            if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
+                go(s_home);
+            } else if (r == SE_MENU_RESULT_ACTIVATED) {
+                s_scr       = SCR_NONE;
+                cmd.kind    = MENU_CMD_STORY;
+                cmd.chamber = cur;  // the pack
+            }
+            break;
+
         case SCR_TIMES:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
                 if (s_t_back == SCR_NONE) {
@@ -628,9 +694,11 @@ menu_cmd_t menu_update(void) {
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
                 go(s_home);
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
-                s_scr         = SCR_NONE;
-                cmd.kind      = MENU_CMD_WATCH;
-                cmd.recording = s_rec_ids[cur];
+                s_scr             = SCR_NONE;
+                cmd.kind          = MENU_CMD_WATCH;
+                cmd.recording     = s_rec_ids[cur];
+                cmd.recording_dir = s_rec_dirs[cur];
+                cmd.pack          = s_rec_packs[cur];
             }
             break;
 
@@ -654,8 +722,10 @@ void menu_times(char const* name, int n, char const* const* ids, char const* con
     for (int i = 0; i < s_t_n; i++) {
         // The chamber's name, if it is still on the list.
         int const at = chamber_find(ids[i]);
-        if (at < 0 || !level_load(&s_lv, at)) snprintf(s_lv.name, sizeof(s_lv.name), "%s", ids[i]);
-        snprintf(s_t_label[i], sizeof(s_t_label[i]), "%s", s_lv.name);
+        if (at >= 0)
+            chamber_name(at, s_t_label[i], sizeof(s_t_label[i]));
+        else
+            snprintf(s_t_label[i], sizeof(s_t_label[i]), "%s", ids[i]);
         snprintf(s_t_value[i], sizeof(s_t_value[i]), "%s", values[i]);
     }
     snprintf(s_t_total, sizeof(s_t_total), "%s", total);

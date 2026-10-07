@@ -8,10 +8,12 @@
 #include <stdbool.h>
 #include "hud.h"
 
-// Watch recording `id`; afterwards back to the title, or else to chamber
-// `back` (its id) -- fresh, and saving nothing, so Continue stays where
-// play was. False, with a message up saying why, if it could not be read.
-bool watch_start(char const* id, bool to_title, char const* back);
+// Watch recording `id` in `dir`; afterwards back to the title, or else to
+// chamber `back` (its id) -- fresh, and saving nothing, so Continue stays
+// where play was. A story pack's replay (`pack` its id, else "") may name
+// the pack's chambers by their files alone. False, with a message up
+// saying why, if it could not be read.
+bool watch_start(char const* dir, char const* id, char const* pack, bool to_title, char const* back);
 bool watch_on(void);
 // Esc: stopped, and back.
 void watch_stop(void);

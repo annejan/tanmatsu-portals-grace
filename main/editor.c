@@ -71,9 +71,12 @@ void editor_open(int index, char const* chamber_dir) {
     char id[CHAMBER_ID_N];
     char err[96];
     if (index >= 0 && index < chamber_count()) {
-        bool const builtin = index < chamber_builtin_n();
+        // A built-in chamber, or a story pack's (its id "<pack>/<file>"):
+        // a copy, saved among the card's own.
+        bool const  builtin = index < chamber_builtin_n() || index >= chamber_main_n();
+        char const* slash   = strrchr(chamber_id(index), '/');
         if (builtin)
-            fresh_id(id, sizeof(id), chamber_id(index));
+            fresh_id(id, sizeof(id), slash != NULL ? slash + 1 : chamber_id(index));
         else
             snprintf(id, sizeof(id), "%s", chamber_id(index));
         s_new = builtin;

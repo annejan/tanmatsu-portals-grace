@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""The extra chambers in dlc/: each a chamber file with its solution (a
-spoiler). For the SD card they go without it; their solutions go as one
-recording, to watch on the badge (Esc -> Watch a recording); and each is
-filmed, as the game's chambers are (tools/make_movie.py).
+"""The story packs in dlc/: each a folder, dlc/<pack>/, of chamber files with
+their solutions (spoilers) and a pack.txt giving its name, author, blurb,
+ending and the chambers' order (main/pack.h). On the badge's card a pack is
+the same folder, /sd/portals/dlc/<pack>/, without the solutions; their
+solutions go as one recording each, to watch (Esc -> Watch a recording).
 
-    tools/dlc.py check          every one solved, at 20-35 frames a second (tests/host_tas.c)
-    tools/dlc.py card           build/dlc/chambers/*.txt (no solutions) and build/dlc/dlc-solutions.txt
-    tools/dlc.py films [ID...]  build/dlc/<id>.mp4, a film of each
+    tools/dlc.py check            every chamber solved, at 20-35 frames a second (tests/host_tas.c)
+    tools/dlc.py card             build/dlc/<pack>/ for the card, and build/dlc/<pack>-solutions.txt
+    tools/dlc.py films [PACK...]  build/dlc/<pack>.mp4: the whole story, filmed (tools/make_movie.py)
 
 `make dlc`, `make dlc-upload` and `make dlc-movies` run these.
 """
@@ -14,6 +15,7 @@ filmed, as the game's chambers are (tools/make_movie.py).
 import glob
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -21,8 +23,27 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "build", "dlc")
 
 
-def chambers():
-    return sorted(glob.glob(os.path.join(ROOT, "dlc", "*.txt")))
+def packs():
+    return sorted(d for d in glob.glob(os.path.join(ROOT, "dlc", "*")) if os.path.isdir(d))
+
+
+def pack_info(folder):
+    """A pack's pack.txt as a dict, and its chambers' ids in order (as
+    main/pack.c reads it: "chamber:" lines, else the files by name)."""
+    info, order = {"name": os.path.basename(folder)}, []
+    path = os.path.join(folder, "pack.txt")
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                key, _, value = line.strip().partition(":")
+                if key == "chamber":
+                    order.append(value.strip())
+                elif key in ("name", "author", "about", "ending"):
+                    info[key] = value.strip()
+    if not order:
+        order = sorted(os.path.basename(p)[:-4] for p in glob.glob(os.path.join(folder, "*.txt"))
+                       if os.path.basename(p) != "pack.txt")
+    return info, order
 
 
 def split(path):
@@ -36,56 +57,73 @@ def split(path):
 
 
 def check():
-    """Each solved at random 20-35 fps frames, a dozen times."""
+    """Each chamber solved at random 20-35 fps frames, a dozen times."""
     tool = os.path.join(ROOT, "build", "host_tas")
-    env = dict(os.environ, PORTALS_CHAMBERS=os.path.join(ROOT, "dlc"))
     bad = []
-    for path in chambers():
-        cid = os.path.basename(path)[:-4]
-        times = []
-        for seed in range(1, 13):
-            out = subprocess.run([tool, "-jitter", str(seed), cid], env=env, capture_output=True, text=True).stdout
-            times.append(out.split("\t")[-1].strip() if out else "FAIL")
-        ok = all(t and not t.startswith("FAIL") for t in times)
-        print("%-24s %s  %s" % (cid, "ok  " if ok else "FAIL", " ".join(times)))
-        if not ok:
-            bad.append(cid)
+    for folder in packs():
+        info, order = pack_info(folder)
+        print("%s (%s)" % (info["name"], os.path.basename(folder)))
+        env = dict(os.environ, PORTALS_CHAMBERS=folder)
+        for cid in order:
+            times = []
+            for seed in range(1, 13):
+                out = subprocess.run([tool, "-jitter", str(seed), cid], env=env, capture_output=True, text=True).stdout
+                times.append(out.split("\t")[-1].strip() if out else "FAIL")
+            ok = all(t and not t.startswith("FAIL") for t in times)
+            print("  %-22s %s  %s" % (cid, "ok  " if ok else "FAIL", " ".join(times)))
+            if not ok:
+                bad.append("%s/%s" % (os.path.basename(folder), cid))
     if bad:
         sys.exit("not solved: " + " ".join(bad))
 
 
 def card():
-    """For the SD card: the chambers without their solutions, and the
-    solutions as one recording."""
-    os.makedirs(os.path.join(OUT, "chambers"), exist_ok=True)
+    """For the card: each pack's folder without the solutions, and the
+    solutions as a recording."""
     with open(os.path.join(ROOT, "metadata", "metadata.json")) as f:
         version = json.load(f)["version"]
     build_id = subprocess.run(["git", "describe", "--always", "--dirty", "--abbrev=10"], cwd=ROOT,
                               capture_output=True, text=True).stdout.strip() or "unknown"
-    runs = []
-    for path in chambers():
-        cid = os.path.basename(path)[:-4]
-        chamber, steps = split(path)
-        with open(os.path.join(OUT, "chambers", cid + ".txt"), "w") as f:
-            f.write(chamber)
-        if steps.strip():
-            runs.append("\nchamber: %s\n%s" % (cid, steps))
-    with open(os.path.join(OUT, "dlc-solutions.txt"), "w") as f:
-        f.write("name: DLC solutions, Portals %s\nversion: %s %s\n" % (version, version, build_id))
-        f.write("".join(runs))
-    print("%s: %d chambers, and their solutions as dlc-solutions.txt" % (OUT, len(chambers())))
+    for folder in packs():
+        pid = os.path.basename(folder)
+        info, order = pack_info(folder)
+        out = os.path.join(OUT, pid)
+        shutil.rmtree(out, ignore_errors=True)
+        os.makedirs(out)
+        if os.path.exists(os.path.join(folder, "pack.txt")):
+            shutil.copy(os.path.join(folder, "pack.txt"), out)
+        runs = []
+        for cid in order:
+            chamber, steps = split(os.path.join(folder, cid + ".txt"))
+            with open(os.path.join(out, cid + ".txt"), "w") as f:
+                f.write(chamber)
+            if steps.strip():
+                runs.append("\nchamber: %s\n%s" % (cid, steps))
+        # Its replays travel with it: in its own replays/ (main/pack.h), the
+        # chambers named by their files alone.
+        os.makedirs(os.path.join(out, "replays"))
+        with open(os.path.join(out, "replays", "solutions.txt"), "w") as f:
+            f.write("name: the solutions, Portals %s\nversion: %s %s\n" % (version, version, build_id))
+            f.write("".join(runs))
+        print("%s: %s, %d chambers, and replays/solutions.txt" % (out, info["name"], len(order)))
 
 
-def films(ids):
-    """A film of each: as the game's own chambers are filmed."""
+def films(wanted):
+    """Each pack filmed, the whole story: its chambers one after another,
+    the music playing on, its name to open and its ending to close."""
     os.makedirs(OUT, exist_ok=True)
-    for path in chambers():
-        cid = os.path.basename(path)[:-4]
-        if ids and cid not in ids:
+    for folder in packs():
+        pid = os.path.basename(folder)
+        if wanted and pid not in wanted:
             continue
-        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_movie.py"), cid, "--chambers",
-                        os.path.join(ROOT, "dlc"), "--mp4", os.path.join(OUT, cid + ".mp4"), "--work",
-                        os.path.join(OUT, "work-" + cid)], check=True)
+        info, order = pack_info(folder)
+        cmd = [sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + order + [
+            "--chambers", folder, "--mp4", os.path.join(OUT, pid + ".mp4"), "--work",
+            os.path.join(OUT, "work-" + pid), "--title", info["name"], "--about", info.get("about", "")]
+        if info.get("ending"):
+            cmd += ["--ending", info["ending"].replace("[Subject-Name-here]", "test subject")]
+        subprocess.run(cmd, check=True)
+        shutil.rmtree(os.path.join(OUT, "work-" + pid, "shots"), ignore_errors=True)
 
 
 def main():
