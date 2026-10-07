@@ -1,0 +1,41 @@
+// A cube carried through a portal: tests/host_review.c
+name: Carry
+size: 11 5 5
+facing: west
+
+layer 0
+###########
+#WWWWWWWWW#
+#WWWWWWWWE#
+#WWWWWWWWW#
+###########
+
+layer 1
+WWWWWWWWWWW
+W.........W
+W..CS.....W
+W.........W
+WWWWWWWWWWW
+
+layer 2
+WWWWWWWWWWW
+W.........W
+W.........W
+W.........W
+WWWWWWWWWWW
+
+layer 3
+WWWWWWWWWWW
+W.........W
+W.........W
+W.........W
+WWWWWWWWWWW
+
+solution
+shoot orange 10.0 1.9 2.5
+shoot blue 0.0 1.9 2.5
+look 3.5 1.2 2.5
+grab
+wait 0.4
+walk_to -1 2.5
+walk_to 9.5 2.5

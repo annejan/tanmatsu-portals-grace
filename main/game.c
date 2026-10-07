@@ -145,7 +145,12 @@ bool game_fire(game_t* g, int which) {
         if (tp >= 0.0f && (!wall.hit || tp < wall.dist)) return false;
     }
     portal_t p;
-    if (!portal_place(&g->lv, eye, fwd, &g->portals[which ^ 1], &p)) return false;
+    if (!portal_place(&g->lv, eye, fwd, &g->portals[which ^ 1], &p)) {
+        g->track.ever |= GAME_EV_SHOT_FAIL;
+        return false;
+    }
+    g->track.ever |= GAME_EV_PORTAL | (which == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE);
+    g->track.shots++;
     // A cube carried through the old portal has lost its way back: let go
     // of it while that portal still stands, so its motion goes through
     // the portal it really went through.
@@ -177,7 +182,15 @@ static float ray_aabb(vec3_t o, vec3_t d, aabb_t const* b) {
     return t0;
 }
 
+static int use(game_t* g);
+
 int game_use(game_t* g) {
+    int const ev   = use(g);
+    g->track.ever |= (uint32_t)ev;
+    return ev;
+}
+
+static int use(game_t* g) {
     if (g->held >= 0) {
         drop(g);
         return GAME_EV_DROP;
@@ -437,6 +450,7 @@ static int step_cube(game_t* g, int i, float dt) {
         b->on_ground = false;
     }
     if (pev & PHYS_TELEPORT) {
+        g->track.seen |= TRACK_CUBE_PORTAL;
         if (i == g->held) g->held_via = g->held_via < 0 ? via : -1;
     } else if (g->lv.cube_sphere[i] && i != g->held) {
         if (b->on_ground) roll(&g->cubes[i], p0);
@@ -468,9 +482,10 @@ static int step_cube(game_t* g, int i, float dt) {
     // A faith plate throws a cube that is not being carried.
     jump_t const* j = i != g->held && b->on_ground ? plate_under(&g->lv, b->pos) : NULL;
     if (j != NULL) {
-        b->vel        = jump_velocity(b->pos, j->target);
-        b->on_ground  = false;
-        ev           |= GAME_EV_LAUNCH;
+        b->vel                = jump_velocity(b->pos, j->target);
+        b->on_ground          = false;
+        ev                   |= GAME_EV_LAUNCH;
+        g->track.cube_plates |= (uint8_t)(1u << (j - g->lv.jumps));
     }
     return ev;
 }
@@ -815,17 +830,17 @@ static int step_pellets(game_t* g, float dt) {
         if (!p->live) {
             p->wait -= dt;
             if (p->wait > 0.0f) continue;
-            emitter_t const* L  = &g->lv.launchers[k];
-            vec3_t const     d  = dir_vec(L->dir);
-            p->pos              = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.6f);
-            p->vel              = v3_scale(d, PELLET_SPEED);
+            emitter_t const* L    = &g->lv.launchers[k];
+            vec3_t const     d    = dir_vec(L->dir);
+            p->pos                = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.6f);
+            p->vel                = v3_scale(d, PELLET_SPEED);
             // Long enough to cross what its launcher fires across, wall to
             // wall -- a long hall's pellet does not fizzle half way -- and
             // no longer: a miss in a small room is refired as soon as ever.
-            ray_hit_t const line = level_raycast(&g->lv, p->pos, d, LV_REACH);
-            p->life              = fmaxf(PELLET_LIFE, (line.hit ? line.dist : LV_REACH) / PELLET_SPEED);
-            p->live             = true;
-            ev                 |= GAME_EV_PELLET;
+            ray_hit_t const line  = level_raycast(&g->lv, p->pos, d, LV_REACH);
+            p->life               = fmaxf(PELLET_LIFE, (line.hit ? line.dist : LV_REACH) / PELLET_SPEED);
+            p->live               = true;
+            ev                   |= GAME_EV_PELLET;
             continue;
         }
         p->life -= dt;
@@ -938,6 +953,26 @@ static bool riding(aabb_t const* p, aabb_t const* b) {
            b->hi.z > p->lo.z;
 }
 
+// For the review (track_t): on a light bridge, and running fast on orange
+// gel.
+static void track_ground(game_t* g) {
+    if (!g->pl.on_ground) return;
+    aabb_t const pa = player_aabb(&g->pl);
+    for (int k = 0; k < g->lv.n_bridges; k++)
+        for (int i = 0; i < g->bridge_n[k]; i++) {
+            beam_seg_t const* s    = &g->bridge[k][i];
+            bool const        on_x = fabsf(s->b.x - s->a.x) > fabsf(s->b.z - s->a.z);
+            float const       wx = on_x ? 0.0f : 0.5f, wz = on_x ? 0.5f : 0.0f;
+            aabb_t const      slab = {v3(fminf(s->a.x, s->b.x) - wx, s->a.y - 0.06f, fminf(s->a.z, s->b.z) - wz),
+                                      v3(fmaxf(s->a.x, s->b.x) + wx, s->a.y, fmaxf(s->a.z, s->b.z) + wz)};
+            if (riding(&slab, &pa)) g->track.seen |= TRACK_BRIDGE;
+        }
+    int const x = (int)floorf(g->pl.pos.x), y = (int)floorf(g->pl.pos.y - 0.05f), z = (int)floorf(g->pl.pos.z);
+    if (level_paint(&g->lv, x, y, z) == GEL_ORANGE &&
+        g->pl.vel.x * g->pl.vel.x + g->pl.vel.z * g->pl.vel.z > 6.0f * 6.0f)
+        g->track.seen |= TRACK_SPEED;
+}
+
 // Glide the platform on, carrying what stands on it. It waits rather
 // than move into anything that is not riding it.
 static void move_platform(game_t* g, float dt) {
@@ -976,8 +1011,10 @@ static void move_platform(game_t* g, float dt) {
         if (box_in_solid(&g->lv, &c1)) return;
     }
 
-    g->plat_t  = t1;
-    g->plat_at = at1;
+    g->plat_t      = t1;
+    g->plat_at     = at1;
+    g->track.seen |= TRACK_PLATFORM;
+    if (pl_ride) g->track.seen |= TRACK_RIDE | (g->held >= 0 ? TRACK_RIDE_HOLD : 0);
     if (pl_ride) g->pl.pos = v3_add(g->pl.pos, step);
     for (int i = 0; i < g->n_cubes; i++)
         if (cube_ride[i]) g->cubes[i].body.pos = v3_add(g->cubes[i].body.pos, step);
@@ -1027,21 +1064,30 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
 
     // The player, among the cubes.
     aabb_t             boxes[GAME_MAX_BOXES];
-    int const          n    = gather_boxes(g, -1, boxes);
-    phys_world_t const w    = {&g->lv, g->portals, boxes, n};
-    player_input_t     pin  = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
-    pin.floating            = funnel_carry(g, v3(g->pl.pos.x, g->pl.pos.y + PL_HEIGHT * 0.5f, g->pl.pos.z), &pin.carry);
-    int          via        = -1;
-    aabb_t const start      = player_aabb(&g->pl);
-    float const  fall       = -g->pl.vel.y;
-    int const    pev        = player_update_in(&g->pl, &w, &pin, dt, &via);
-    ev                     |= pev;
+    int const          n   = gather_boxes(g, -1, boxes);
+    phys_world_t const w   = {&g->lv, g->portals, boxes, n};
+    player_input_t     pin = {.fwd = in->fwd, .strafe = in->strafe, .jump = in->jump};
+    pin.floating           = funnel_carry(g, v3(g->pl.pos.x, g->pl.pos.y + PL_HEIGHT * 0.5f, g->pl.pos.z), &pin.carry);
+    if (pin.floating) g->track.seen |= TRACK_FLOAT;
+    // A jump off blue gel: higher than a jump can go (for the review).
+    bool const blue = g->pl.on_ground && level_paint(&g->lv, (int)floorf(g->pl.pos.x), (int)floorf(g->pl.pos.y - 0.05f),
+                                                     (int)floorf(g->pl.pos.z)) == GEL_BLUE;
+    int        via  = -1;
+    aabb_t const start  = player_aabb(&g->pl);
+    float const  fall   = -g->pl.vel.y;
+    int const    pev    = player_update_in(&g->pl, &w, &pin, dt, &via);
+    ev                 |= pev;
+    if ((blue && g->pl.vel.y > 7.0f) || (pev & PL_EV_BOUNCE)) g->track.seen |= TRACK_BOUNCE;
     // Coming down hard on a turret knocks it over.
     if ((pev & PL_EV_LANDED) && fall > TURRET_KNOCK) {
         aabb_t const pb  = player_aabb(&g->pl);
         ev              |= knock_under(g, &pb, -1);
     }
-    if ((ev & PL_EV_TELEPORT) && g->held >= 0) g->held_via = g->held_via < 0 ? (via ^ 1) : -1;
+    if ((ev & PL_EV_TELEPORT) && g->held >= 0) {
+        g->held_via    = g->held_via < 0 ? (via ^ 1) : -1;
+        g->track.seen |= TRACK_CUBE_PORTAL;  // carried through
+    }
+    track_ground(g);
 
     // A fizzler: the portals close, and a cube carried in goes.
     aabb_t const pbox = player_aabb(&g->pl);
@@ -1064,6 +1110,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         g->pl.vel        = jump_velocity(g->pl.pos, j->target);
         g->pl.on_ground  = false;
         ev              |= GAME_EV_LAUNCH;
+        g->track.plates |= (uint8_t)(1u << (j - g->lv.jumps));
     }
 
     push_spheres(g, in);
@@ -1106,6 +1153,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             down = lit[b];
         } else if (bt->receiver) {
             down = bt->pressed;  // latched by step_pellets()
+            if (down) g->track.by[b] |= BY_PELLET;
         } else if (bt->laser) {
             down = lit[b];
         } else if (bt->pedestal) {
@@ -1113,13 +1161,24 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
             bt->timer_left     = fmaxf(0.0f, bt->timer_left - dt);
             down               = bt->timer_left > 0.0f;
             if (down && ceilf(bt->timer_left) != ceilf(before)) ev |= GAME_EV_TICK;
+            if (down) g->track.by[b] |= BY_HAND;
         } else {
-            down = !bt->cube_only && !bt->sphere_only && on_button(bt, &pa);
-            for (int i = 0; i < g->n_cubes && !down; i++) {
+            // Who holds it down: all of them, for the review.
+            if (!bt->cube_only && !bt->sphere_only && on_button(bt, &pa)) {
+                down            = true;
+                g->track.by[b] |= BY_PLAYER;
+            }
+            for (int i = 0; i < g->n_cubes; i++) {
                 aabb_t const c = cube_aabb(&g->cubes[i]);
-                down           = i != g->held && (!bt->sphere_only || g->lv.cube_sphere[i]) && on_button(bt, &c);
+                if (i == g->held || (bt->sphere_only && !g->lv.cube_sphere[i]) || !on_button(bt, &c)) continue;
+                down            = true;
+                g->track.by[b] |= g->lv.cube_sphere[i]    ? BY_SPHERE
+                                  : !g->lv.cube_turret[i] ? BY_CUBE
+                                  : g->cubes[i].down      ? BY_FALLEN
+                                                          : BY_TURRET;
             }
         }
+        if ((bt->relay || bt->laser) && down) g->track.by[b] |= BY_BEAM;
         if (down != bt->pressed) ev |= GAME_EV_BUTTON | (down ? GAME_EV_BUTTON_DOWN : GAME_EV_BUTTON_UP);
         bt->pressed = down;
     }
@@ -1145,6 +1204,8 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         }
         // Started moving, from either end.
         if ((was == 0.0f || was == 1.0f) && dr->open != was) ev |= GAME_EV_DOOR;
+        if (dr->open >= DOOR_PASSABLE) g->track.doors |= (uint16_t)(1u << d);
     }
+    g->track.ever |= (uint32_t)ev;
     return ev;
 }

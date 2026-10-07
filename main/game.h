@@ -79,6 +79,38 @@ typedef struct {
     vec3_t a, b;
 } beam_seg_t;
 
+// What a run has done so far, for a review of how it was solved (review.h):
+// it only watches, and never changes what happens. A new run (load,
+// restart, death) starts it afresh.
+enum {
+    TRACK_FLOAT       = 1 << 0,  // carried by an excursion funnel
+    TRACK_RIDE        = 1 << 1,  // carried by the moving platform
+    TRACK_RIDE_HOLD   = 1 << 2,  // ... holding something
+    TRACK_BRIDGE      = 1 << 3,  // stood on a light bridge
+    TRACK_SPEED       = 1 << 4,  // ran on orange gel, fast
+    TRACK_CUBE_PORTAL = 1 << 5,  // a cube went through a portal
+    TRACK_PLATFORM    = 1 << 6,  // the platform moved
+    TRACK_BOUNCE      = 1 << 7,  // thrown up by blue gel: a bounce, or a jump off it
+};
+enum {  // what held a button down (track_t.by)
+    BY_PLAYER = 1 << 0,
+    BY_CUBE   = 1 << 1,
+    BY_SPHERE = 1 << 2,
+    BY_TURRET = 1 << 3,  // standing
+    BY_FALLEN = 1 << 4,  // knocked over
+    BY_BEAM   = 1 << 5,  // a laser: a catcher or a relay
+    BY_PELLET = 1 << 6,  // a receiver
+    BY_HAND   = 1 << 7,  // a pedestal, pressed
+};
+typedef struct {
+    uint32_t ever;                 // every PL_EV_* | GAME_EV_* seen
+    uint16_t seen;                 // TRACK_*
+    uint8_t  by[LV_MAX_BUTTONS];   // BY_*: what has held each button down
+    uint16_t doors;                // each door that opened (past DOOR_PASSABLE)
+    uint8_t  plates, cube_plates;  // each faith plate that threw the player, a cube
+    uint16_t shots;                // portals placed
+} track_t;
+
 typedef struct {
     level_t    lv;
     player_t   pl;
@@ -104,6 +136,7 @@ typedef struct {
     int        funnel_n[LV_MAX_FUNNELS];
     float      shot_t;   // seconds the player has been under a turret's fire
     float      burst_t;  // the turrets' fire: its clock
+    track_t    track;    // what this run has done (review.h)
 } game_t;
 
 typedef struct {

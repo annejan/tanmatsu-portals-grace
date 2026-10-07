@@ -19,7 +19,8 @@ typedef struct {
     int   w, h, d;
     float yaw;                                 // the start's facing, radians
     char  grid[LV_MAX_H][LV_MAX_D][LV_MAX_W];  // [y][z][x]
-    char  solution[8192];                      // the file's solution section, kept as it was
+    char  review[2048];                        // its review keys (review.h), the lines as they were
+    char  solution[16384];                     // the file's solution section, cheese and all, kept as it was
 } draft_t;
 
 // A box of metal with white walls, a white floor and air inside, the

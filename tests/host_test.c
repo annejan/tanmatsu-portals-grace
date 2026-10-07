@@ -487,7 +487,7 @@ static void test_draft_keeps(void) {
     static draft_t d;
     static level_t lv;
     static step_t  steps[SCRIPT_MAX_STEPS];
-    static char    text[16 * 1024], out[24 * 1024];
+    static char    text[32 * 1024], out[40 * 1024];
     char           err[96];
     // A solution of 3 KB, comments mostly; the last step is the one to lose.
     int            n = snprintf(text, sizeof(text),

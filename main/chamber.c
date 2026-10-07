@@ -238,6 +238,21 @@ static int target_order(vec3_t t) {
     return reading_order((int)floorf(t.x), (int)floorf(t.y), (int)floorf(t.z));
 }
 
+bool chamber_review_key(char const* k) {
+    static char const* const keys[] = {"review", "intended", "flaw", "fix", "debug", "repair"};
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+        if (strcmp(k, keys[i]) == 0) return true;
+    return false;
+}
+
+// "cheese a": its letter, else 0.
+static char cheese_section(char const* s) {
+    if (strncmp(s, "cheese ", 7) != 0) return 0;
+    char const* p = s + 7;
+    while (*p == ' ' || *p == '\t') p++;
+    return islower((unsigned char)p[0]) && p[1] == '\0' ? p[0] : 0;
+}
+
 bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, char* err, size_t err_n) {
     ctx_t c = {err, err_n, 0};
     if (err_n) err[0] = '\0';
@@ -250,6 +265,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
     int         layer                = -1;  // the layer whose rows are being read
     int         row                  = 0;
     bool        in_sol               = false;
+    char        cheeses[27]          = {0};  // the cheese sections so far, by letter
+    int         n_cheese             = 0;    // the steps of the last of them
     bool        have_size            = false;
     int         spawns               = 0;
     bool        layer_seen[LV_MAX_H] = {false};
@@ -355,12 +372,23 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         char* s = trim(buf);
         if (*s == '\0' || strncmp(s, "//", 2) == 0) continue;
         if (in_sol) {
+            // A cheese section: a route that cheeses it (review.h), kept
+            // out of the solution.
+            char const id = cheese_section(s);
+            if (id != 0) {
+                if (strchr(cheeses, id) != NULL) return fail(&c, "cheese %c given twice", id);
+                if (strlen(cheeses) + 1 >= sizeof(cheeses)) return fail(&c, "more than 26 cheese sections");
+                cheeses[strlen(cheeses)] = id;
+                n_cheese                 = 0;
+                continue;
+            }
             // Checked even when not wanted, so a mistake in a solution is
             // reported when the file is loaded, not when it is played.
             step_t scratch;
-            if (ns >= SCRIPT_MAX_STEPS - 1) return fail(&c, "more than %d steps", SCRIPT_MAX_STEPS - 1);
-            if (!parse_step(&c, s, steps != NULL ? &steps[ns] : &scratch)) return false;
-            ns++;
+            int*   n = cheeses[0] ? &n_cheese : &ns;
+            if (*n >= SCRIPT_MAX_STEPS - 1) return fail(&c, "more than %d steps", SCRIPT_MAX_STEPS - 1);
+            if (!parse_step(&c, s, steps != NULL && !cheeses[0] ? &steps[ns] : &scratch)) return false;
+            (*n)++;
             continue;
         }
         if (strcmp(s, "solution") == 0) {
@@ -419,6 +447,8 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             have_size = true;
         } else if (strcmp(k, "facing") == 0) {
             if (!facing_of(v, &lv->spawn_yaw)) return fail(&c, "facing: north, east, south, west or degrees");
+        } else if (chamber_review_key(k)) {
+            // review.c reads these.
         } else {
             return fail(&c, "unknown key \"%s\"", k);
         }
@@ -712,26 +742,49 @@ char const* chamber_facing_name(float yaw) {
     return d == 0 ? "north" : d == 90 ? "east" : d == 180 ? "south" : d == 270 ? "west" : NULL;
 }
 
-bool chamber_parse_steps(char const* text, step_t* steps, int* n_steps, char* err, size_t err_n) {
+// The steps from the line that reads `section` (NULL: from the start) to
+// the next cheese section.
+static bool parse_steps_of(char const* text, char const* section, step_t* steps, int* n_steps, char* err,
+                           size_t err_n) {
     ctx_t       c = {err, err_n, 0};
     char        buf[256];
     bool        long_line = false;
     char const* p         = text;
     int         ns        = 0;
+    bool        in        = section == NULL;
     if (err_n > 0) err[0] = '\0';
     if (strncmp(p, "\xEF\xBB\xBF", 3) == 0) p += 3;
     while (next_line(&p, buf, sizeof(buf), &long_line)) {
         c.line++;
+        // A map row may be too long to read here, and is not a step.
+        if (!in) {
+            if (!long_line && strcmp(trim(buf), section) == 0) in = true;
+            continue;
+        }
         if (long_line) return fail(&c, "line longer than %d characters", (int)sizeof(buf) - 1);
         char* const s = trim(buf);
+        if (cheese_section(s)) break;
         if (*s == '\0' || strncmp(s, "//", 2) == 0 || strcmp(s, "solution") == 0) continue;
         if (ns >= SCRIPT_MAX_STEPS - 1) return fail(&c, "more than %d steps", SCRIPT_MAX_STEPS - 1);
         if (!parse_step(&c, s, &steps[ns])) return false;
         ns++;
     }
+    if (!in) {
+        snprintf(err, err_n, "no \"%s\"", section);
+        return false;
+    }
     steps[ns] = (step_t){0};
     if (n_steps) *n_steps = ns;
     return true;
+}
+
+bool chamber_parse_steps(char const* text, step_t* steps, int* n_steps, char* err, size_t err_n) {
+    return parse_steps_of(text, NULL, steps, n_steps, err, err_n);
+}
+
+bool chamber_parse_section(char const* text, char const* section, step_t* steps, int* n_steps, char* err,
+                           size_t err_n) {
+    return parse_steps_of(text, section, steps, n_steps, err, err_n);
 }
 
 int chamber_write(level_t const* lv, step_t const* steps, int n_steps, char* out, size_t out_n) {

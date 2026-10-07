@@ -23,6 +23,9 @@
 //   shoot blue 1.0 1.9 4.5
 //   walk_to 12 4.5
 //
+//   cheese a                     optional, after it: a run that cheeses
+//   ...                          it (review.h), each up to the next
+//
 //   // a comment, anywhere outside a layer's lines
 
 #include <stdbool.h>
@@ -51,6 +54,12 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
 // A script on its own, as a solution is written (a "solution" line may
 // head it): tas/NN-name.txt, a route for the chamber of that name.
 bool chamber_parse_steps(char const* text, step_t* steps, int* n_steps, char* err, size_t err_n);
+// One section of a chamber file's routes: "solution", or "cheese a", a
+// route that cheeses it (review.h) -- after the solution, each up to the
+// next.
+bool chamber_parse_section(char const* text, char const* section, step_t* steps, int* n_steps, char* err, size_t err_n);
+// The keys review.c reads (review.h), which the chamber's own parse skips.
+bool chamber_review_key(char const* key);
 
 // Write `lv` out in the file format, solution and all (`steps` may be
 // NULL). Returns the length, or -1 if `out` was too small.

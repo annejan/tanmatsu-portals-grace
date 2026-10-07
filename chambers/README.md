@@ -174,3 +174,42 @@ game time.
 
 Lines that start with `//` are comments. You can write them anywhere except
 between the lines of a layer.
+
+## Review rounds
+
+A story pack's rounds (`main/review.h`) are chambers with a few more
+header keys: GLaDOS's draft of a chamber, and what reaching its exit says
+about the way you went.
+
+```
+review: flawed
+intended: button 3 by cube, no button 3 by player, button 1 by turret, no topple
+flaw: a button 3 by player -- No cube on the third button: you stood there.
+fix: a 6 1 6 #K
+```
+
+- `review:` `flawed` (cheese it: solving it the meant way teaches GLaDOS
+  nothing), `final` (solve it as meant) or `broken` (fix it in the
+  debugger first).
+- `intended:` the meant way, as terms that must all have held. `no `
+  before a term says it must not have.
+- `flaw: X <terms> -- <what it is>`: a known flaw, a letter `a`-`z`. A run
+  whose terms hold found it.
+- `fix: X x y z FT`: what patches flaw X: the cells x y z (each a number
+  or a range `lo-hi`), from map character F to T. Every flaw needs one;
+  the next round plays the chamber with the flaws found so far fixed.
+- `debug: N FT FT ...`: a broken chamber's debugger: N changes, each one
+  of these (`#W`: metal to white).
+- `repair: x y z FT`: a repair that works; the tests check it does.
+
+The terms: `portal`, `cube portal`, `shots N` (at most N), `pickup`,
+`press`, `dropper`, `button N` (`by player`, `cube`, `sphere`, `turret`,
+`fallen`, `beam`, `pellet` or `hand`), `door X`, `launch` and
+`cube launch` (`N`: that faith plate, in reading order), `bounce`, `paint`,
+`pellet`, `topple`, `spotted`, `fizzle`, `burn`, `speed`, `float`, `ride`,
+`ride holding`, `bridge`, `platform`.
+
+After the solution, `cheese a` (and `cheese b`, ...) sections are routes
+that cheese it, each up to the next. `build/host_review FILE` plays them
+all and judges each (`-patch a` with flaw a's fix in; `-repair` with the
+repairs); `make check` runs `host_review selftest`.

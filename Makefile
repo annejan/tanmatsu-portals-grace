@@ -67,12 +67,12 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c main/pack.c \
+HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c main/pack.c main/review.c \
                $(BUILD)/generated/chambers_builtin.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -89,6 +89,8 @@ check: chambers_c host_shot
 	BUILD="$(BUILD)" $(BUILD)/host_shot selftest
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_test.c $(HOST_SRCS) -lm -o $(BUILD)/host_test
 	BUILD="$(BUILD)" $(BUILD)/host_test
+	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Imain tests/host_review.c $(HOST_SRCS) -lm -o $(BUILD)/host_review
+	$(BUILD)/host_review selftest
 	# input.c against the badge's own headers (after the system's, so they
 	# shadow nothing) and tests/shims for the ESP-IDF bits those want.
 	$(HOSTCC) -O1 -g -Wall -Wextra -Werror -Itests/shims $(HOST_ENGINE) -Imain -idirafter include tests/host_input.c -lm -o $(BUILD)/host_input
@@ -131,6 +133,12 @@ movie: host_movie
 host_tas: chambers_c
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_tas.c $(HOST_SRCS) -lm -o $(BUILD)/host_tas
+
+# Play a chamber file's solution and cheese routes, judged as a story
+# round judges them (review.h).
+host_review: chambers_c
+	mkdir -p $(BUILD)
+	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_review.c $(HOST_SRCS) -lm -o $(BUILD)/host_review
 
 tas: host_tas $(if $(TASFILM),host_movie)
 	python3 tools/tas.py $(if $(TASFILM),--film $(TASFILM))

@@ -97,6 +97,32 @@ bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, si
         for (int z = 0; z < d->d; z++)
             for (int x = 0; x < d->w; x++) d->grid[y][z][x] = chamber_cell_char(lv, x, y, z);
     if (sol != NULL) snprintf(d->solution, sizeof(d->solution), "%s", sol);
+    // The review keys, as they were: the editor does not change them.
+    size_t      kept = 0;
+    char const* line = text;
+    for (; line != NULL && line != sol && *line != '\0';) {
+        char const* const end = strchr(line, '\n');
+        size_t const      len = end != NULL ? (size_t)(end - line) : strlen(line);
+        char              key[16];
+        size_t            k  = 0;
+        size_t            at = 0;
+        while (at < len && (line[at] == ' ' || line[at] == '\t')) at++;
+        while (at + k < len && k < sizeof(key) - 1 && isalpha((unsigned char)line[at + k])) key[k] = line[at + k], k++;
+        key[k] = '\0';
+        if (at + k < len && line[at + k] == ':' && chamber_review_key(key)) {
+            if (kept + len + 2 > sizeof(d->review)) {
+                snprintf(err, err_n, "its review keys are longer than the editor keeps (%d bytes)",
+                         (int)sizeof(d->review) - 1);
+                return false;
+            }
+            memcpy(d->review + kept, line, len);
+            kept += len;
+            if (kept > 0 && d->review[kept - 1] == '\r') kept--;
+            d->review[kept++] = '\n';
+            d->review[kept]   = '\0';
+        }
+        line = end != NULL ? end + 1 : NULL;
+    }
     return true;
 }
 
@@ -114,6 +140,7 @@ static int write_text(draft_t const* d, char* out, size_t n, bool solution) {
     if (d->timer != LV_TIMER_S) PUT("timer: %g\n", (double)d->timer);
     if (d->platform_link >= 0) PUT("platform: %c\n", chamber_button_char(d->platform_link));
     if (d->funnel_link >= 0) PUT("funnel: %c\n", chamber_button_char(d->funnel_link));
+    if (d->review[0]) PUT("%s", d->review);
     PUT("size: %d %d %d\n", d->w, d->h, d->d);
     char const* const facing = chamber_facing_name(d->yaw);
     if (facing != NULL)

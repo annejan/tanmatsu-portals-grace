@@ -25,6 +25,7 @@ set(APP_SOURCES
     main/level.c
     main/menu.c
     main/pack.c
+    main/review.c
     main/physics.c
     main/player.c
     main/portal.c
