@@ -8,6 +8,11 @@ static int idx(level_t const* lv, int x, int y, int z) {
     return (y * lv->d + z) * lv->w + x;
 }
 
+level_t* level_scratch(void) {
+    static level_t lv;
+    return &lv;
+}
+
 uint8_t level_get(level_t const* lv, int x, int y, int z) {
     if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return MAT_METAL;
     return lv->cells[idx(lv, x, y, z)];
@@ -42,9 +47,11 @@ bool level_set_paint(level_t* lv, int x, int y, int z, int gel) {
     uint8_t const m = level_get(lv, x, y, z);
     if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return false;
     if (m != MAT_WHITE && m != MAT_METAL) return false;
-    uint8_t* const p = &lv->paint[idx(lv, x, y, z)];
+    int const      i = idx(lv, x, y, z);
+    uint8_t* const p = &lv->paint[i];
     if (*p == gel) return false;
-    *p = (uint8_t)gel;
+    *p                                          = (uint8_t)gel;
+    lv->paint_log[lv->paint_n++ % LV_PAINT_LOG] = (uint32_t)i;
     return true;
 }
 
@@ -53,8 +60,10 @@ bool level_portalable(level_t const* lv, int x, int y, int z) {
 }
 
 void level_set(level_t* lv, int x, int y, int z, uint8_t m) {
+    static uint32_t serial;  // every level made gets its own (render.c)
     if (x < 0 || y < 0 || z < 0 || x >= lv->w || y >= lv->h || z >= lv->d) return;
     lv->cells[idx(lv, x, y, z)] = m;
+    lv->serial                  = ++serial;
 }
 
 int level_count(void) {
@@ -137,84 +146,95 @@ int level_clear_faces(level_t const* lv) {
     return n;
 }
 
-int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out) {
-    int const dims[3] = {lv->w, lv->h, lv->d};
-    int       n       = 0;
-    uint8_t   mask[LV_MAX_W * LV_MAX_D];  // the largest u x v plane
-
-    for (int face = 0; face < 6; face++) {
-        int const a    = face / 2;
-        int const sign = (face % 2 == 0) ? 1 : -1;
-        int const ua   = (a + 1) % 3;
-        int const va   = (a + 2) % 3;
-        int const nu   = dims[ua];
-        int const nv   = dims[va];
-        for (int s = 0; s < dims[a]; s++) {
-            for (int j = 0; j < nv; j++) {
-                for (int i = 0; i < nu; i++) {
-                    int c[3];
-                    c[a]                      = s;
-                    c[ua]                     = i;
-                    c[va]                     = j;
-                    uint8_t const m           = level_get(lv, c[0], c[1], c[2]);
-                    int           e[3]        = {c[0], c[1], c[2]};
-                    e[a]                     += sign;
-                    // Doors, glass and fizzlers are drawn by the game, not the
-                    // mesh: their cells are open space here, so what is
-                    // round and behind them shows.
-                    uint8_t const        n    = level_get(lv, e[0], e[1], e[2]);
-                    bool const           vis  = !level_open(m) && m != MAT_GLASS && (level_open(n) || n == MAT_GLASS) &&
-                                                !is_hole(holes, n_holes, c[0], c[1], c[2], face);
-                    // A painted face is meshed as its paint.
-                    static uint8_t const painted[] = {0, MAT_PAINT_BLUE, MAT_PAINT_ORANGE, MAT_PAINT_WHITE};
-                    int const            gel       = vis ? level_paint(lv, c[0], c[1], c[2]) : GEL_NONE;
-                    mask[j * nu + i]               = !vis ? MAT_AIR : gel != GEL_NONE ? painted[gel] : m;
-                }
-            }
-            for (int j = 0; j < nv; j++) {
-                for (int i = 0; i < nu;) {
-                    uint8_t const m = mask[j * nu + i];
-                    if (m == MAT_AIR) {
-                        i++;
-                        continue;
-                    }
-                    int w = 1;
-                    while (i + w < nu && mask[j * nu + i + w] == m) w++;
-                    int  h    = 1;
-                    bool grow = true;
-                    while (grow && j + h < nv) {
-                        for (int k = 0; k < w; k++)
-                            if (mask[(j + h) * nu + i + k] != m) {
-                                grow = false;
-                                break;
-                            }
-                        if (grow) h++;
-                    }
-                    for (int jj = 0; jj < h; jj++)
-                        for (int k = 0; k < w; k++) mask[(j + jj) * nu + i + k] = MAT_AIR;
-
-                    if (out != NULL && n < max_out) {
-                        float o[3], du[3] = {0}, dv[3] = {0};
-                        o[a]   = (float)(s + (sign > 0 ? 1 : 0));
-                        o[ua]  = (float)i;
-                        o[va]  = (float)j;
-                        du[ua] = (float)w;
-                        dv[va] = (float)h;
-                        out[n] = (mquad_t){
-                            .origin = v3(o[0], o[1], o[2]),
-                            .du     = v3(du[0], du[1], du[2]),
-                            .dv     = v3(dv[0], dv[1], dv[2]),
-                            .n      = dir_vec(face),
-                            .su     = (float)w,
-                            .sv     = (float)h,
-                            .mat    = m,
-                        };
-                    }
-                    n++;
-                    i += w;
-                }
-            }
+int level_mesh_slice(level_t const* lv, hole_t const* holes, int n_holes, int face, int s, mquad_t* out, int max_out) {
+    int const      dims[3] = {lv->w, lv->h, lv->d};
+    int            n       = 0;
+    // The largest u x v plane, whichever two of the three it is; static:
+    // off the task's stack, which a big one would not fit.
+    static uint8_t mask[(LV_MAX_W > LV_MAX_H ? LV_MAX_W : LV_MAX_H) * (LV_MAX_D > LV_MAX_H ? LV_MAX_D : LV_MAX_H)];
+    int const      a    = face / 2;
+    int const      sign = (face % 2 == 0) ? 1 : -1;
+    int const      ua   = (a + 1) % 3;
+    int const      va   = (a + 2) % 3;
+    int const      nu   = dims[ua];
+    int const      nv   = dims[va];
+    for (int j = 0; j < nv; j++) {
+        for (int i = 0; i < nu; i++) {
+            int c[3];
+            c[a]                            = s;
+            c[ua]                           = i;
+            c[va]                           = j;
+            uint8_t const m                 = level_get(lv, c[0], c[1], c[2]);
+            int           e[3]              = {c[0], c[1], c[2]};
+            e[a]                           += sign;
+            // Doors, glass and fizzlers are drawn by the game, not the
+            // mesh: their cells are open space here, so what is
+            // round and behind them shows.
+            uint8_t const        n          = level_get(lv, e[0], e[1], e[2]);
+            bool const           vis        = !level_open(m) && m != MAT_GLASS && (level_open(n) || n == MAT_GLASS) &&
+                                              !is_hole(holes, n_holes, c[0], c[1], c[2], face);
+            // A painted face is meshed as its paint.
+            static uint8_t const painted[]  = {0, MAT_PAINT_BLUE, MAT_PAINT_ORANGE, MAT_PAINT_WHITE};
+            int const            gel        = vis ? level_paint(lv, c[0], c[1], c[2]) : GEL_NONE;
+            mask[j * nu + i]                = !vis ? MAT_AIR : gel != GEL_NONE ? painted[gel] : m;
         }
     }
+    for (int j = 0; j < nv; j++) {
+        for (int i = 0; i < nu;) {
+            uint8_t const m = mask[j * nu + i];
+            if (m == MAT_AIR) {
+                i++;
+                continue;
+            }
+            int w = 1;
+            while (i + w < nu && mask[j * nu + i + w] == m) w++;
+            int  h    = 1;
+            bool grow = true;
+            while (grow && j + h < nv) {
+                for (int k = 0; k < w; k++)
+                    if (mask[(j + h) * nu + i + k] != m) {
+                        grow = false;
+                        break;
+                    }
+                if (grow) h++;
+            }
+            for (int jj = 0; jj < h; jj++)
+                for (int k = 0; k < w; k++) mask[(j + jj) * nu + i + k] = MAT_AIR;
+
+            if (out != NULL && n < max_out) {
+                float o[3], du[3] = {0}, dv[3] = {0};
+                o[a]   = (float)(s + (sign > 0 ? 1 : 0));
+                o[ua]  = (float)i;
+                o[va]  = (float)j;
+                du[ua] = (float)w;
+                dv[va] = (float)h;
+                out[n] = (mquad_t){
+                    .origin = v3(o[0], o[1], o[2]),
+                    .du     = v3(du[0], du[1], du[2]),
+                    .dv     = v3(dv[0], dv[1], dv[2]),
+                    .n      = dir_vec(face),
+                    .su     = (float)w,
+                    .sv     = (float)h,
+                    .mat    = m,
+                };
+            }
+            n++;
+            i += w;
+        }
+    }
+    return n;
+}
+
+int level_mesh_slices(level_t const* lv, int face) {
+    int const dims[3] = {lv->w, lv->h, lv->d};
+    return dims[face / 2];
+}
+
+int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out) {
+    int n = 0;
+    for (int face = 0; face < 6; face++)
+        for (int s = 0; s < level_mesh_slices(lv, face); s++)
+            n += level_mesh_slice(lv, holes, n_holes, face, s, out != NULL && n < max_out ? out + n : NULL,
+                                  max_out - n > 0 ? max_out - n : 0);
     return n;
 }

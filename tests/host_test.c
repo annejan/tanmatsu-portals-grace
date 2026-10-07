@@ -31,7 +31,12 @@ static int s_fail;
 // Two levels the same in every field. chamber_parse clears a level before
 // it fills it, padding included, so memcmp is exact.
 static bool level_same(level_t const* a, level_t const* b) {
-    return memcmp(a, b, sizeof(*a)) == 0;
+    // Its serial aside: every level made gets its own (render.c).
+    static level_t x, y;
+    x        = *a;
+    y        = *b;
+    x.serial = y.serial = 0;
+    return memcmp(&x, &y, sizeof(x)) == 0;
 }
 
 static bool near3(vec3_t a, vec3_t b, float eps) {
@@ -1362,7 +1367,7 @@ static void test_record_replay(void) {
 // The biggest chamber there can be: a hall 64 x 32 x 64, the exit at its
 // far end. It is read, meshed in few faces, and walked across.
 static void test_big_chamber(void) {
-    static char    text[160 * 1024];
+    static char    text[CHAMBER_FILE_MAX];
     static level_t lv;
     static game_t  g;
     static step_t  steps[SCRIPT_MAX_STEPS];

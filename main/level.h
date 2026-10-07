@@ -12,12 +12,13 @@
 // The biggest chamber, in cells (one metre each), its walls included.
 // Each cell takes two bytes in a level_t (its solid, and its gel), and
 // the app keeps several levels (in play, being parsed, listed, edited):
-// about 260 KB each at this size. A cell's x, y and z must each fit a
+// about 1 MB each at this size. A cell's x, y and z must each fit a
 // byte (chamber.c's crusher flood fill).
-#define LV_MAX_W 64
+#define LV_MAX_W 128
 #define LV_MAX_H 32
-#define LV_MAX_D 64
+#define LV_MAX_D 128
 _Static_assert(LV_MAX_W <= 256 && LV_MAX_H <= 256 && LV_MAX_D <= 256, "a cell's x, y, z must each fit a byte");
+#define LV_PAINT_LOG 256  // cells painted, remembered (level_t.paint_log)
 
 typedef enum {
     MAT_AIR = 0,
@@ -198,7 +199,13 @@ typedef struct {
     gel_src_t  gels[LV_MAX_GELS];
     int        n_gels;
     uint8_t    paint[LV_MAX_W * LV_MAX_H * LV_MAX_D];  // gel_t per cell: state, painted in play
-    platform_t platform;                               // M cells and the N cell; none when n_platforms is 0
+    // For render.c, which meshes only what changed: which cells these are
+    // (a new serial whenever a cell is set; a copy keeps it), and the
+    // cells painted, the last LV_PAINT_LOG of paint_n so far.
+    uint32_t   serial;
+    uint32_t   paint_n;
+    uint32_t   paint_log[LV_PAINT_LOG];
+    platform_t platform;       // M cells and the N cell; none when n_platforms is 0
     int        platform_link;  // -1: it always moves; else only while that link's buttons are all down
     int        n_platforms;
 } level_t;
@@ -221,17 +228,22 @@ int  level_count(void);
 // if its file does not parse.
 bool level_load(level_t* lv, int index);
 
-uint8_t level_get(level_t const* lv, int x, int y, int z);
-void    level_set(level_t* lv, int x, int y, int z, uint8_t m);
+uint8_t  level_get(level_t const* lv, int x, int y, int z);
+void     level_set(level_t* lv, int x, int y, int z, uint8_t m);
 // Solid to bodies and shots: anything but air, a fizzler and an open door.
-bool    level_solid(level_t const* lv, int x, int y, int z);
+bool     level_solid(level_t const* lv, int x, int y, int z);
 // The gel on a cell, and painting it (a cell that takes no paint keeps none).
-int     level_paint(level_t const* lv, int x, int y, int z);
-bool    level_set_paint(level_t* lv, int x, int y, int z, int gel);
+int      level_paint(level_t const* lv, int x, int y, int z);
+// A level to parse into for a moment -- to check a file, read a chamber's
+// name, build its solution -- shared: at the biggest size a level is a
+// megabyte, and every caller had its own. Nothing may keep it, or call
+// anything that uses it, while it is in use.
+level_t* level_scratch(void);
+bool     level_set_paint(level_t* lv, int x, int y, int z, int gel);
 // A portal sticks to it: a white panel, or anything painted white.
-bool    level_portalable(level_t const* lv, int x, int y, int z);
+bool     level_portalable(level_t const* lv, int x, int y, int z);
 // The door whose cells hold (x, y, z), or -1.
-int     level_door_at(level_t const* lv, int x, int y, int z);
+int      level_door_at(level_t const* lv, int x, int y, int z);
 // A door counts as open, to walk or shoot through, from this far open.
 #define DOOR_PASSABLE 0.9f
 
@@ -271,5 +283,10 @@ typedef struct {
 // Returns how many rectangles the chamber needs, writing at most `max_out`
 // of them (`out` may be NULL to only count).
 int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out);
+// The same, one slice at a time -- the faces facing `face` (DIR_*) in
+// slice `s` along its axis, 0 .. level_mesh_slices() - 1 -- in the order
+// level_mesh() gives them: what to re-mesh when a portal moves (render.c).
+int level_mesh_slice(level_t const* lv, hole_t const* holes, int n_holes, int face, int s, mquad_t* out, int max_out);
+int level_mesh_slices(level_t const* lv, int face);
 // The faces of glass and fizzler a chamber needs drawn.
 int level_clear_faces(level_t const* lv);

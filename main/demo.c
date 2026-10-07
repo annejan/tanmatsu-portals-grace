@@ -69,10 +69,9 @@ int demo_chamber(int i) {
 
 bool demo_has_solution(int i) {
     if (i < N_FIXED) return true;
-    static step_t  steps[SCRIPT_MAX_STEPS];
-    static level_t lv;
-    int            n = 0;
-    return chamber_build(i - N_FIXED, &lv, steps, &n) && n > 0;
+    static step_t steps[SCRIPT_MAX_STEPS];
+    int           n = 0;
+    return chamber_build(i - N_FIXED, level_scratch(), steps, &n) && n > 0;
 }
 
 static void face_point(player_t* p, vec3_t target) {
@@ -216,9 +215,8 @@ step_t const* demo_steps(int i) {
     static step_t parsed[SCRIPT_MAX_STEPS];
     if (i < 0 || i >= demo_count()) return NULL;
     if (i < N_FIXED) return s_demos[i].steps;
-    static level_t lv;
-    int            n = 0;
-    if (!chamber_build(i - N_FIXED, &lv, parsed, &n)) parsed[0] = (step_t){0};
+    int n = 0;
+    if (!chamber_build(i - N_FIXED, level_scratch(), parsed, &n)) parsed[0] = (step_t){0};
     return parsed;
 }
 

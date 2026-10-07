@@ -32,8 +32,8 @@
 #include "script.h"
 
 #define CHAMBER_MAX      40
-#define CHAMBER_ID_N     64            // an id is its file's name without .txt
-#define CHAMBER_FILE_MAX (512 * 1024)  // a chamber file at most: a 64 x 32 x 64 one is about 140 KB
+#define CHAMBER_ID_N     64             // an id is its file's name without .txt
+#define CHAMBER_FILE_MAX (1024 * 1024)  // a chamber file at most: a 128 x 32 x 128 one is about 540 KB
 
 typedef struct {
     char const* id;  // file name without .txt, e.g. "01-gap"

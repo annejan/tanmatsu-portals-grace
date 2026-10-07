@@ -563,7 +563,13 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                 if (level_get(lv, x, y, z) != MAT_CRUSHER) continue;
                 if (lv->n_crushers >= LV_MAX_CRUSHERS) return fail(&c, "more than %d crushers", LV_MAX_CRUSHERS);
                 // A cell's x, y, z each fit a byte (level.h): 3 bytes a cell.
-                static uint8_t stack[LV_MAX_W * LV_MAX_H * LV_MAX_D][3];
+                // A crusher is a box, never near the whole chamber: room
+                // for CRUSHER_CELLS_MAX of them (each pops one, pushes at
+                // most six; a box is refused long before this fills).
+                enum {
+                    CRUSHER_CELLS_MAX = 16384
+                };
+                static uint8_t stack[CRUSHER_CELLS_MAX + 6][3];
                 int            top = 0, cells = 0, lo[3] = {x, y, z}, hi[3] = {x, y, z};
                 stack[top][0] = (uint8_t)x, stack[top][1] = (uint8_t)y, stack[top][2] = (uint8_t)z, top++;
                 level_set(lv, x, y, z, MAT_AIR);
@@ -575,6 +581,9 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         if (p[a] < lo[a]) lo[a] = p[a];
                         if (p[a] > hi[a]) hi[a] = p[a];
                     }
+                    if (cells > CRUSHER_CELLS_MAX)
+                        return fail(&c, "the crusher at %d %d %d is too big: over %d cells", x, y, z,
+                                    CRUSHER_CELLS_MAX);
                     for (int dir = 0; dir < 6; dir++) {
                         int dx, dy, dz;
                         dir_step(dir, &dx, &dy, &dz);
@@ -1017,9 +1026,8 @@ int chamber_load_dir(char const* dir) {
         }
         fclose(f);
         text[size] = '\0';
-        static level_t check;  // static: a level is too big for the stack
-        char           err[96];
-        if (!chamber_parse(text, &check, NULL, NULL, err, sizeof(err))) {
+        char err[96];
+        if (!chamber_parse(text, level_scratch(), NULL, NULL, err, sizeof(err))) {
             LOGW("%s: %s -- skipped", path, err);
             free(text);
             continue;
@@ -1028,7 +1036,7 @@ int chamber_load_dir(char const* dir) {
         snprintf(s_list[s_n].id, sizeof(s_list[s_n].id), "%.*s", (int)len, order[i]);
         s_list[s_n].owned  = true;
         s_list[s_n++].text = text;
-        LOGI("%s: %s", path, check.name);
+        LOGI("%s: %s", path, level_scratch()->name);
         added++;
     }
     int const left = (n - i) + (s_listed - n);

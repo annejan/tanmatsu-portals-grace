@@ -1,5 +1,6 @@
 #include "render.h"
 #include <stdio.h>
+#include <string.h>
 #include "esp_log.h"
 #include "synthengine3d.h"
 
@@ -137,6 +138,119 @@ static void build_clear(level_t const* lv) {
             }
 }
 
+// --- The mesh, slice by slice ---------------------------------------------
+//
+// Meshing a whole chamber takes time in proportion to its volume: a
+// 64 x 32 x 64 one took 270 ms on the badge, at every portal shot. So
+// each slice's rectangles are kept (s_quads holds them in level_mesh()'s
+// order, slice after slice), and only the slices a change touches are
+// meshed again: a portal's old and new holes, and the cells gel has
+// painted since. A chamber whose cells differ is meshed whole.
+
+#define SLICES_MAX (2 * (LV_MAX_W + LV_MAX_H + LV_MAX_D))
+#define CELLS_MAX  (LV_MAX_W * LV_MAX_H * LV_MAX_D)
+
+static int16_t s_slice_at[SLICES_MAX], s_slice_n[SLICES_MAX];     // each slice's rectangles, in s_quads
+static uint8_t s_mesh_cells[CELLS_MAX], s_mesh_paint[CELLS_MAX];  // the chamber they were meshed from
+static int     s_mesh_dims[3];
+static hole_t  s_mesh_holes[4];
+static int     s_mesh_nh = -1;  // -1: nothing meshed yet
+static bool    s_dirty[SLICES_MAX];
+
+// The slice `face` (DIR_*) / `s`: its index, faces in level_mesh()'s order.
+static int slice_of(int const dims[3], int face, int s) {
+    int k = 0;
+    for (int f = 0; f < face; f++) k += dims[f / 2];
+    return k + s;
+}
+
+// The six slices through cell c: each face of it.
+static void dirty_cell(int const dims[3], int const c[3]) {
+    for (int f = 0; f < 6; f++) s_dirty[slice_of(dims, f, c[f / 2])] = true;
+}
+
+// The mesh brought up to date with `lv` and its holes; true if the
+// chamber itself is another (meshed whole). A portal shot costs only its
+// slices: the cells are compared only when the level's serial changes,
+// and the paint through its log of painted cells.
+static uint32_t s_mesh_serial, s_mesh_paint_n;
+static bool     remesh(level_t const* lv, hole_t const* holes, int nh) {
+    int const    dims[3] = {lv->w, lv->h, lv->d};
+    size_t const cells   = (size_t)lv->w * (size_t)lv->h * (size_t)lv->d;
+    int const    slices  = 2 * (lv->w + lv->h + lv->d);
+    bool const   fresh_l = s_mesh_nh < 0 || lv->serial != s_mesh_serial || memcmp(dims, s_mesh_dims, sizeof(dims)) != 0;
+    bool const   whole   = fresh_l && (s_mesh_nh < 0 || memcmp(dims, s_mesh_dims, sizeof(dims)) != 0 ||
+                                       memcmp(lv->cells, s_mesh_cells, cells) != 0);
+    memset(s_dirty, whole, (size_t)slices);
+    if (!whole) {
+        // The holes that came or went: their slices.
+        bool const same = nh == s_mesh_nh && memcmp(holes, s_mesh_holes, (size_t)nh * sizeof(hole_t)) == 0;
+        for (int i = 0; !same && i < nh + s_mesh_nh; i++) {
+            hole_t const* const h    = i < nh ? &holes[i] : &s_mesh_holes[i - nh];
+            int const           c[3] = {h->x, h->y, h->z};
+            if (h->face >= 0 && h->face < 6 && c[h->face / 2] >= 0 && c[h->face / 2] < dims[h->face / 2])
+                s_dirty[slice_of(dims, h->face, c[h->face / 2])] = true;
+        }
+        // The cells gel has painted: from the log, or -- the same cells
+        // made anew (a restart), the log run past or gone back -- all of
+        // them compared. (Cells are kept x fastest, then z, then y:
+        // level.c's idx().)
+        uint32_t const since = lv->paint_n - s_mesh_paint_n;
+        if (fresh_l || lv->paint_n < s_mesh_paint_n || since > LV_PAINT_LOG) {
+            if (memcmp(lv->paint, s_mesh_paint, cells) != 0)
+                for (size_t i = 0; i < cells; i++)
+                    if (lv->paint[i] != s_mesh_paint[i]) {
+                        int const c[3] = {(int)(i % (size_t)lv->w), (int)(i / ((size_t)lv->w * (size_t)lv->d)),
+                                          (int)(i / (size_t)lv->w % (size_t)lv->d)};
+                        dirty_cell(dims, c);
+                    }
+            memcpy(s_mesh_paint, lv->paint, cells);
+        } else {
+            for (uint32_t k = s_mesh_paint_n; k != lv->paint_n; k++) {
+                size_t const i    = lv->paint_log[k % LV_PAINT_LOG];
+                int const    c[3] = {(int)(i % (size_t)lv->w), (int)(i / ((size_t)lv->w * (size_t)lv->d)),
+                                     (int)(i / (size_t)lv->w % (size_t)lv->d)};
+                dirty_cell(dims, c);
+                s_mesh_paint[i] = lv->paint[i];
+            }
+        }
+    }
+    // The new mesh: the dirty slices meshed, the rest as they were.
+    static mquad_t fresh[LV_MAX_QUADS];
+    int            n = 0, k = 0;
+    for (int face = 0; face < 6; face++)
+        for (int s = 0; s < dims[face / 2]; s++, k++) {
+            int got;
+            if (s_dirty[k]) {
+                got = level_mesh_slice(lv, holes, nh, face, s, fresh + n, LV_MAX_QUADS - n);
+                if (got > LV_MAX_QUADS - n) got = LV_MAX_QUADS - n;  // the parser refuses such chambers
+            } else {
+                got = s_slice_n[k];
+                memcpy(fresh + n, s_quads + s_slice_at[k], (size_t)got * sizeof(mquad_t));
+            }
+            s_slice_at[k]  = (int16_t)n;
+            s_slice_n[k]   = (int16_t)got;
+            n             += got;
+        }
+    memcpy(s_quads, fresh, (size_t)n * sizeof(mquad_t));
+    s_nquads = n;
+    if (whole) {
+        memcpy(s_mesh_cells, lv->cells, cells);
+        memcpy(s_mesh_paint, lv->paint, cells);
+    }
+    memcpy(s_mesh_dims, dims, sizeof(dims));
+    memcpy(s_mesh_holes, holes, (size_t)nh * sizeof(hole_t));
+    s_mesh_nh      = nh;
+    s_mesh_serial  = lv->serial;
+    s_mesh_paint_n = lv->paint_n;
+    return whole;
+}
+
+int render_quads(mquad_t const** quads) {
+    *quads = s_quads;
+    return s_nquads;
+}
+
 static int      s_last_shot;  // the portal last moved: Chell's gun glows its colour
 static portal_t s_prev[2];
 
@@ -160,14 +274,14 @@ void render_set_level(level_t const* lv, portal_t const portals[2]) {
             holes[nh++] =
                 (hole_t){portals[i].cell[c][0], portals[i].cell[c][1], portals[i].cell[c][2], portals[i].face};
     }
-    s_nquads = level_mesh(lv, holes, nh, s_quads, LV_MAX_QUADS);
-    if (s_nquads > LV_MAX_QUADS) s_nquads = LV_MAX_QUADS;  // the parser refuses such chambers
-    build_clear(lv);
-    // Far off, so it is a direction: the engine lights each triangle on
-    // its own, and a near light shades the two halves of a big merged
-    // quad differently, leaving a seam along the diagonal.
-    vec3_t const centre = v3((float)lv->w * 0.5f, (float)lv->h * 0.5f, (float)lv->d * 0.5f);
-    s_light             = v3_mad(centre, v3_norm(v3(0.35f, 1.0f, -0.55f)), 5000.0f);
+    if (remesh(lv, holes, nh)) {
+        build_clear(lv);
+        // Far off, so it is a direction: the engine lights each triangle on
+        // its own, and a near light shades the two halves of a big merged
+        // quad differently, leaving a seam along the diagonal.
+        vec3_t const centre = v3((float)lv->w * 0.5f, (float)lv->h * 0.5f, (float)lv->d * 0.5f);
+        s_light             = v3_mad(centre, v3_norm(v3(0.35f, 1.0f, -0.55f)), 5000.0f);
+    }
 }
 
 void render_set_portal_depth(int depth) {

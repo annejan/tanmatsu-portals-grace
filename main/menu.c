@@ -48,7 +48,8 @@ enum {
     A_BACK  = 32
 };
 
-static level_t s_lv;  // for a chamber's name: parsing one is too big for the stack
+// For a chamber's name: the shared scratch level (level.h).
+#define s_lv (*level_scratch())
 
 static void go(screen_t s) {
     s_scr = s;

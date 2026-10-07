@@ -72,8 +72,8 @@ static char const* solution_line(char const* text) {
 }
 
 bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, size_t err_n) {
-    static level_t lv;  // static: a level is too big for the stack
-    if (!chamber_parse(text, &lv, NULL, NULL, err, err_n)) return false;
+    level_t* const lv = level_scratch();
+    if (!chamber_parse(text, lv, NULL, NULL, err, err_n)) return false;
     // The solution, kept as text: the editor does not change it. Cut short,
     // the file would no longer read back once saved.
     char const* const sol = solution_line(text);
@@ -83,19 +83,19 @@ bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, si
     }
     memset(d, 0, sizeof(*d));
     snprintf(d->id, sizeof(d->id), "%s", id);
-    snprintf(d->name, sizeof(d->name), "%s", lv.name);
-    snprintf(d->hint, sizeof(d->hint), "%s", lv.hint);
-    snprintf(d->story, sizeof(d->story), "%s", lv.story);
-    d->timer         = lv.timer;
-    d->platform_link = lv.platform_link;
-    d->funnel_link   = lv.funnel_link;
-    d->w             = lv.w;
-    d->h             = lv.h;
-    d->d             = lv.d;
-    d->yaw           = lv.spawn_yaw;
+    snprintf(d->name, sizeof(d->name), "%s", lv->name);
+    snprintf(d->hint, sizeof(d->hint), "%s", lv->hint);
+    snprintf(d->story, sizeof(d->story), "%s", lv->story);
+    d->timer         = lv->timer;
+    d->platform_link = lv->platform_link;
+    d->funnel_link   = lv->funnel_link;
+    d->w             = lv->w;
+    d->h             = lv->h;
+    d->d             = lv->d;
+    d->yaw           = lv->spawn_yaw;
     for (int y = 0; y < d->h; y++)
         for (int z = 0; z < d->d; z++)
-            for (int x = 0; x < d->w; x++) d->grid[y][z][x] = chamber_cell_char(&lv, x, y, z);
+            for (int x = 0; x < d->w; x++) d->grid[y][z][x] = chamber_cell_char(lv, x, y, z);
     if (sol != NULL) snprintf(d->solution, sizeof(d->solution), "%s", sol);
     return true;
 }
@@ -139,13 +139,12 @@ int draft_text(draft_t const* d, char* out, size_t n) {
 }
 
 int draft_save_text(draft_t const* d, char* out, size_t n, char* err, size_t err_n) {
-    static level_t check;  // static: a level is too big for the stack
-    int const      len = write_text(d, out, n, true);
+    int const len = write_text(d, out, n, true);
     if (len < 0) {
         snprintf(err, err_n, "too big to write out");
         return -1;
     }
-    return chamber_parse(out, &check, NULL, NULL, err, err_n) ? len : -1;
+    return chamber_parse(out, level_scratch(), NULL, NULL, err, err_n) ? len : -1;
 }
 
 void draft_fresh_id(char const* dir, char const* base, char* out, size_t n) {

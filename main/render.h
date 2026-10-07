@@ -36,3 +36,6 @@ int  render_portal_depth(void);
 
 // Passes drawn and triangles submitted by the last frame, for the HUD.
 void render_stats(int* passes, int* tris);
+// The chamber's rectangles as meshed now (for the tests: render.c meshes
+// only the slices a change touches, and must give what level_mesh() does).
+int  render_quads(mquad_t const** quads);

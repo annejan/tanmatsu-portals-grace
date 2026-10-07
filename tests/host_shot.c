@@ -530,6 +530,29 @@ static void frame_check(char const* what, game_t* g, int which, int* fails) {
     if (!ok) (*fails)++;
 }
 
+// After each step that moves a portal or paints: the kept mesh is the
+// whole mesh, rectangle for rectangle.
+static int  mesh_ok_n, mesh_bad_n;
+static void mesh_tick(game_t const* g, int ev, float now, void* ctx) {
+    (void)now;
+    (void)ctx;
+    if (!(ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) && mesh_ok_n > 0) return;
+    render_set_level(&g->lv, g->portals);
+    static mquad_t whole[LV_MAX_QUADS];
+    hole_t         holes[4];
+    int            nh = 0;
+    for (int i = 0; i < 2; i++)
+        if (g->portals[i].open)
+            for (int c = 0; c < 2; c++)
+                holes[nh++] = (hole_t){g->portals[i].cell[c][0], g->portals[i].cell[c][1], g->portals[i].cell[c][2],
+                                       g->portals[i].face};
+    int const      n = level_mesh(&g->lv, holes, nh, whole, LV_MAX_QUADS);
+    mquad_t const* kept;
+    int const      k = render_quads(&kept);
+    if (k != n || memcmp(kept, whole, (size_t)n * sizeof(mquad_t)) != 0) mesh_bad_n++;
+    mesh_ok_n++;
+}
+
 static int selftest(void) {
     static game_t  g;
     static level_t thin;
@@ -568,6 +591,40 @@ static int selftest(void) {
     // The eye half a millimetre in front of an opening, about to go through.
     g.pl.pos = v3(3.5f, 1.0f, 4.0f - 0.0005f);
     frame_check("eye half a millimetre from a portal", &g, 0, &fails);
+
+    // The mesh, kept slice by slice, against a whole fresh one: through
+    // every chamber's solution, at every portal shot and every new paint.
+    int checked = 0, wrong = 0;
+    for (int i = 0; i < demo_count(); i++) {
+        if (!demo_has_solution(i)) continue;
+        static demo_state_t st;
+        mesh_ok_n = 0;
+        demo_run(i, 40.0f, 1.0f / 30.0f, &st, mesh_tick, NULL, 0.0f);
+        checked    += mesh_ok_n;
+        wrong      += mesh_bad_n;
+        mesh_bad_n  = 0;
+    }
+    // A restart: the same cells made anew, the paint gone. And more paint
+    // than the log keeps, at once.
+    {
+        static game_t r;
+        int const     gel = demo_chamber(demo_find("14-repulsion"));
+        game_load(&r, gel);
+        mesh_ok_n = 1;
+        mesh_tick(&r, GAME_EV_PAINT, 0.0f, NULL);  // fresh
+        for (int i = 0; i < LV_PAINT_LOG + 40; i++)
+            level_set_paint(&r.lv, 1 + i % (r.lv.w - 2), 0, 1 + i / (r.lv.w - 2) % (r.lv.d - 2), GEL_ORANGE);
+        mesh_tick(&r, GAME_EV_PAINT, 0.0f, NULL);  // past the log
+        level_set_paint(&r.lv, 2, 0, 2, GEL_BLUE);
+        mesh_tick(&r, GAME_EV_PAINT, 0.0f, NULL);  // from the log
+        game_load(&r, gel);
+        mesh_tick(&r, GAME_EV_PAINT, 0.0f, NULL);  // restarted
+        checked += mesh_ok_n - 1;
+        wrong   += mesh_bad_n;
+    }
+    printf("mesh kept by slices                %d changes checked against a whole mesh: %s\n", checked,
+           wrong == 0 && checked > 0 ? "ok" : "WRONG");
+    if (wrong || checked == 0) fails++;
     return fails ? 1 : 0;
 }
 

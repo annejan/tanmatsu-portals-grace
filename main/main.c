@@ -18,6 +18,7 @@
 #include "chamber.h"
 #include "demo.h"
 #include "editor.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "graceloader.h"
@@ -276,6 +277,32 @@ static void demo_frame(void) {
 
 // --- Engine callbacks ---------------------------------------------------
 
+// How much memory is left once everything is up, to the card: what the
+// chamber size limits (level.h) can grow into. The P4's console is out of
+// reach without the C6's tty; badgelink fetches this.
+static void write_memory(void) {
+    FILE* f = fopen("/sd/portals/memory.txt", "w");
+    if (f == NULL) return;
+    fprintf(f, "build\t%s %s\n", APP_VERSION, APP_GIT_HASH);
+    fprintf(f, "chamber max\t%d x %d x %d cells, level_t %u bytes, game_t %u bytes\n", LV_MAX_W, LV_MAX_H, LV_MAX_D,
+            (unsigned)sizeof(level_t), (unsigned)sizeof(game_t));
+    fprintf(f, "psram free\t%u\tlargest block\t%u\tlowest free\t%u\n",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+            (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_SPIRAM));
+    fprintf(f, "internal free\t%u\tlargest block\t%u\tlowest free\t%u\n",
+            (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+            (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+    // What meshing a chamber takes here (render.c meshes only what a portal
+    // shot changes; a whole chamber when one loads): the one behind the title.
+    int64_t const t0 = esp_timer_get_time();
+    int const     m  = level_mesh(&s_game.lv, NULL, 0, NULL, 0);
+    fprintf(f, "mesh %s\t%d x %d x %d\t%d quads\t%lld us\n", chamber_id(s_game.chamber), s_game.lv.w, s_game.lv.h,
+            s_game.lv.d, m, (long long)(esp_timer_get_time() - t0));
+    fclose(f);
+}
+
 static void on_init(void* user) {
     (void)user;
     static char tex_dir[160];
@@ -305,6 +332,7 @@ static void on_init(void* user) {
     attract_seed((uint32_t)esp_timer_get_time());
     to_title();
     devtest_start(&TEST);
+    write_memory();
 }
 
 static void start_playtest(void) {

@@ -68,9 +68,9 @@ static aabb_t pedestal_pad(button_t const* bt) {
 }
 
 void game_load(game_t* g, int chamber) {
-    static level_t lv;  // static: a level is too big for the stack
-    level_load(&lv, chamber);
-    game_load_level(g, &lv);
+    level_t* const lv = level_scratch();
+    level_load(lv, chamber);
+    game_load_level(g, lv);
     g->chamber = chamber;
 }
 
