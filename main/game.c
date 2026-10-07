@@ -141,7 +141,7 @@ bool game_fire(game_t* g, int which) {
     if (g->lv.n_platforms) {
         aabb_t const    plat = platform_aabb(g);
         float const     tp   = ray_aabb(eye, fwd, &plat);
-        ray_hit_t const wall = level_raycast(&g->lv, eye, fwd, 64.0f);
+        ray_hit_t const wall = level_raycast(&g->lv, eye, fwd, LV_REACH);
         if (tp >= 0.0f && (!wall.hit || tp < wall.dist)) return false;
     }
     portal_t p;
@@ -555,7 +555,7 @@ static void trace_beam(game_t* g, int k, bool lit[LV_MAX_BUTTONS], bool* player)
     emitter_t const* L    = &g->lv.lasers[k];
     vec3_t           d    = dir_vec(L->dir);
     vec3_t           o    = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.501f);
-    float            left = 64.0f;
+    float            left = LV_REACH;
     int              skip = -1;  // the cube it just came out of
     g->beam_n[k]          = 0;
     for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
@@ -638,7 +638,7 @@ static void trace_bridges(game_t* g) {
         emitter_t const* E    = &g->lv.bridges[k];
         vec3_t           d    = dir_vec(E->dir);
         vec3_t           o    = v3_mad(v3((float)E->x + 0.5f, (float)E->y + BRIDGE_LIFT, (float)E->z + 0.5f), d, 0.5f);
-        float            left = 64.0f;
+        float            left = LV_REACH;
         g->bridge_n[k]        = 0;
         for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
             ray_hit_t const w   = level_raycast(&g->lv, o, d, left);
@@ -671,7 +671,7 @@ static void trace_funnels(game_t* g) {
         emitter_t const* E    = &g->lv.funnels[k];
         vec3_t           d    = dir_vec(E->dir);
         vec3_t           o    = v3_mad(v3((float)E->x + 0.5f, (float)E->y + 0.5f, (float)E->z + 0.5f), d, 0.5f);
-        float            left = 64.0f;
+        float            left = LV_REACH;
         g->funnel_n[k]        = 0;
         for (int seg = 0; seg < BEAM_SEGS && left > 0.01f; seg++) {
             ray_hit_t const w               = level_raycast(&g->lv, o, d, left);
@@ -819,7 +819,10 @@ static int step_pellets(game_t* g, float dt) {
             vec3_t const     d  = dir_vec(L->dir);
             p->pos              = v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), d, 0.6f);
             p->vel              = v3_scale(d, PELLET_SPEED);
-            p->life             = PELLET_LIFE;
+            // Long enough to cross the chamber end to end, corner to
+            // corner: a big chamber's pellet does not fizzle half way.
+            float const span    = sqrtf((float)(g->lv.w * g->lv.w + g->lv.h * g->lv.h + g->lv.d * g->lv.d));
+            p->life             = fmaxf(PELLET_LIFE, span / PELLET_SPEED);
             p->live             = true;
             ev                 |= GAME_EV_PELLET;
             continue;

@@ -1404,6 +1404,14 @@ static void test_big_chamber(void) {
     int const      nq = level_mesh(&lv, NULL, 0, quads, LV_MAX_QUADS + 1);
     CHECK(nq > 0 && nq < 64, "a plain hall is few faces, however big: %d", nq);
     game_load_level(&g, &lv);
+    // A portal shot down the whole hall, to its far end wall: past the old
+    // 64 m reach (LV_REACH).
+    g.pl.yaw   = 0.0f;
+    g.pl.pitch = 0.0f;
+    CHECK(game_fire(&g, 0) && g.portals[0].open && g.portals[0].center.z > (float)LV_MAX_D - 3.0f,
+          "a portal shot %d m down the hall lands on its far wall (at z %.1f)", LV_MAX_D,
+          (double)g.portals[0].center.z);
+    game_load_level(&g, &lv);
     demo_player_t p;
     demo_player_start(&p, steps);
     bool exited = false;

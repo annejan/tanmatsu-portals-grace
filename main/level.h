@@ -19,6 +19,10 @@
 #define LV_MAX_D 128
 _Static_assert(LV_MAX_W <= 256 && LV_MAX_H <= 256 && LV_MAX_D <= 256, "a cell's x, y, z must each fit a byte");
 #define LV_PAINT_LOG 256  // cells painted, remembered (level_t.paint_log)
+// The farthest a portal shot, a laser, a light bridge or a funnel goes, in
+// all its pieces through portals: across the biggest chamber (its diagonal
+// is 184 m) and on. It was 64 m, which a 128 m chamber outgrew.
+#define LV_REACH     256.0f
 
 typedef enum {
     MAT_AIR = 0,

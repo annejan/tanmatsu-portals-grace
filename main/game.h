@@ -45,7 +45,7 @@
 #define FUNNEL_PULL  3.0f  // per second: how hard it draws them to its middle
 
 #define PELLET_SPEED 6.0f   // m/s, straight, no gravity
-#define PELLET_LIFE  10.0f  // s before it fizzles out ...
+#define PELLET_LIFE  10.0f  // s before it fizzles out (longer, to cross a big chamber) ...
 #define PELLET_WAIT  1.5f   // ... and before its launcher fires the next
 
 // An energy pellet, one per launcher: in flight, waiting to be fired, or

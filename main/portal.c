@@ -51,7 +51,7 @@ bool portal_place_at(level_t const* lv, int x, int y, int z, int face, vec3_t up
 }
 
 bool portal_place(level_t const* lv, vec3_t eye, vec3_t look, portal_t const* other, portal_t* out) {
-    ray_hit_t const h = level_raycast(lv, eye, look, 64.0f);
+    ray_hit_t const h = level_raycast(lv, eye, look, LV_REACH);
     if (!h.hit) return false;
     vec3_t const n = dir_vec(h.face);
 
