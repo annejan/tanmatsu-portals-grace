@@ -83,7 +83,7 @@ Write each line as `key: value`.
 |---|---|
 | `name` | The name in Chamber select and on the screen, up to 31 characters. Start it with a number to keep the list in order. |
 | `hint` | One line under the name, up to 79 characters. |
-| `size` | The width (x), height (y) and depth (z) in cells. One cell is 1 m. The maximum is 24 16 24. |
+| `size` | The width (x), height (y) and depth (z) in cells. One cell is 1 m. The maximum is 64 32 64; a chamber may also have at most 2048 faces of wall to draw (a big plain room is few: faces merge) and 1024 of glass and fizzler, and its file at most 512 KB. Far off, the badge's 16-bit depth is coarse (a step is about z² / 3200 m: 30 cm at 30 m), so keep small things close to where they are seen from. |
 | `facing` | The direction the player faces at the start: `north` (+z), `east` (+x), `south`, `west`, or degrees. |
 | `story` | Optional. A line typed out along the bottom of the screen when the chamber starts, up to 159 characters. `[Subject-Name-here]` in it becomes the nickname set under Owner in the launcher, if there is one. |
 | `timer` | Optional. How many seconds a pedestal button stays down, from 0.5 to 60. The default is 4. |

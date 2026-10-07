@@ -145,14 +145,14 @@ set(ENGINE_DEPS "")
 #   SE_SCENE_LINE_CAP   the game draws no lines, but the engine's splash
 #       writes its title in line segments: at 64 it was cut off mid-word.
 #   SE_SCENE_TEXTURED_TRI_CAP  one pass holds the whole chamber: up to
-#       LV_MAX_QUADS (1024) rectangles, two triangles each, plus cubes,
-#       portal frames and what clipping adds. 4096 is 272 KB of PSRAM.
+#       LV_MAX_QUADS (2048) rectangles, two triangles each, plus cubes,
+#       portal frames and what clipping adds. 8192 is 544 KB of PSRAM.
 #   SE_SCENE_DEPTH16_INTERNAL  the quarter-resolution depth plane in
 #       internal SRAM: every covered pixel reads it.
 add_compile_definitions(RENDER_NEAR_CLIP_Z=0.05f)
 add_compile_definitions(RENDER_HORIZON_Y=240.0f)
 add_compile_definitions(SE_SCENE_LINE_CAP=1024)
-add_compile_definitions(SE_SCENE_TEXTURED_TRI_CAP=4096)
+add_compile_definitions(SE_SCENE_TEXTURED_TRI_CAP=8192)
 add_compile_definitions(SE_SCENE_DEPTH16_INTERNAL=1)
 # Menu row text, down from 28 px so nine rows fit (main/menu.c).
 add_compile_definitions(SE_UI_ROW_TEXT_H=20.0f)

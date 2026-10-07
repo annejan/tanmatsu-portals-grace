@@ -9,9 +9,15 @@
 #include <stdint.h>
 #include "vec.h"
 
-#define LV_MAX_W 24
-#define LV_MAX_H 16
-#define LV_MAX_D 24
+// The biggest chamber, in cells (one metre each), its walls included.
+// Each cell takes two bytes in a level_t (its solid, and its gel), and
+// the app keeps several levels (in play, being parsed, listed, edited):
+// about 260 KB each at this size. A cell's x, y and z must each fit a
+// byte (chamber.c's crusher flood fill).
+#define LV_MAX_W 64
+#define LV_MAX_H 32
+#define LV_MAX_D 64
+_Static_assert(LV_MAX_W <= 256 && LV_MAX_H <= 256 && LV_MAX_D <= 256, "a cell's x, y, z must each fit a byte");
 
 typedef enum {
     MAT_AIR = 0,
@@ -254,8 +260,8 @@ typedef struct {
 // What one chamber may need drawn, at most: rectangles of wall, and faces
 // of glass and fizzler (drawn on their own, see render.c). A chamber
 // needing more is refused when it is read, rather than drawn with holes.
-#define LV_MAX_QUADS 1024
-#define LV_MAX_CLEAR 512
+#define LV_MAX_QUADS 2048
+#define LV_MAX_CLEAR 1024
 
 // A face the mesh leaves out, because a portal sits on it.
 typedef struct {

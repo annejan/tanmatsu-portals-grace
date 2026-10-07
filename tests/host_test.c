@@ -1359,6 +1359,53 @@ static void test_record_replay(void) {
     recording_free(&r);
 }
 
+// The biggest chamber there can be: a hall 64 x 32 x 64, the exit at its
+// far end. It is read, meshed in few faces, and walked across.
+static void test_big_chamber(void) {
+    static char    text[160 * 1024];
+    static level_t lv;
+    static game_t  g;
+    static step_t  steps[SCRIPT_MAX_STEPS];
+    int            n_steps = 0;
+    char           err[96];
+    int n = snprintf(text, sizeof(text), "name: Hall\nsize: %d %d %d\nfacing: north\n", LV_MAX_W, LV_MAX_H, LV_MAX_D);
+    for (int y = 0; y < LV_MAX_H; y++) {
+        n += snprintf(text + n, sizeof(text) - (size_t)n, "layer %d\n", y);
+        for (int row = 0; row < LV_MAX_D; row++) {  // row 0 is the far (north) end
+            for (int x = 0; x < LV_MAX_W; x++) {
+                bool const wall = x == 0 || x == LV_MAX_W - 1 || row == 0 || row == LV_MAX_D - 1;
+                char       c    = y == 0 || y == LV_MAX_H - 1 || wall ? (y > 0 && y < 4 ? 'W' : '#') : '.';
+                if (y == 0 && row == 2 && x == LV_MAX_W / 2) c = 'E';
+                if (y == 1 && row == LV_MAX_D - 3 && x == LV_MAX_W / 2) c = 'S';
+                text[n++] = c;
+            }
+            text[n++] = '\n';
+        }
+    }
+    // Across it, a step at a time (a walk_to gives up after 6 s).
+    n += snprintf(text + n, sizeof(text) - (size_t)n, "solution\n");
+    for (int z = 15; z < LV_MAX_D - 3; z += 15)
+        n += snprintf(text + n, sizeof(text) - (size_t)n, "walk_to %d.5 %d\n", LV_MAX_W / 2, z);
+    n       += snprintf(text + n, sizeof(text) - (size_t)n, "walk_to %d.5 %d.5\n", LV_MAX_W / 2,
+                        LV_MAX_D - 3);  // the exit's cell
+    text[n]  = '\0';
+    CHECK(n < (int)sizeof(text) && n < CHAMBER_FILE_MAX, "the file fits: %d bytes", n);
+    bool const ok = chamber_parse(text, &lv, steps, &n_steps, err, sizeof(err));
+    CHECK(ok && lv.w == LV_MAX_W && lv.h == LV_MAX_H && lv.d == LV_MAX_D, "a %dx%dx%d hall read: %s", LV_MAX_W,
+          LV_MAX_H, LV_MAX_D, ok ? "ok" : err);
+    if (!ok) return;
+    static mquad_t quads[LV_MAX_QUADS + 1];
+    int const      nq = level_mesh(&lv, NULL, 0, quads, LV_MAX_QUADS + 1);
+    CHECK(nq > 0 && nq < 64, "a plain hall is few faces, however big: %d", nq);
+    game_load_level(&g, &lv);
+    demo_player_t p;
+    demo_player_start(&p, steps);
+    bool exited = false;
+    for (float t = 0.0f; t < 60.0f && !exited; t += 1.0f / 30.0f)
+        exited = (demo_player_step(&p, &g, 1.0f / 30.0f, 0.0f) & PL_EV_EXIT) != 0;
+    CHECK(exited, "walked the hall to its exit (at %.1f %.1f)", (double)g.pl.pos.x, (double)g.pl.pos.z);
+}
+
 // The parser's rules for what it cannot make sense of.
 static void test_parse_rules(void) {
     static level_t    lv;
@@ -1572,11 +1619,11 @@ static void test_caps(void) {
     // `fill` on layer 1 (and on layer 2 if two), every other cell, over a
     // metal floor; the start in a corner.
     for (int k = 0; k < 2; k++) {
-        int const  size = k == 0 ? 20 : 16;
+        int const  size = k == 0 ? 32 : 16;  // 512 pillars, five faces each: past LV_MAX_QUADS
         char const fill = k == 0 ? '#' : 'G';
         int        n    = snprintf(text, sizeof(text), "size: %d 4 %d\nlayer 0\n", size, size);
         for (int z = 0; z < size; z++)
-            n += snprintf(text + n, sizeof(text) - n, "%.*s\n", size, "########################");
+            n += snprintf(text + n, sizeof(text) - n, "%.*s\n", size, "################################");
         for (int y = 1; y <= (k == 0 ? 1 : 2); y++) {
             n += snprintf(text + n, sizeof(text) - n, "layer %d\n", y);
             for (int z = 0; z < size; z++) {
@@ -2083,6 +2130,7 @@ int main(void) {
     test_funnels();
     test_recordings();
     test_record_replay();
+    test_big_chamber();
     test_draft_save();
     test_glass();
     test_things();

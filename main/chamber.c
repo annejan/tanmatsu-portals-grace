@@ -562,9 +562,10 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
             for (int x = 0; x < lv->w; x++) {
                 if (level_get(lv, x, y, z) != MAT_CRUSHER) continue;
                 if (lv->n_crushers >= LV_MAX_CRUSHERS) return fail(&c, "more than %d crushers", LV_MAX_CRUSHERS);
-                static int16_t stack[LV_MAX_W * LV_MAX_H * LV_MAX_D][3];
+                // A cell's x, y, z each fit a byte (level.h): 3 bytes a cell.
+                static uint8_t stack[LV_MAX_W * LV_MAX_H * LV_MAX_D][3];
                 int            top = 0, cells = 0, lo[3] = {x, y, z}, hi[3] = {x, y, z};
-                stack[top][0] = (int16_t)x, stack[top][1] = (int16_t)y, stack[top][2] = (int16_t)z, top++;
+                stack[top][0] = (uint8_t)x, stack[top][1] = (uint8_t)y, stack[top][2] = (uint8_t)z, top++;
                 level_set(lv, x, y, z, MAT_AIR);
                 while (top > 0) {
                     top--;
@@ -580,7 +581,7 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                         int const q[3] = {p[0] + dx, p[1] + dy, p[2] + dz};
                         if (level_get(lv, q[0], q[1], q[2]) != MAT_CRUSHER) continue;
                         level_set(lv, q[0], q[1], q[2], MAT_AIR);
-                        stack[top][0] = (int16_t)q[0], stack[top][1] = (int16_t)q[1], stack[top][2] = (int16_t)q[2],
+                        stack[top][0] = (uint8_t)q[0], stack[top][1] = (uint8_t)q[1], stack[top][2] = (uint8_t)q[2],
                         top++;
                     }
                 }
@@ -1007,7 +1008,7 @@ int chamber_load_dir(char const* dir) {
         fseek(f, 0, SEEK_END);
         long const size = ftell(f);
         fseek(f, 0, SEEK_SET);
-        char* text = size > 0 && size < 64 * 1024 ? malloc((size_t)size + 1) : NULL;
+        char* text = size > 0 && size < CHAMBER_FILE_MAX ? malloc((size_t)size + 1) : NULL;
         if (text == NULL || fread(text, 1, (size_t)size, f) != (size_t)size) {
             fclose(f);
             free(text);
