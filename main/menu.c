@@ -1,6 +1,7 @@
 #include "menu.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include "chamber.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -14,6 +15,7 @@ static char const TAG[] = "menu";
 
 typedef enum {
     SCR_NONE = 0,
+    SCR_TITLE,
     SCR_PAUSE,
     SCR_SETTINGS,
     SCR_CONTROLS,
@@ -23,8 +25,9 @@ typedef enum {
 } screen_t;
 
 static screen_t s_scr;
+static screen_t s_home;  // where a screen's Back goes: the title or the pause menu
 static int      s_cursor[SCR_COUNT];
-static int      s_chamber;  // the one being played
+static int      s_chamber;  // the one being played (on the title: Continue's, or the first)
 static uint32_t s_act;      // this frame's actions, from events
 static int64_t  s_opened_us;
 
@@ -44,6 +47,8 @@ enum {
     A_BACK  = 32
 };
 
+static level_t s_lv;  // for a chamber's name: parsing one is too big for the stack
+
 static void go(screen_t s) {
     s_scr = s;
     if (s == SCR_RECORDINGS) {
@@ -53,20 +58,103 @@ static void go(screen_t s) {
     if (s == SCR_CHAMBERS) {
         s_cursor[s] = s_chamber;
         // Each name means parsing a whole chamber file: once, not every frame.
-        static level_t lv;
         for (int i = 0; i < level_count() && i < CHAMBERS_MAX; i++) {
-            if (!level_load(&lv, i)) snprintf(lv.name, sizeof(lv.name), "%s (broken)", chamber_id(i));
-            snprintf(s_names[i], sizeof(s_names[i]), "%s", lv.name);
+            if (!level_load(&s_lv, i)) snprintf(s_lv.name, sizeof(s_lv.name), "%s (broken)", chamber_id(i));
+            snprintf(s_names[i], sizeof(s_names[i]), "%s", s_lv.name);
         }
     }
 }
 
 void menu_open(int current_chamber) {
     s_chamber           = current_chamber;
+    s_home              = SCR_PAUSE;
     s_act               = 0;
     s_opened_us         = esp_timer_get_time();
     s_cursor[SCR_PAUSE] = 0;
     go(SCR_PAUSE);
+}
+
+// The title's rows: Continue only when there is a chamber to go back to.
+typedef enum {
+    T_CONTINUE,
+    T_NEW,
+    T_CHAMBERS,
+    T_WATCH,
+    T_EDITOR,
+    T_SETTINGS,
+    T_CONTROLS,
+    T_QUIT,
+    T_COUNT
+} title_row_t;
+static char const* const s_title_labels[T_COUNT] = {
+    "Continue",       "New game", "Chamber select", "Watch a recording",
+    "Chamber editor", "Settings", "Controls",       "Quit to launcher",
+};
+
+// Under the title: the game's version, from metadata/metadata.json.
+#if __has_include("app_version.h")
+#include "app_version.h"
+#endif
+#ifndef APP_VERSION
+#define APP_VERSION ""
+#endif
+
+static se_menu_row_t s_title_rows[T_COUNT];
+static title_row_t   s_title_of[T_COUNT];  // each row's item
+static int           s_title_n;
+static char          s_title_sub[48];
+static char          s_continue_name[40];  // Continue's value: the chamber, cut to fit the panel
+
+#define TITLE_PANEL_W  0.56f
+#define TITLE_VALUE_DX 120.0f
+
+// `name` into `out`, cut short with "..." where it would run past the
+// title's panel: chamber files on the card may have long names.
+static void fit_name(char* out, size_t n, char const* name) {
+    float const room = TITLE_PANEL_W * DISPLAY_LOG_W - 2.0f * SE_UI_TEXT_INSET - SE_UI_CHEVRON_GUTTER - TITLE_VALUE_DX;
+    snprintf(out, n, "%s", name);
+    if (rendertext_size(NULL, SE_UI_ROW_TEXT_H, out).x <= room) return;
+    for (size_t len = strlen(out); len > 0; len--) {
+        snprintf(out, n, "%.*s...", (int)len - 1, name);
+        if (rendertext_size(NULL, SE_UI_ROW_TEXT_H, out).x <= room) return;
+    }
+}
+
+void menu_title(int continue_chamber) {
+    bool const cont    = continue_chamber >= 0 && continue_chamber < level_count();
+    s_chamber          = cont ? continue_chamber : 0;
+    s_continue_name[0] = '\0';
+    if (cont && level_load(&s_lv, continue_chamber)) fit_name(s_continue_name, sizeof(s_continue_name), s_lv.name);
+    s_title_n = 0;
+    for (int t = cont ? T_CONTINUE : T_NEW; t < T_COUNT; t++) {
+        s_title_of[s_title_n] = (title_row_t)t;
+        s_title_rows[s_title_n] =
+            t == T_CONTINUE
+                ? (se_menu_row_t){.label = s_title_labels[t], .kind = SE_MENU_VAL_TEXT, .value = s_continue_name}
+                : (se_menu_row_t){.label = s_title_labels[t]};
+        s_title_n++;
+    }
+    if (APP_VERSION[0])
+        snprintf(s_title_sub, sizeof(s_title_sub), "for Tanmatsu  -  %s", APP_VERSION);
+    else
+        snprintf(s_title_sub, sizeof(s_title_sub), "for Tanmatsu");
+    s_home              = SCR_TITLE;
+    s_act               = 0;
+    s_opened_us         = esp_timer_get_time();
+    s_cursor[SCR_TITLE] = 0;  // Continue if there is one, else New game
+    go(SCR_TITLE);
+}
+
+bool menu_on_title(void) {
+    return s_scr != SCR_NONE && s_home == SCR_TITLE;
+}
+
+bool menu_title_shown(void) {
+    return s_scr == SCR_TITLE;
+}
+
+void menu_close(void) {
+    s_scr = SCR_NONE;
 }
 
 bool menu_active(void) {
@@ -149,10 +237,17 @@ void menu_event(bsp_input_event_t const* ev) {
 
 // --- The screens --------------------------------------------------------
 
-#define PAUSE_ROWS 8
+#define PAUSE_ROWS 9
 static se_menu_row_t const s_pause_rows[PAUSE_ROWS] = {
-    {.label = "Resume"},   {.label = "Restart chamber"}, {.label = "Chamber select"},    {.label = "Chamber editor"},
-    {.label = "Settings"}, {.label = "Controls"},        {.label = "Watch a recording"}, {.label = "Quit to launcher"},
+    {.label = "Resume"},
+    {.label = "Restart chamber"},
+    {.label = "Chamber select"},
+    {.label = "Chamber editor"},
+    {.label = "Settings"},
+    {.label = "Controls"},
+    {.label = "Watch a recording"},
+    {.label = "Title screen"},
+    {.label = "Quit to launcher"},
 };
 
 enum {
@@ -196,6 +291,10 @@ static void draw_key(pax_buf_t* fb, float x, float y, float h, pax_col_t col, vo
 // 560 px panel. At 0 the values were drawn on top of their labels.
 #define MENU_VALUE_DX 270.0f
 
+// The title's panel (TITLE_PANEL_W): narrower, and only as high as its
+// rows, so the chambers playing themselves behind it show round it. Its
+// one value, Continue's chamber, sits just after the label.
+
 static int build_rows(screen_t s, se_menu_def_t* def);
 
 static int build(screen_t s, se_menu_def_t* def) {
@@ -206,12 +305,25 @@ static int build(screen_t s, se_menu_def_t* def) {
     def->row_h        = MENU_ROW_H;
     def->value_dx     = MENU_VALUE_DX;
     def->visible_rows = n > MENU_ROWS ? MENU_ROWS : 0;
+    if (s == SCR_TITLE) {
+        // As se_menu_draw lays it out: 40 px to the title, the title and
+        // 14, the subtitle and 16, the rows, and room below the last.
+        def->panel_w  = TITLE_PANEL_W;
+        def->panel_h  = (40.0f + MENU_TITLE_H + 14.0f + 34.0f + (float)n * MENU_ROW_H + 24.0f) / (float)DISPLAY_LOG_H;
+        def->value_dx = TITLE_VALUE_DX;
+    }
     return n;
 }
 
 static int build_rows(screen_t s, se_menu_def_t* def) {
     *def = (se_menu_def_t){0};
     switch (s) {
+        case SCR_TITLE:
+            def->title     = "PORTALS";
+            def->subtitle  = s_title_sub;
+            def->rows      = s_title_rows;
+            def->row_count = s_title_n;
+            return s_title_n;
         case SCR_PAUSE:
             def->title     = "PORTALS";
             def->subtitle  = "Paused";
@@ -314,6 +426,42 @@ menu_cmd_t menu_update(void) {
     s_cursor[s_scr] = cur;
 
     switch (s_scr) {
+        case SCR_TITLE:
+            // Esc does nothing here: the game has only just begun.
+            if (r != SE_MENU_RESULT_ACTIVATED) break;
+            switch (s_title_of[cur]) {
+                case T_CONTINUE:
+                    s_scr       = SCR_NONE;
+                    cmd.kind    = MENU_CMD_CHAMBER;
+                    cmd.chamber = s_chamber;
+                    break;
+                case T_NEW:
+                    s_scr    = SCR_NONE;
+                    cmd.kind = MENU_CMD_NEW_GAME;
+                    break;
+                case T_CHAMBERS:
+                    go(SCR_CHAMBERS);
+                    break;
+                case T_WATCH:
+                    go(SCR_RECORDINGS);
+                    break;
+                case T_EDITOR:
+                    s_scr       = SCR_NONE;
+                    cmd.kind    = MENU_CMD_EDITOR;
+                    cmd.chamber = s_chamber;
+                    break;
+                case T_SETTINGS:
+                    go(SCR_SETTINGS);
+                    break;
+                case T_CONTROLS:
+                    go(SCR_CONTROLS);
+                    break;
+                default:
+                    cmd.kind = MENU_CMD_QUIT;
+                    break;
+            }
+            break;
+
         case SCR_PAUSE:
             if (r == SE_MENU_RESULT_BACK) {
                 s_scr    = SCR_NONE;
@@ -332,8 +480,9 @@ menu_cmd_t menu_update(void) {
                         go(SCR_CHAMBERS);
                         break;
                     case 3:
-                        s_scr    = SCR_NONE;
-                        cmd.kind = MENU_CMD_EDITOR;
+                        s_scr       = SCR_NONE;
+                        cmd.kind    = MENU_CMD_EDITOR;
+                        cmd.chamber = s_chamber;
                         break;
                     case 4:
                         go(SCR_SETTINGS);
@@ -345,6 +494,10 @@ menu_cmd_t menu_update(void) {
                         go(SCR_RECORDINGS);
                         break;
                     case 7:
+                        s_scr    = SCR_NONE;
+                        cmd.kind = MENU_CMD_TITLE;
+                        break;
+                    case 8:
                         cmd.kind = MENU_CMD_QUIT;
                         break;
                 }
@@ -354,7 +507,7 @@ menu_cmd_t menu_update(void) {
         case SCR_SETTINGS: {
             int const d = r == SE_MENU_RESULT_INCREMENT ? 10 : r == SE_MENU_RESULT_DECREMENT ? -10 : 0;
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == SET_BACK)) {
-                go(SCR_PAUSE);
+                go(s_home);
             } else if (cur == SET_GYRO && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_gyro(!settings_gyro());
             } else if (cur == SET_HALF && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
@@ -388,7 +541,7 @@ menu_cmd_t menu_update(void) {
 
         case SCR_CONTROLS:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == ACT_COUNT + 1)) {
-                go(SCR_PAUSE);
+                go(s_home);
             } else if (r == SE_MENU_RESULT_ACTIVATED && cur == ACT_COUNT) {
                 input_reset_defaults();
             } else if (r == SE_MENU_RESULT_ACTIVATED && cur < ACT_COUNT) {
@@ -408,7 +561,7 @@ menu_cmd_t menu_update(void) {
 
         case SCR_CHAMBERS:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
-                go(SCR_PAUSE);
+                go(s_home);
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
                 s_scr       = SCR_NONE;
                 cmd.kind    = MENU_CMD_CHAMBER;
@@ -418,7 +571,7 @@ menu_cmd_t menu_update(void) {
 
         case SCR_RECORDINGS:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
-                go(SCR_PAUSE);
+                go(s_home);
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
                 s_scr         = SCR_NONE;
                 cmd.kind      = MENU_CMD_WATCH;

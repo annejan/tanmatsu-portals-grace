@@ -48,6 +48,8 @@ void sound_set_voice(bool on);
 // GLaDOS says a line (speech.c, SAM's voice), a sentence at a time; a new
 // line cuts the old one off. NULL just stops.
 void sound_say(char const* line);
+// GLaDOS and the turrets, quiet: leaving the game for its title screen.
+void sound_hush(void);
 bool sound_saying(void);
 // The line a turret said last (NULL before the first), and how many it
 // has said: a new count is a new line, to show as a subtitle.

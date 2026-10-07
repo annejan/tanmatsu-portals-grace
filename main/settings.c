@@ -1,5 +1,8 @@
 #include "settings.h"
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include "chamber.h"
 #include "esp_log.h"
 #include "nvs.h"
 #include "render.h"
@@ -11,6 +14,7 @@ static bool s_music = true;
 static bool s_fx    = true;
 static bool s_leds  = true;
 static bool s_voice = true;
+static char s_chamber[CHAMBER_ID_N];
 
 static uint8_t get(nvs_handle_t h, char const* key, uint8_t fallback) {
     uint8_t v = fallback;
@@ -31,13 +35,15 @@ static void put(char const* key, uint8_t v) {
 void settings_load(void) {
     nvs_handle_t h;
     if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READONLY, &h) == ESP_OK) {
-        s_gyro  = get(h, "gyro", s_gyro) != 0;
-        s_half  = get(h, "half", s_half) != 0;
-        s_depth = get(h, "depth", (uint8_t)s_depth);
-        s_music = get(h, "music", s_music) != 0;
-        s_fx    = get(h, "sfx", s_fx) != 0;
-        s_leds  = get(h, "leds", s_leds) != 0;
-        s_voice = get(h, "voice", s_voice) != 0;
+        s_gyro   = get(h, "gyro", s_gyro) != 0;
+        s_half   = get(h, "half", s_half) != 0;
+        s_depth  = get(h, "depth", (uint8_t)s_depth);
+        s_music  = get(h, "music", s_music) != 0;
+        s_fx     = get(h, "sfx", s_fx) != 0;
+        s_leds   = get(h, "leds", s_leds) != 0;
+        s_voice  = get(h, "voice", s_voice) != 0;
+        size_t n = sizeof(s_chamber);
+        if (nvs_get_str(h, "chamber", s_chamber, &n) != ESP_OK) s_chamber[0] = '\0';
         nvs_close(h);
     }
     render_set_portal_depth(s_depth);
@@ -106,4 +112,23 @@ void settings_set_portal_depth(int depth) {
     render_set_portal_depth(depth);
     s_depth = render_portal_depth();
     put("depth", (uint8_t)s_depth);
+}
+
+char const* settings_chamber(void) {
+    return s_chamber;
+}
+
+void settings_set_chamber(char const* id) {
+    if (strcmp(id, s_chamber) == 0) return;
+    // Kept only once it is written: a failed write is tried again next time.
+    nvs_handle_t h;
+    if (nvs_open(SETTINGS_NVS_NAMESPACE, NVS_READWRITE, &h) != ESP_OK) {
+        ESP_LOGW("settings", "cannot save chamber %s", id);
+        return;
+    }
+    if (nvs_set_str(h, "chamber", id) == ESP_OK && nvs_commit(h) == ESP_OK)
+        snprintf(s_chamber, sizeof(s_chamber), "%s", id);
+    else
+        ESP_LOGW("settings", "cannot save chamber %s", id);
+    nvs_close(h);
 }

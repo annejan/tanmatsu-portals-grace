@@ -302,12 +302,14 @@ void sound_update(void) {
     if (!say_busy(GLADOS) && s_next < s_n_pieces) speak(GLADOS, s_pieces[s_next++]);
 }
 
+void sound_hush(void) {
+    sound_say(NULL);
+    if (say_busy(TURRET)) audio_mixer_stop_voice(&s_say[TURRET].base);
+}
+
 void sound_set_voice(bool on) {
     s_voice_on = on;
-    if (!on) {
-        sound_say(NULL);
-        if (say_busy(TURRET)) audio_mixer_stop_voice(&s_say[TURRET].base);
-    }
+    if (!on) sound_hush();
 }
 
 // --- Music ----------------------------------------------------------------

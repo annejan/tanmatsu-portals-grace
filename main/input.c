@@ -142,6 +142,7 @@ static void gyro(float dt, float* dyaw, float* dpitch) {
 
 static bool s_last[ACT_COUNT];
 static bool s_latch[ACT_COUNT];  // pressed since the last poll, seen in an event
+static bool s_jump_off;          // jump held at a resync: not a jump until let go
 
 // A press is an edge in the held state between two polls -- or a key
 // event in between. At 15 fps a frame is 66 ms, and a quick tap went down
@@ -190,6 +191,9 @@ void input_resync(void) {
         s_last[i]  = held((action_t)i);
         s_latch[i] = false;
     }
+    // Jump is held, not pressed: Space that chose a menu row, still down
+    // as the chamber loads, jumped.
+    s_jump_off = held(ACT_JUMP);
 }
 
 void input_poll(input_frame_t* out, float dt, bool gyro_on) {
@@ -203,7 +207,8 @@ void input_poll(input_frame_t* out, float dt, bool gyro_on) {
 
     out->fwd    = axis(ACT_BACK, ACT_FORWARD);
     out->strafe = axis(ACT_LEFT, ACT_RIGHT);
-    out->jump   = held(ACT_JUMP);
+    if (s_jump_off && !held(ACT_JUMP)) s_jump_off = false;
+    out->jump = held(ACT_JUMP) && !s_jump_off;
 
     out->dyaw   = axis(ACT_LOOK_LEFT, ACT_LOOK_RIGHT) * LOOK_SPEED * dt;
     out->dpitch = axis(ACT_LOOK_UP, ACT_LOOK_DOWN) * LOOK_SPEED * dt;  // positive pitch looks down
