@@ -457,7 +457,16 @@ static void on_render(pax_buf_t* fb, void* user) {
     scene_set_render_scale(half ? 2 : 1);
 
     int64_t const t0 = esp_timer_get_time();
-    render_frame(target, &s_game);
+    if (title) {
+        // Through the attract mode's camera, the player's own view kept.
+        float const yaw = s_game.pl.yaw, pitch = s_game.pl.pitch;
+        attract_camera(&s_game, &s_game.pl.yaw, &s_game.pl.pitch);
+        render_frame(target, &s_game);
+        s_game.pl.yaw   = yaw;
+        s_game.pl.pitch = pitch;
+    } else {
+        render_frame(target, &s_game);
+    }
     if (title && attract_lit() < 1.0f) hud_fade(target, attract_lit());
     if (half) {
         // The CPU's pixels to PSRAM before the PPA's DMA reads them.

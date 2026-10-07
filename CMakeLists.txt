@@ -11,6 +11,7 @@ project(app C)
 set(APP_SOURCES
     main/main.c
     main/attract.c
+    main/cine.c
     main/crt0.c
     main/chamber.c
     main/demo.c

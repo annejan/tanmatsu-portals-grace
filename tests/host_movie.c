@@ -15,6 +15,7 @@
 #include "host_shot.c"
 #undef main
 
+#include "cine.h"
 #include "sound.h"
 
 #define FPS        10
@@ -96,30 +97,13 @@ static void mix(int16_t* out, size_t frames) {
 
 // --- The camera ---------------------------------------------------------------
 //
-// A script turns the player in an instant, and fires the same step: on
-// film the portal would appear before the view swung to it. So each run is
-// played twice. The first time logs the view at every step; from that the
-// camera is worked out ahead: it is on the aim a moment before every shot,
-// pickup, put-down and press, it looks where it walks rather than at the
-// floor, it eases into every turn from both sides, and it sways a little,
-// as a head does. Through a portal it cuts, as the view does.
+// Worked out ahead, from a first run of each (main/cine.h).
 
-#define AIM_BEFORE 0.6f   // s on the aim before the act
-#define AIM_AFTER  0.25f  // ... and after it
-#define EASE_S     0.16f  // the turns' easing: a Gaussian this wide
-#define WALK_PITCH 0.10f  // walking, it looks this far down (rad)
-#define PACE_S     0.8f   // the player stands this long before each act, looking
+#define PACE_S 0.8f  // the player stands this long before each act, looking
 
-typedef struct {
-    float yaw, pitch;
-    float vx, vy, vz;
-    bool  ground;
-    int   ev;
-} view_t;
-
-static view_t s_log[MAX_TICKS];
-static float  s_cam[MAX_TICKS][2];
-static int    s_n;
+static cine_view_t s_log[MAX_TICKS];
+static float       s_cam[MAX_TICKS][2];
+static int         s_n;
 
 typedef struct {
     bool exited;
@@ -129,89 +113,14 @@ static void log_tick(game_t const* g, int ev, float now, void* ctx) {
     (void)now;
     if (ev & PL_EV_EXIT) ((plan_t*)ctx)->exited = true;
     if (s_n >= MAX_TICKS) return;
-    s_log[s_n++] = (view_t){g->pl.yaw, g->pl.pitch, g->pl.vel.x, g->pl.vel.y, g->pl.vel.z, g->pl.on_ground, ev};
+    s_log[s_n++] =
+        (cine_view_t){g->pl.yaw, g->pl.pitch, g->pl.vel.x, g->pl.vel.y, g->pl.vel.z, g->pl.on_ground, g->held >= 0, ev};
 }
 
 static void plan_camera(void) {
-    int const acts =
-        GAME_EV_SHOT_BLUE | GAME_EV_SHOT_ORANGE | GAME_EV_SHOT_FAIL | GAME_EV_PICKUP | GAME_EV_DROP | GAME_EV_PRESS;
-    int const    before = (int)(AIM_BEFORE / TICK), after = (int)(AIM_AFTER / TICK);
     static float want[MAX_TICKS][2];
     static bool  aimed[MAX_TICKS];
-    memset(aimed, 0, sizeof(aimed));
-    for (int k = 0; k < s_n; k++) {
-        view_t const* v = &s_log[k];
-        float const   h = sqrtf(v->vx * v->vx + v->vz * v->vz);
-        want[k][0]      = v->yaw;
-        want[k][1]      = v->pitch;
-        if (v->ground) {
-            // Walking: where it goes, not at its feet.
-            if (h > 1.5f) {
-                want[k][0] = atan2f(v->vx, v->vz);
-                want[k][1] = WALK_PITCH;
-            }
-        } else if (h > 1.0f || fabsf(v->vy) > 1.5f) {
-            // Carried, flung or falling: the way it goes, up or down --
-            // not backwards down a funnel, facing where the script last
-            // pointed.
-            if (h > 1.0f) want[k][0] = atan2f(v->vx, v->vz);
-            if (h <= 1.0f && k > 0) want[k][0] = want[k - 1][0];
-            float p    = -atanf(v->vy / fmaxf(h, 0.5f)) * 0.6f;
-            want[k][1] = p < -0.6f ? -0.6f : p > 0.9f ? 0.9f : p;
-        } else if (k > 0) {
-            // Hanging still in the air -- at a funnel's end: the same way,
-            // but looking down, for where to get off.
-            want[k][0] = want[k - 1][0];
-            want[k][1] = 0.7f;
-        }
-    }
-    // On the aim before each act, and a little after: the act's own view.
-    for (int k = 0; k < s_n; k++) {
-        if (!(s_log[k].ev & acts)) continue;
-        for (int j = k - before; j <= k + after && j < s_n; j++) {
-            if (j < 0) continue;
-            // Not back across a portal: the view before it is another room.
-            bool crossed = false;
-            for (int m = j < k ? j + 1 : k + 1; m <= (j < k ? k : j); m++) crossed |= (s_log[m].ev & PL_EV_TELEPORT);
-            if (crossed) continue;
-            want[j][0] = s_log[k].yaw;
-            want[j][1] = s_log[k].pitch;
-            aimed[j]   = true;
-        }
-    }
-    // Eased, each stretch between portals on its own; yaw unwrapped first.
-    int const sigma = (int)(EASE_S / TICK), reach = 3 * sigma;
-    for (int a = 0; a < s_n;) {
-        int b = a + 1;
-        while (b < s_n && !(s_log[b].ev & PL_EV_TELEPORT)) b++;
-        for (int k = a + 1; k < b; k++) {
-            float d = want[k][0] - want[k - 1][0];
-            while (d > 3.14159265f) d -= 6.2831853f;
-            while (d < -3.14159265f) d += 6.2831853f;
-            want[k][0] = want[k - 1][0] + d;
-        }
-        for (int k = a; k < b; k++)
-            for (int c = 0; c < 2; c++) {
-                float sum = 0.0f, wsum = 0.0f;
-                for (int j = k - reach; j <= k + reach; j++) {
-                    if (j < a || j >= b) continue;
-                    float const w  = expf(-0.5f * (float)((j - k) * (j - k)) / (float)(sigma * sigma));
-                    sum           += want[j][c] * w;
-                    wsum          += w;
-                }
-                s_cam[k][c] = sum / wsum;
-                // On the aim at the act itself, exactly: the portal goes
-                // where the crosshair is.
-                if (aimed[k] && (s_log[k].ev & acts)) s_cam[k][c] = want[k][c];
-            }
-        a = b;
-    }
-    // A head is never quite still.
-    for (int k = 0; k < s_n; k++) {
-        float const t  = (float)k * TICK;
-        s_cam[k][0]   += 0.010f * sinf(0.63f * t) + 0.005f * sinf(1.71f * t + 1.0f);
-        s_cam[k][1]   += 0.007f * sinf(0.89f * t + 2.0f);
-    }
+    cine_plan(s_log, s_n, TICK, s_cam, want, aimed);
 }
 
 // --- The recording ------------------------------------------------------------
