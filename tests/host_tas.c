@@ -62,10 +62,10 @@ int main(int argc, char** argv) {
             demo_player_start(&p, demo_steps(i));
             unsigned seed = jitter;
             for (float now = 0.0f; now < 120.0f && r.exit < 0.0f && !r.died;) {
-                seed           = seed * 1103515245u + 12345u;
-                float const ft = 1.0f / hi + (1.0f / lo - 1.0f / hi) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
-                int const   ev = demo_player_step(&p, &st.g, ft, 0.0f);
-                now += ft;
+                seed            = seed * 1103515245u + 12345u;
+                float const ft  = 1.0f / hi + (1.0f / lo - 1.0f / hi) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
+                int const   ev  = demo_player_step(&p, &st.g, ft, 0.0f);
+                now            += ft;
                 tick(&st.g, ev, now, &r);
             }
         }
