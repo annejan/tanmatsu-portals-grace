@@ -28,7 +28,23 @@
 static uint32_t   s_px[W * H];
 static uint8_t    s_owner[W * H];  // which pass of the frame last painted each pixel
 static int        s_pass;
-static float      s_depth[W * H];  // 1/z, 0 = empty
+static float      s_depth[W * H];  // 1/z, 0 = empty -- or the badge's 16-bit depth, as a float (below)
+
+// The badge keeps depth as a whole number, 1/z * 64000 * near clip, in 16
+// bits, and a pixel is drawn only if it is strictly nearer: two surfaces
+// closer than a step apart (z^2 / 3200 m: 8 mm at 5 m, 3 cm at 10 m) go to
+// whichever was drawn first. Drawn so here too, unless
+// HOST_SHOT_FLOAT_DEPTH is set, so the PC shows what the badge shows.
+#define SCENE_DEPTH_SCALE (64000.0f * RENDER_NEAR_CLIP_Z)
+static int s_float_depth = -1;
+static float depth_of(float w) {
+    if (s_float_depth < 0) s_float_depth = getenv("HOST_SHOT_FLOAT_DEPTH") != NULL;
+    if (s_float_depth) return w;
+    float d = floorf(w * SCENE_DEPTH_SCALE);
+    if (d < 0.0f) d = 0.0f;
+    if (d > 65535.0f) d = 65535.0f;
+    return d;
+}
 static basis_t    s_basis;
 static vec3_t     s_eye;
 static bool       s_light_on;
@@ -155,8 +171,9 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
             float const w1 = ((sx[2] - px) * (sy[0] - py) - (sx[0] - px) * (sy[2] - py)) / area;
             float const w2 = 1.0f - w0 - w1;
             if (w0 < 0 || w1 < 0 || w2 < 0) continue;
-            float const z = w0 * iz[0] + w1 * iz[1] + w2 * iz[2];
-            if (z <= s_depth[y * W + x]) continue;
+            float const z  = w0 * iz[0] + w1 * iz[1] + w2 * iz[2];
+            float const dz = depth_of(z);
+            if (dz <= s_depth[y * W + x]) continue;
             uint32_t out = col;
             if (s_tex != NULL && s_tex->w > 1) {
                 float const    u  = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
@@ -169,7 +186,7 @@ static void raster(rv_t const* a, rv_t const* b, rv_t const* c, uint32_t col, bo
                 out   = shade(0xFF000000u | r << 16 | g << 8 | bl, s_lit);
                 seams = false;
             }
-            s_depth[y * W + x] = z;
+            s_depth[y * W + x] = dz;
             if (seams) {
                 float const u  = (w0 * uz[0] + w1 * uz[1] + w2 * uz[2]) / z;
                 float const t  = (w0 * vz[0] + w1 * vz[1] + w2 * vz[2]) / z;
