@@ -17,6 +17,22 @@ bool story_final(story_t const* s, review_t const* r) {
     return r->kind != REVIEW_FLAWED || (s->found & all_flaws(r)) == all_flaws(r);
 }
 
+// Past the rounds of a route not taken (with none picked yet, it stops
+// at the first routed round: story_needs_route).
+static void skip_routes(story_t* s, story_rounds_t rr) {
+    if (rr.route_of == NULL) return;
+    while (s->at < rr.n && rr.route_of[s->at] != 0 && s->route != 0 && rr.route_of[s->at] != s->route) s->at++;
+}
+
+bool story_needs_route(story_t const* s, story_rounds_t rr) {
+    return rr.route_of != NULL && s->at < rr.n && rr.route_of[s->at] != 0 && s->route == 0;
+}
+
+void story_choose(story_t* s, int route, story_rounds_t rr) {
+    s->route = route;
+    skip_routes(s, rr);
+}
+
 // On to the next draft: the same file's, or the next file's first.
 static void next_draft(story_t* s, bool next_file) {
     s->round++;
@@ -30,7 +46,7 @@ static void next_draft(story_t* s, bool next_file) {
     }
 }
 
-story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, int n_rounds) {
+story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, story_rounds_t rr) {
     story_result_t out = {0};
     out.round          = s->round;
     s->plays++;
@@ -38,20 +54,26 @@ story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, trac
     bool const             fin = story_final(s, r);
 
     if (r->kind == REVIEW_BROKEN || r->kind == REVIEW_NONE) {
-        // Through to the exit at all: it works now.
-        out.outcome = s->at + 1 >= n_rounds ? STORY_DONE : STORY_NEXT;
+        // Through to the exit at all: it works now -- or, not a round at
+        // all, it is done.
         snprintf(out.headline, sizeof(out.headline), "%s", r->kind == REVIEW_BROKEN ? "Repaired" : "Done");
-        snprintf(out.line, sizeof(out.line), "It can be solved. I will take the credit for that.");
+        snprintf(out.line, sizeof(out.line), "%s",
+                 r->done[0]                   ? r->done
+                 : r->kind == REVIEW_BROKEN ? "It can be solved. I will take the credit for that."
+                                              : "Done.");
         next_draft(s, true);
+        skip_routes(s, rr);
+        out.outcome = s->at >= rr.n ? STORY_DONE : STORY_NEXT;
         return out;
     }
     if (fin) {
         if (v.intended && v.flaws == 0) {
-            out.outcome = s->at + 1 >= n_rounds ? STORY_DONE : STORY_NEXT;
             snprintf(out.headline, sizeof(out.headline), "Approved");
-            snprintf(out.line, sizeof(out.line),
-                     "Solved exactly as designed. The test subjects will hate it. Approved.");
+            snprintf(out.line, sizeof(out.line), "%s",
+                     r->done[0] ? r->done : "Solved exactly as designed. The test subjects will hate it. Approved.");
             next_draft(s, true);
+            skip_routes(s, rr);
+            out.outcome = s->at >= rr.n ? STORY_DONE : STORY_NEXT;
             return out;
         }
         // A way round the final draft: logged once, but approval wants the

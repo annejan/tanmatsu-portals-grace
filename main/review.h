@@ -15,6 +15,8 @@
 //                                lo-hi each), from '.' to '#'
 //   debug: 2 #W .#               the debugger: 2 changes, each one of these
 //   repair: 4 2 7 #W             a repair that works (checked by the tests)
+//   done: Dishes done.           what is said once it is done -- in any
+//                                story round, review or not
 //
 // After the solution, `cheese a` and the like: a scripted route that
 // cheeses it so (chamber.h).
@@ -82,6 +84,7 @@ typedef struct {
     int           n_debug;
     review_fix_t  repairs[REVIEW_FIXES];
     int           n_repairs;
+    char          done[160];  // `done:` what is said when it is done (approved, repaired, or just done)
 } review_t;
 
 // A chamber file's review keys (the rest is the chamber's: chamber.c skips

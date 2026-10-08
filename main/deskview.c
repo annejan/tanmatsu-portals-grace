@@ -87,23 +87,32 @@ static void row_text(pax_buf_t* fb, pax_col_t col, float x0, float y, char const
     }
 }
 
+// The badge's look (day.txt `style: badge`): its launcher's purple.
+#define BADGE_BG   0xFF140A1Eu
+#define BADGE_TEXT 0xFFEDE4F5u
+#define BADGE_BAR  0xFFB0389Cu
+#define BADGE_DIM  0xFF6A4A80u
+
 void deskview_draw(pax_buf_t* fb, desk_t const* k) {
     static char rows[DESK_ROWS][DESK_COLS + 1];
     int         cur_row, cur_col, hl;
     desk_screen(k, rows, &cur_row, &cur_col, &hl);
-    pax_background(fb, SCREEN_BG);
+    bool const      badge = k->d->badge;
+    pax_col_t const bg = badge ? BADGE_BG : SCREEN_BG, fg = badge ? BADGE_TEXT : GREEN;
+    pax_col_t const bar = badge ? BADGE_BAR : GREEN, dim = badge ? BADGE_DIM : DIM;
+    pax_background(fb, bg);
     float const x0 = ((float)DISPLAY_LOG_W - CELL_W * DESK_COLS) * 0.5f;
     float const y0 = ((float)DISPLAY_LOG_H - ROW_H * DESK_ROWS) * 0.5f;
     for (int r = 0; r < DESK_ROWS; r++) {
         float const y = y0 + ROW_H * (float)r;
         if (r == hl) {
-            pax_simple_rect(fb, GREEN, x0, y, CELL_W * DESK_COLS, ROW_H);
-            row_text(fb, SCREEN_BG, x0, y + 4, rows[r]);
+            pax_simple_rect(fb, bar, x0, y, CELL_W * DESK_COLS, ROW_H);
+            row_text(fb, badge ? BADGE_TEXT : bg, x0, y + 4, rows[r]);
         } else if (rows[r][0]) {
-            row_text(fb, GREEN, x0, y + 4, rows[r]);
+            row_text(fb, fg, x0, y + 4, rows[r]);
         }
     }
     // The cursor, blinking: a bar under its cell.
     if (cur_row >= 0 && (esp_timer_get_time() / 500000) % 2 == 0)
-        pax_simple_rect(fb, DIM, x0 + CELL_W * (float)cur_col, y0 + ROW_H * (float)cur_row + ROW_H - 4, CELL_W, 3);
+        pax_simple_rect(fb, dim, x0 + CELL_W * (float)cur_col, y0 + ROW_H * (float)cur_row + ROW_H - 4, CELL_W, 3);
 }

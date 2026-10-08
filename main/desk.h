@@ -5,7 +5,10 @@
 //
 // A pack's desk/ folder:
 //
-//   day.txt          user: DRATTMANN       who is logged in
+//   day.txt          style: badge          the look: a badge's launcher, not DOS
+//                    header: TANMATSU      ... its title bar, and day: Fri
+//                    countdown: 18:00 Hackfest   ... and what it counts down to
+//                    user: DRATTMANN       who is logged in
 //                    host: RLHF-07         ... where
 //                    prompt: C:\RLHF>
 //                    start: 09:00          the clock as the day begins
@@ -24,6 +27,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "pack.h"
 #include "story.h"
 
 #define DESK_COLS   80
@@ -75,6 +79,10 @@ typedef struct {
 typedef struct {
     char         user[16], host[24], prompt[24];
     int16_t      start, step;  // minutes
+    bool         badge;        // style: badge -- a launcher, with TODO, ROUTE, GO and CHAT
+    char         header[24], day[8];
+    int16_t      countdown;  // minutes, or -1
+    char         countdown_what[32];
     char const*  boot;         // what the terminal says as it starts
     desk_file_t  files[DESK_FILES];
     int          n_files;
@@ -136,6 +144,9 @@ typedef struct {
     char               hist[8][DESK_COLS + 1];
     int                n_hist, at_hist;
     uint8_t            view;                  // desk_view_t
+    pack_t const*      pack;  // its rounds, their routes (desk_set_rounds), or NULL
+    char               names[PACK_CHAMBERS][32];
+    int                playing;  // the round GO started
     char               page[DESK_ARENA / 4];  // a page's text, wrapped: TYPE, a mail
     int                page_lines, page_top;
     uint8_t            page_back;  // the view it goes back to
@@ -146,6 +157,8 @@ typedef struct {
 // day's start (the boot text), else back from a round.
 void          desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_rounds, bool fresh);
 desk_action_t desk_key(desk_t* k, int key, char ch);
+// The story's rounds, for TODO and ROUTE: pack `p`, its rounds' names.
+void          desk_set_rounds(desk_t* k, pack_t const* p, char const names[][32]);
 // Back from a round's exit: its verdict in the log, and new mail told.
 void          desk_after_round(desk_t* k, story_result_t const* r);
 // The clock, minutes since midnight.

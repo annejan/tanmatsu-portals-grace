@@ -26,6 +26,7 @@ typedef struct {
     int      score;   // flaws logged: 1 a known one, 2 a novel one
     int      drafts;  // drafts of this file so far, from 1
     int      plays;   // exits judged: the desk's clock goes by these
+    int      route;   // the route picked (pack.h), 1 + its index; 0: none yet
 } story_t;
 
 typedef enum {
@@ -49,9 +50,21 @@ void story_begin(story_t* s, int pack);
 // or broken file is final from the start).
 bool story_final(story_t const* s, review_t const* r);
 
+// The rounds of a story, for the moves through them: `route_of` (pack.h,
+// NULL if it has no routes) says which route each round belongs to.
+typedef struct {
+    int            n;
+    uint8_t const* route_of;
+} story_rounds_t;
+
 // The exit reached in the round in play, its review `r` and what the run
-// did: what that means, and the story moved on accordingly.
-story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, int n_rounds);
+// did: what that means, and the story moved on accordingly -- past the
+// rounds of routes not taken.
+story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, story_rounds_t rounds);
+// Whether the round in play waits for a route to be picked.
+bool           story_needs_route(story_t const* s, story_rounds_t rounds);
+// Route `route` (1 + its index) picked: on to its first round.
+void           story_choose(story_t* s, int route, story_rounds_t rounds);
 
 // The round's chamber: the file's text patched with the flaws found so
 // far. Through `scratch` (big: the caller's). Its length, or -1 with the

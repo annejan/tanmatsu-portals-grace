@@ -27,13 +27,33 @@
 //
 // A build that knows rounds plays them and passes over the "chamber:" lines;
 // an older one knows only those, and plays a room that says to update.
+//
+// Rounds may branch: from a `route:` line on, rounds belong to that route,
+// until the next `route:` or a `join` line; the player picks one route
+// (the desk's ROUTE) and plays only its rounds, then the shared ones after.
+//
+//   choose: How do you get to Enschede?
+//   route: train | By train | The intercity, and a change at Amersfoort.
+//   round: platform-11b
+//   route: bike | By bike | 160 km. How hard can it be?
+//   round: headwind
+//   join
+//   round: arrival
 
 #include <stdbool.h>
+#include <stdint.h>
 #include "chamber.h"
 
 #define PACK_DIR      "/sd/portals/dlc"
 #define PACK_MAX      16
 #define PACK_CHAMBERS 24
+#define PACK_ROUTES   4
+
+typedef struct {
+    char id[16];  // what the player types: ROUTE TRAIN
+    char title[32];
+    char about[96];
+} pack_route_t;
 
 typedef struct {
     char id[32];  // its folder's name
@@ -46,6 +66,12 @@ typedef struct {
     bool desk;                    // frame: desk -- its chambers are review rounds
     char outro[CHAMBER_ID_N];     // the outro's file, "" for none
     int  outro_chamber;           // ... in the chamber list, or -1
+    // Routes (above): each round's, 0 for one every route plays, else 1 +
+    // its index in routes[].
+    uint8_t      route_of[PACK_CHAMBERS];
+    pack_route_t routes[PACK_ROUTES];
+    int          n_routes;
+    char         choose[80];  // the question the routes answer
 } pack_t;
 
 // Read every pack in `dir`, adding their chambers to the chamber list

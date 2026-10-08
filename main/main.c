@@ -201,7 +201,9 @@ static bool play_chamber(int index) {
     if (s_story_on) {
         // The round, not the chamber: Continue stays where it was.
         char msg[HUD_MESSAGE_N];
-        if (s_story.drafts > 1)
+        if (s_desk_data.badge)
+            snprintf(msg, sizeof(msg), "%.60s", s_game.lv.name);  // a chore, not a round
+        else if (s_story.drafts > 1)
             snprintf(msg, sizeof(msg), "Round %d: %.30s, draft %d", s_story.round, s_game.lv.name, s_story.drafts);
         else
             snprintf(msg, sizeof(msg), "Round %d: %.40s", s_story.round, s_game.lv.name);
@@ -627,6 +629,10 @@ static bool desk_enter(int pk) {
         if (!saved) ESP_LOGW(TAG, "%s does not read: the day from its start", path);
     }
     desk_begin(&s_desk, &s_desk_data, &s_story, p->n, true);
+    // Its rounds' names, for TODO.
+    static char names[PACK_CHAMBERS][32];
+    for (int i = 0; i < p->n; i++) chamber_name(p->chamber[i], names[i], sizeof(names[i]));
+    desk_set_rounds(&s_desk, p, names);
     if (saved) {
         s_desk.read = read;
         desk_print(&s_desk, "Session restored.");
@@ -861,7 +867,7 @@ static void story_ending(int pk) {
 // next round waiting until she is done.
 static void round_exit(void) {
     pack_t const* const  p   = pack_get(s_story.pack);
-    story_result_t const res = story_exit(&s_story, &s_review, &s_game.lv, &s_game.track, p->n);
+    story_result_t const res = story_exit(&s_story, &s_review, &s_game.lv, &s_game.track, (story_rounds_t){p->n, p->route_of});
     char                 terms[160];
     review_describe(&s_game.lv, &s_game.track, terms, sizeof(terms));
     ESP_LOGI(TAG, "round %d: %s (%s); score %d", s_story.round, res.headline, terms, s_story.score);

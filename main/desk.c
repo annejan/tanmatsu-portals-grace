@@ -89,6 +89,19 @@ static bool day_key(char const* k, char* v, void* ctx) {
         snprintf(d->host, sizeof(d->host), "%s", v);
     else if (strcmp(k, "prompt") == 0)
         snprintf(d->prompt, sizeof(d->prompt), "%s", v);
+    else if (strcmp(k, "style") == 0) {
+        if (strcmp(v, "badge") != 0 && strcmp(v, "dos") != 0) return false;
+        d->badge = strcmp(v, "badge") == 0;
+    } else if (strcmp(k, "header") == 0)
+        snprintf(d->header, sizeof(d->header), "%s", v);
+    else if (strcmp(k, "day") == 0)
+        snprintf(d->day, sizeof(d->day), "%s", v);
+    else if (strcmp(k, "countdown") == 0) {
+        // "18:00 Hackfest"
+        char* const sp = strchr(v, ' ');
+        if (sp == NULL || (d->countdown = (int16_t)minutes(v)) < 0) return false;
+        snprintf(d->countdown_what, sizeof(d->countdown_what), "%s", trim(sp + 1));
+    }
     else if (strcmp(k, "start") == 0)
         return (d->start = (int16_t)minutes(v)) >= 0;
     else if (strcmp(k, "step") == 0) {
@@ -131,8 +144,9 @@ bool desk_load(desk_data_t* d, char const* pack_dir, char* err, size_t err_n) {
     snprintf(d->user, sizeof(d->user), "USER");
     snprintf(d->host, sizeof(d->host), "TERMINAL");
     snprintf(d->prompt, sizeof(d->prompt), "C:\\>");
-    d->start = 9 * 60;
-    d->step  = 30;
+    d->start     = 9 * 60;
+    d->step      = 30;
+    d->countdown = -1;
     d->boot  = "";
     if (err_n) err[0] = '\0';
     char path[256];
@@ -340,6 +354,15 @@ static void text_out(desk_t* k, char const* text) {
     }
 }
 
+void desk_set_rounds(desk_t* k, pack_t const* p, char const names[][32]) {
+    k->pack = p;
+    for (int i = 0; i < p->n && i < PACK_CHAMBERS; i++) snprintf(k->names[i], sizeof(k->names[i]), "%s", names[i]);
+}
+
+static story_rounds_t rounds_of(desk_t const* k) {
+    return (story_rounds_t){k->n_rounds, k->pack != NULL && k->pack->n_routes > 0 ? k->pack->route_of : NULL};
+}
+
 void desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_rounds, bool fresh) {
     if (fresh || k->d != d) {
         memset(k, 0, sizeof(*k));
@@ -358,6 +381,20 @@ void desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_rounds, bool 
 }
 
 void desk_after_round(desk_t* k, story_result_t const* r) {
+    if (k->d->badge) {
+        // A chore done: ticked off, and what the badge said of it.
+        out(k, "");
+        out(k, "[%02d:%02d] Done: %s", desk_clock(k) / 60, desk_clock(k) % 60,
+            k->pack != NULL && k->playing < k->pack->n ? k->names[k->playing] : r->headline);
+        if (r->line[0]) out(k, "        %s", r->line);
+        if (desk_done(k))
+            out(k, "That's everything. Type EXIT, and go!");
+        else if (story_needs_route(k->s, rounds_of(k)))
+            out(k, "Time to get going. How? Type ROUTE.");
+        tell_mail(k);
+        k->view = DV_PROMPT;
+        return;
+    }
     out(k, "");
     out(k, "[%02d:%02d] Round %d: %s", desk_clock(k) / 60, desk_clock(k) % 60, r->round, r->headline);
     out(k, "        Score: %d", k->s->score);
@@ -482,7 +519,69 @@ static void cmd_cal(desk_t* k) {
     }
 }
 
+// TODO: the chores, ticked off -- those of the route taken, or the
+// choice still to make.
+static void cmd_todo(desk_t* k) {
+    out(k, "TODO");
+    if (k->pack == NULL) return;
+    story_rounds_t const rr     = rounds_of(k);
+    bool                 choice = false;
+    for (int i = 0; i < k->pack->n && i < k->n_rounds; i++) {
+        int const route = rr.route_of != NULL ? rr.route_of[i] : 0;
+        if (route != 0 && k->s->route == 0) {
+            // A choice still to make: one line for all the routes' rounds.
+            if (!choice) out(k, "[ ] %s  (type ROUTE)", k->pack->choose[0] ? k->pack->choose : "Pick a route");
+            choice = true;
+            continue;
+        }
+        if (route != 0 && route != k->s->route) continue;
+        out(k, "[%c] %s%s", i < k->s->at ? 'x' : ' ', k->names[i], i == k->s->at ? "   <- next: GO" : "");
+    }
+}
+
+// ROUTE: the ways to go, or one of them picked.
+static void cmd_route(desk_t* k, char const* arg) {
+    if (k->pack == NULL || k->pack->n_routes == 0) {
+        out(k, "Nowhere to go yet.");
+        return;
+    }
+    pack_t const* p = k->pack;
+    if (k->s->route != 0) {
+        out(k, "Already decided: %s.", p->routes[k->s->route - 1].title);
+        return;
+    }
+    if (*arg == '\0') {
+        out(k, "%s", p->choose[0] ? p->choose : "Which way?");
+        for (int i = 0; i < p->n_routes; i++)
+            out(k, "  %-8s %s -- %s", p->routes[i].id, p->routes[i].title, p->routes[i].about);
+        out(k, "Type ROUTE and one of them, as in ROUTE %s.", p->routes[0].id);
+        return;
+    }
+    char want[16];
+    snprintf(want, sizeof(want), "%s", arg);
+    upcase(want);
+    for (int i = 0; i < p->n_routes; i++)
+        if (strcmp(want, p->routes[i].id) == 0) {
+            story_choose(k->s, i + 1, rounds_of(k));
+            out(k, "Decided: %s. %s", p->routes[i].title, p->routes[i].about);
+            return;
+        }
+    out(k, "No such route. Type ROUTE to see them.");
+}
+
 static void cmd_help(desk_t* k) {
+    if (k->d->badge) {
+        out(k, "TODO         what still has to be done");
+        out(k, "GO           do the next thing");
+        out(k, "ROUTE        how to get there");
+        out(k, "CHAT         messages");
+        out(k, "CAL          the calendar");
+        out(k, "LS / CAT f   files");
+        out(k, "TIME         the time");
+        out(k, "CLEAR        clear the screen");
+        out(k, "EXIT         leave, once it is all done");
+        return;
+    }
     out(k, "DIR          the files here");
     out(k, "TYPE file    show a file");
     out(k, "MAIL         your mail");
@@ -515,34 +614,48 @@ static desk_action_t command(desk_t* k, char* line) {
         cmd_dir(k);
     } else if (strcmp(cmd, "TYPE") == 0 || strcmp(cmd, "CAT") == 0) {
         cmd_type(k, arg);
-    } else if (strcmp(cmd, "MAIL") == 0 || strcmp(cmd, "MAIL.EXE") == 0) {
+    } else if (strcmp(cmd, "TODO") == 0) {
+        cmd_todo(k);
+    } else if (strcmp(cmd, "ROUTE") == 0) {
+        cmd_route(k, arg);
+    } else if (strcmp(cmd, "MAIL") == 0 || strcmp(cmd, "MAIL.EXE") == 0 || strcmp(cmd, "CHAT") == 0) {
         k->view     = DV_MAIL;
         k->mail_cur = 0;
     } else if (strcmp(cmd, "CAL") == 0 || strcmp(cmd, "CAL.EXE") == 0) {
         cmd_cal(k);
-    } else if (strcmp(cmd, "GLADOS") == 0 || strcmp(cmd, "GLADOS.EXE") == 0) {
+    } else if (strcmp(cmd, "GLADOS") == 0 || strcmp(cmd, "GLADOS.EXE") == 0 || strcmp(cmd, "GO") == 0) {
         if (desk_done(k)) {
-            out(k, "GLaDOS: There is nothing left for you to review. Go home.");
+            out(k, "%s", k->d->badge ? "Nothing left to do. Type EXIT, and go!"
+                                     : "GLaDOS: There is nothing left for you to review. Go home.");
             return DESK_NONE;
         }
-        out(k, "Loading draft %d of chamber %d...", k->s->drafts, k->s->at + 1);
+        if (story_needs_route(k->s, rounds_of(k))) {
+            out(k, "First decide how to get there: type ROUTE.");
+            return DESK_NONE;
+        }
+        k->playing = k->s->at;
+        if (k->d->badge)
+            out(k, "Next: %s", k->pack != NULL && k->s->at < k->pack->n ? k->names[k->s->at] : "the next thing");
+        else
+            out(k, "Loading draft %d of chamber %d...", k->s->drafts, k->s->at + 1);
         return DESK_PLAY;
     } else if (strcmp(cmd, "STATUS") == 0) {
         cmd_status(k);
     } else if (strcmp(cmd, "TIME") == 0) {
         out(k, "Current time is %02d:%02d", desk_clock(k) / 60, desk_clock(k) % 60);
-    } else if (strcmp(cmd, "CLS") == 0) {
+    } else if (strcmp(cmd, "CLS") == 0 || strcmp(cmd, "CLEAR") == 0) {
         k->n_lines = 0;
     } else if (strcmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
         cmd_help(k);
     } else if (strcmp(cmd, "EXIT") == 0 || strcmp(cmd, "LOGOUT") == 0) {
         if (!desk_done(k)) {
-            out(k, "The review queue is not empty. The assignment is due today.");
+            out(k, "%s", k->d->badge ? "Not yet: there is still stuff on the TODO list."
+                                     : "The review queue is not empty. The assignment is due today.");
             return DESK_NONE;
         }
         return DESK_LEAVE;
     } else {
-        out(k, "Bad command or file name");
+        out(k, "%s", k->d->badge ? "Unknown command. Type HELP." : "Bad command or file name");
     }
     return DESK_NONE;
 }
@@ -675,7 +788,7 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
     }
     if (k->view == DV_MAIL) {
         int const n = inbox_n(k);
-        snprintf(rows[0], DESK_COLS + 1, "MAIL  %s@%s", k->d->user, k->d->host);
+        snprintf(rows[0], DESK_COLS + 1, "%s  %s@%s", k->d->badge ? "CHAT" : "MAIL", k->d->user, k->d->host);
         snprintf(rows[1], DESK_COLS + 1,
                  "------------------------------------------------------------------------------");
         if (n == 0) snprintf(rows[2], DESK_COLS + 1, "(no mail)");
@@ -690,13 +803,34 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
         snprintf(rows[DESK_ROWS - 1], DESK_COLS + 1, "Up/Down: choose   Enter: read   Esc: back");
         return;
     }
-    // The prompt: the scrollback's last lines, then the input line.
+    // The prompt: the scrollback's last lines, then the input line -- under
+    // a title bar, on a badge: its name, the day and the time, and how
+    // long until what it counts down to.
+    int top = 0;
+    if (k->d->badge) {
+        int const now = desk_clock(k);
+        char      left[64], right[48] = "";
+        snprintf(left, sizeof(left), " %.23s  ~  %.7s %02d:%02d", k->d->header[0] ? k->d->header : "TANMATSU",
+                 k->d->day, now / 60, now % 60);
+        if (k->d->countdown >= 0) {
+            int const left_min = k->d->countdown - now;
+            if (left_min > 0)
+                snprintf(right, sizeof(right), "%.24s in %dh%02d ", k->d->countdown_what, left_min / 60,
+                         left_min % 60);
+            else
+                snprintf(right, sizeof(right), "%.24s: now! ", k->d->countdown_what);
+        }
+        int const w = DESK_COLS - (int)strlen(right);
+        snprintf(rows[0], DESK_COLS + 1, "%-*.*s%s", w, w, left, right);
+        *hl = 0;
+        top = 1;
+    }
     int const shown = k->n_lines < DESK_LINES ? k->n_lines : DESK_LINES;
-    int const above = shown < DESK_ROWS - 1 ? shown : DESK_ROWS - 1;
+    int const above = shown < DESK_ROWS - 1 - top ? shown : DESK_ROWS - 1 - top;
     for (int r = 0; r < above; r++)
-        snprintf(rows[r], DESK_COLS + 1, "%s", k->lines[(k->n_lines - above + r) % DESK_LINES]);
-    snprintf(rows[above], DESK_COLS + 1, "%.23s%.57s", k->d->prompt, k->in);
-    *cur_row = above;
+        snprintf(rows[top + r], DESK_COLS + 1, "%s", k->lines[(k->n_lines - above + r) % DESK_LINES]);
+    snprintf(rows[top + above], DESK_COLS + 1, "%.23s%.57s", k->d->prompt, k->in);
+    *cur_row = top + above;
     *cur_col = (int)strlen(k->d->prompt) + k->in_cur;
 }
 
@@ -705,8 +839,8 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
 int desk_save_text(desk_t const* k, char* out_, size_t n) {
     story_t const* s = k->s;
     int            len =
-        snprintf(out_, n, "at: %d\nfound: %u\nnovel: %d\nround: %d\nscore: %d\ndrafts: %d\nplays: %d\nread:", s->at,
-                 (unsigned)s->found, s->novel ? 1 : 0, s->round, s->score, s->drafts, s->plays);
+        snprintf(out_, n, "at: %d\nfound: %u\nnovel: %d\nround: %d\nscore: %d\ndrafts: %d\nplays: %d\nroute: %d\nread:", s->at,
+                 (unsigned)s->found, s->novel ? 1 : 0, s->round, s->score, s->drafts, s->plays, s->route);
     for (int i = 0; i < k->d->n_mails && len >= 0 && (size_t)len < n; i++)
         if (k->read & (1u << i)) len += snprintf(out_ + len, n - (size_t)len, " %s", k->d->mails[i].id);
     if (len >= 0 && (size_t)len < n) len += snprintf(out_ + len, n - (size_t)len, "\n");
@@ -740,6 +874,8 @@ bool desk_load_save(char const* text, story_t* s, desk_data_t const* d, uint32_t
             t.drafts = v, seen |= 32;
         else if (sscanf(line, "plays: %d", &v) == 1 && v >= 0)
             t.plays = v, seen |= 64;
+        else if (sscanf(line, "route: %d", &v) == 1 && v >= 0 && v <= PACK_ROUTES)
+            t.route = v;  // optional: saves from before routes have none
         else if (strncmp(line, "read:", 5) == 0) {
             // Mail ids, a space between.
             for (char* w = line + 5; *w;) {

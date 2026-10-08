@@ -295,6 +295,11 @@ bool review_parse(char const* text, review_t* r, char* err, size_t err_n) {
                 q = skip(q + 2);
             }
             if (r->n_debug == 0) return fail(&c, "debug: what may change, as in \"#W\"");
+        } else if (strcmp(key, "done") == 0) {
+            if (end - v >= (long)sizeof(r->done))
+                return fail(&c, "done: longer than %d characters", (int)sizeof(r->done) - 1);
+            memcpy(r->done, v, (size_t)(end - v));
+            r->done[end - v] = '\0';
         } else {  // repair
             if (r->n_repairs >= REVIEW_FIXES) return fail(&c, "more than %d repairs", REVIEW_FIXES);
             if (!parse_cells(&c, v, &r->repairs[r->n_repairs], "repair")) return false;
@@ -303,7 +308,7 @@ bool review_parse(char const* text, review_t* r, char* err, size_t err_n) {
     }
 
     c.line         = 0;  // what follows is about the file, not a line of it
-    bool const any = have_intended || r->n_flaws || r->n_fixes || have_debug || r->n_repairs;
+    bool const any = have_intended || r->n_flaws || r->n_fixes || have_debug || r->n_repairs;  // `done:` alone is fine
     if (r->kind == REVIEW_NONE) {
         if (any) return fail(&c, "review keys, but no \"review:\"");
         return true;

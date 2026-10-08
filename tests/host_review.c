@@ -4,7 +4,7 @@
 //   host_review [-dt SECONDS | -jitter SEED] [-patch LETTERS] [-repair] FILE [SECTION...]
 //   host_review selftest
 //   host_review desk PACK_DIR      its desk/ read, as the badge reads it
-//   host_review story PACK_DIR [OUTDIR]  a desk story's day played through
+//   host_review story PACK_DIR [OUTDIR|-] [ROUTE]  a desk story's day played through
 //                                  (to film, with OUTDIR: tools/story_film.py)
 //
 // Each SECTION ("solution", "cheese a", ...; all of them if none given; or
@@ -496,7 +496,7 @@ static story_result_t play_round(story_t* s, char const* text, review_t const* r
     run_t const run = play(&lv, steps, 1.0f / 30.0f, 0, &g);
     if (run.exit < 0.0f) return (story_result_t){0};
     *exited = true;
-    return story_exit(s, r, &lv, &g.track, 2);
+    return story_exit(s, r, &lv, &g.track, (story_rounds_t){2, NULL});
 }
 
 static void test_story(void) {
@@ -565,7 +565,7 @@ static void test_story(void) {
     story_t again;
     story_begin(&again, 0);
     again.found               = 1;  // flaw a, patched
-    story_result_t const res2 = story_exit(&again, &r, &lv, &tr, 2);
+    story_result_t const res2 = story_exit(&again, &r, &lv, &tr, (story_rounds_t){2, NULL});
     CHECK(res2.outcome == STORY_AGAIN && res2.points == 0 && again.score == 0 && again.round == 1,
           "a patched flaw again: %d \"%s\"", res2.outcome, res2.headline);
     // A broken draft: through to the exit at all, it is repaired.
@@ -574,7 +574,7 @@ static void test_story(void) {
     story_t fixing;
     story_begin(&fixing, 0);
     track_t const        none = {0};
-    story_result_t const rep  = story_exit(&fixing, &broken, &lv, &none, 2);
+    story_result_t const rep  = story_exit(&fixing, &broken, &lv, &none, (story_rounds_t){2, NULL});
     CHECK(rep.outcome == STORY_NEXT && strcmp(rep.headline, "Repaired") == 0 && fixing.at == 1 && fixing.plays == 1,
           "a broken draft repaired: %d %s", rep.outcome, rep.headline);
     free(t);
@@ -700,7 +700,78 @@ static void test_desk(void) {
     CHECK(desk_key(&k, DK_ESC, 0) == DESK_TITLE, "Esc at an empty prompt: the title");
 }
 
+// Routes: a story that branches, and the desk that picks one.
+static void test_routes(void) {
+    static pack_t p;
+    static char   files[PACK_CHAMBERS][CHAMBER_ID_N];
+    int           n = 0;
+    CHECK(pack_parse("name: Trip\nframe: desk\nround: dishes\nround: reflow\nchoose: How do you get there?\n"
+                     "route: train | By train | The intercity.\nround: platform\nround: change\n"
+                     "route: bike | By bike | 160 km.\nround: headwind\njoin\nround: arrive\n",
+                     &p, files, &n),
+          "a pack with routes");
+    CHECK(n == 6 && p.n_routes == 2 && strcmp(p.routes[0].id, "TRAIN") == 0 && strcmp(p.routes[1].title, "By bike") == 0 &&
+              strcmp(p.choose, "How do you get there?") == 0,
+          "routes read: %d rounds, %d routes", n, p.n_routes);
+    uint8_t const want[6] = {0, 0, 1, 1, 2, 0};
+    CHECK(memcmp(p.route_of, want, 6) == 0, "each round's route");
+    p.n = n;
+    story_rounds_t const rr = {n, p.route_of};
+    static review_t      none;
+    static level_t       lv;
+    track_t const        tr = {0};
+    story_t              s;
+    story_begin(&s, 0);
+    CHECK(!story_needs_route(&s, rr), "no choice yet, at the first round");
+    story_exit(&s, &none, &lv, &tr, rr);
+    story_result_t res = story_exit(&s, &none, &lv, &tr, rr);
+    CHECK(res.outcome == STORY_NEXT && s.at == 2 && story_needs_route(&s, rr), "at the fork: a route wanted (at %d)", s.at);
+    // The desk: GO refuses, ROUTE lists, ROUTE BIKE picks.
+    static desk_data_t d;
+    static desk_t      k;
+    char               err[160];
+    CHECK(desk_load(&d, "tests/review/desk-pack", err, sizeof(err)), "desk: %s", err);
+    static char const names[6][32] = {"Dishes", "Reflow", "Platform", "Change", "Headwind", "Arrive"};
+    desk_begin(&k, &d, &s, n, true);
+    desk_set_rounds(&k, &p, names);
+    CHECK(type(&k, "go") == DESK_NONE && strstr(screen_text(&k), "type ROUTE"), "GO waits for a route");
+    type(&k, "todo");
+    CHECK(strstr(screen_text(&k), "[x] Reflow") && strstr(screen_text(&k), "[ ] How do you get there?") &&
+              !strstr(screen_text(&k), "Platform"),
+          "todo before the choice:\n%s", screen_text(&k));
+    type(&k, "route");
+    CHECK(strstr(screen_text(&k), "TRAIN    By train -- The intercity.") != NULL, "routes listed:\n%s", screen_text(&k));
+    type(&k, "route bike");
+    CHECK(s.route == 2 && s.at == 4 && !story_needs_route(&s, rr), "bike picked: on to its round (at %d)", s.at);
+    type(&k, "route train");
+    CHECK(s.route == 2 && strstr(screen_text(&k), "Already decided: By bike."), "decided is decided");
+    type(&k, "todo");
+    CHECK(strstr(screen_text(&k), "[ ] Headwind   <- next: GO") && !strstr(screen_text(&k), "Platform"),
+          "todo after the choice:\n%s", screen_text(&k));
+    CHECK(type(&k, "go") == DESK_PLAY && k.playing == 4, "GO: the bike's round");
+    res = story_exit(&s, &none, &lv, &tr, rr);
+    CHECK(res.outcome == STORY_NEXT && s.at == 5, "past the train's rounds, on to the shared one (at %d)", s.at);
+    res = story_exit(&s, &none, &lv, &tr, rr);
+    CHECK(res.outcome == STORY_DONE && s.at == 6, "and done");
+    // The route is kept in a save.
+    char save[512];
+    CHECK(desk_save_text(&k, save, sizeof(save)) > 0 && strstr(save, "route: 2"), "saved with its route");
+    story_t back;
+    uint32_t read;
+    story_begin(&back, 0);
+    CHECK(desk_load_save(save, &back, &d, &read) && back.route == 2, "read back with its route");
+    // A done line: said when it is done.
+    static review_t dn;
+    CHECK(review_parse("done: Dishes done. Sort of.\nsize: 3 3 3\n", &dn, err, sizeof(err)) && dn.kind == REVIEW_NONE &&
+              strcmp(dn.done, "Dishes done. Sort of.") == 0,
+          "done: alone: %s", err);
+    story_begin(&s, 0);
+    res = story_exit(&s, &dn, &lv, &tr, (story_rounds_t){2, NULL});
+    CHECK(strcmp(res.line, "Dishes done. Sort of.") == 0, "its done line said: %s", res.line);
+}
+
 static int selftest(void) {
+    test_routes();
     test_desk();
     test_story();
     test_parse_errors();
@@ -785,7 +856,7 @@ static void section_text(char const* text, char const* route, FILE* out) {
 // cheesed a flaw at a time, then solved as meant; each broken one played
 // repaired; the desk kept alongside. Prints the day, and the desk's
 // calendar and inbox at its end. 1 if a round does not go as it should.
-static int story_through(char const* dir, char const* film) {
+static int story_through(char const* dir, char const* film, char const* pick) {
     static desk_data_t d;
     static desk_t      k;
     char               err[200], path[300];
@@ -803,25 +874,56 @@ static int story_through(char const* dir, char const* film) {
         fprintf(stderr, "%s: %s\n", dir, err);
         return 1;
     }
-    // Its rounds, from pack.txt.
+    // Its rounds, from pack.txt, as the badge reads it -- routes and all.
     snprintf(path, sizeof(path), "%s/pack.txt", dir);
-    char* const pack = slurp(path);
-    if (pack == NULL) return 1;
-    char rounds[PACK_CHAMBERS][CHAMBER_ID_N];
-    int  n = 0;
-    for (char* line = strtok(pack, "\n"); line && n < PACK_CHAMBERS; line = strtok(NULL, "\n"))
-        if (strncmp(line, "round:", 6) == 0) sscanf(line + 6, " %63s", rounds[n++]);
-    free(pack);
-    story_t s;
+    char* const   packtext = slurp(path);
+    static pack_t pk;
+    static char   rounds[PACK_CHAMBERS][CHAMBER_ID_N];
+    int           n = 0;
+    if (packtext == NULL || !pack_parse(packtext, &pk, rounds, &n)) {
+        fprintf(stderr, "%s: no rounds\n", path);
+        return 1;
+    }
+    free(packtext);
+    pk.n = n;
+    // Their names, from their files' first lines.
+    static char names[PACK_CHAMBERS][32];
+    for (int i = 0; i < n; i++) {
+        snprintf(path, sizeof(path), "%s/%s.txt", dir, rounds[i]);
+        char* const ct = slurp(path);
+        char const* nm = ct ? strstr(ct, "name:") : NULL;
+        if (nm) sscanf(nm + 5, " %31[^\n]", names[i]);
+        free(ct);
+    }
+    story_rounds_t const rr = {n, pk.n_routes > 0 ? pk.route_of : NULL};
+    story_t              s;
     story_begin(&s, 0);
     desk_begin(&k, &d, &s, n, true);
+    desk_set_rounds(&k, &pk, names);
     // The day starts: the assignment read, the queue opened.
     film_screen(&k, 3.0f);
-    film_type(&k, "type assign", 0.5f);
-    film_screen(&k, 6.0f);
-    desk_key(&k, DK_ESC, 0);
+    if (d.badge) {
+        film_type(&k, "todo", 4.0f);
+    } else {
+        film_type(&k, "type assign", 0.5f);
+        film_screen(&k, 6.0f);
+        desk_key(&k, DK_ESC, 0);
+    }
     int fails = 0;
     while (s.at < n) {
+        if (story_needs_route(&s, rr)) {
+            // The way to go: the one asked for, else the first.
+            char cmd[48];
+            film_type(&k, "route", 4.0f);
+            snprintf(cmd, sizeof(cmd), "route %s", pick != NULL ? pick : pk.routes[0].id);
+            film_type(&k, cmd, 3.0f);
+            if (story_needs_route(&s, rr)) {
+                fprintf(stderr, "%s: no route \"%s\"\n", dir, pick != NULL ? pick : "");
+                return 1;
+            }
+            printf("route: %s\n", pk.routes[s.route - 1].title);
+            continue;
+        }
         snprintf(path, sizeof(path), "%s/%s.txt", dir, rounds[s.at]);
         char* const     text = slurp(path);
         static review_t r;
@@ -851,7 +953,7 @@ static int story_through(char const* dir, char const* film) {
         }
         if (film != NULL) {
             // Into the queue; a broken draft through the debugger.
-            film_type(&k, "glados", 1.2f);
+            film_type(&k, d.badge ? "go" : "glados", 1.2f);
             if (r.kind == REVIEW_BROKEN) {
                 desk_print(&k, "GLaDOS cannot solve this draft. It is broken. Opening the debugger...");
                 film_screen(&k, 2.5f);
@@ -874,7 +976,8 @@ static int story_through(char const* dir, char const* film) {
         int const            drafts = s.drafts;
         uint32_t const       told   = k.told;
         int const            done   = s.at;
-        story_result_t const res    = story_exit(&s, &r, &lv, &g.track, n);
+        k.playing                   = at;
+        story_result_t const res    = story_exit(&s, &r, &lv, &g.track, rr);
         if (tsv != NULL)
             fprintf(tsv, "%d\t%s\t%d\t%s\t%s\t%s\n", res.round, rounds[at], drafts, route, res.headline, res.line);
         s_seg++;
@@ -910,8 +1013,8 @@ static int story_through(char const* dir, char const* film) {
 
 int main(int argc, char** argv) {
     if (argc == 2 && strcmp(argv[1], "selftest") == 0) return selftest();
-    if ((argc == 3 || argc == 4) && strcmp(argv[1], "story") == 0)
-        return story_through(argv[2], argc == 4 ? argv[3] : NULL);
+    if (argc >= 3 && argc <= 5 && strcmp(argv[1], "story") == 0)
+        return story_through(argv[2], argc >= 4 && strcmp(argv[3], "-") != 0 ? argv[3] : NULL, argc >= 5 ? argv[4] : NULL);
     if (argc == 3 && strcmp(argv[1], "desk") == 0) {
         // A pack's desk/, read as the badge reads it.
         static desk_data_t d;

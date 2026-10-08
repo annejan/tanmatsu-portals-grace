@@ -239,7 +239,7 @@ static int target_order(vec3_t t) {
 }
 
 bool chamber_review_key(char const* k) {
-    static char const* const keys[] = {"review", "intended", "flaw", "fix", "debug", "repair"};
+    static char const* const keys[] = {"review", "intended", "flaw", "fix", "debug", "repair", "done"};
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
         if (strcmp(k, keys[i]) == 0) return true;
     return false;

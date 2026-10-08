@@ -43,6 +43,8 @@ def pack_info(folder):
                     order.append(value.strip())
                 elif key == "round":
                     rounds.append(value.strip())
+                elif key == "route":
+                    info.setdefault("routes", []).append(value.split("|")[0].strip().upper())
                 elif key in ("name", "author", "about", "ending", "frame", "outro"):
                     info[key] = value.strip()
     if info.get("frame") == "desk" and rounds:
@@ -208,14 +210,18 @@ def check():
                                        "FAIL: " + out.stderr.strip()))
             if out.returncode != 0:
                 bad.append("%s/desk" % os.path.basename(folder))
-            # The whole day, played through as a player would.
-            out = subprocess.run([os.path.join(ROOT, "build", "host_review"), "story", folder], capture_output=True,
-                                 text=True)
-            last = [l for l in out.stdout.splitlines() if l.startswith("score")]
-            print("  %-22s %-8s %s" % ("the day", "story", (last[0] if last else "") if out.returncode == 0 else
-                                       "FAIL: " + (out.stdout + out.stderr).strip().replace("\n", "; ")[-300:]))
-            if out.returncode != 0:
-                bad.append("%s/story" % os.path.basename(folder))
+            # The whole day, played through as a player would -- each route.
+            for route in info.get("routes") or [None]:
+                cmd = [os.path.join(ROOT, "build", "host_review"), "story", folder]
+                if route:
+                    cmd += ["-", route]
+                out = subprocess.run(cmd, capture_output=True, text=True)
+                last = [l for l in out.stdout.splitlines() if l.startswith("score")]
+                label = "the day" + (" (%s)" % route.lower() if route else "")
+                print("  %-22s %-8s %s" % (label, "story", (last[0] if last else "") if out.returncode == 0 else
+                                           "FAIL: " + (out.stdout + out.stderr).strip().replace("\n", "; ")[-300:]))
+                if out.returncode != 0:
+                    bad.append("%s/story%s" % (os.path.basename(folder), "-" + route if route else ""))
             for cid in order + ([info["outro"]] if info.get("outro") else []):
                 kind, why = check_round(os.path.join(folder, cid + ".txt"))
                 print("  %-22s %-8s %s" % (cid, kind, "ok" if not why else "FAIL: " + "; ".join(why)))

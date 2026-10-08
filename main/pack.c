@@ -44,9 +44,12 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
     *n_files = 0;
     // A desk story's rounds, until it is known to be one.
     static char rounds[PACK_CHAMBERS][CHAMBER_ID_N];
-    int         n_rounds = 0;
+    int         n_rounds = 0, route = 0;
     p->desk              = false;
     p->outro[0]          = '\0';
+    p->n_routes          = 0;
+    p->choose[0]         = '\0';
+    memset(p->route_of, 0, sizeof(p->route_of));
     char        line[256];
     char const* at = text;
     if (strncmp(at, "\xEF\xBB\xBF", 3) == 0) at += 3;
@@ -69,8 +72,34 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
             snprintf(p->ending, sizeof(p->ending), "%s", trim(s + 7));
         else if (strncmp(s, "chamber:", 8) == 0 && *n_files < PACK_CHAMBERS)
             snprintf(files[(*n_files)++], CHAMBER_ID_N, "%s", trim(s + 8));
-        else if (strncmp(s, "round:", 6) == 0 && n_rounds < PACK_CHAMBERS)
+        else if (strncmp(s, "round:", 6) == 0 && n_rounds < PACK_CHAMBERS) {
+            p->route_of[n_rounds] = (uint8_t)route;
             snprintf(rounds[n_rounds++], CHAMBER_ID_N, "%s", trim(s + 6));
+        } else if (strncmp(s, "choose:", 7) == 0)
+            snprintf(p->choose, sizeof(p->choose), "%s", trim(s + 7));
+        else if (strncmp(s, "route:", 6) == 0) {
+            // id | title | about
+            if (p->n_routes >= PACK_ROUTES) {
+                LOGW("more than %d routes -- the rest left out", PACK_ROUTES);
+                route = 255;  // its rounds belong to no route anyone can pick
+                continue;
+            }
+            pack_route_t* r     = &p->routes[p->n_routes++];
+            char*         title = strchr(s + 6, '|');
+            char*         about = title ? strchr(title + 1, '|') : NULL;
+            if (title) *title++ = '\0';
+            if (about) *about++ = '\0';
+            snprintf(r->id, sizeof(r->id), "%s", trim(s + 6));
+            if (title)
+                snprintf(r->title, sizeof(r->title), "%s", trim(title));
+            else
+                memcpy(r->title, r->id, sizeof(r->id));
+            snprintf(r->about, sizeof(r->about), "%s", about ? trim(about) : "");
+            for (char* u = r->id; *u; u++)
+                if (*u >= 'a' && *u <= 'z') *u = (char)(*u - 'a' + 'A');
+            route = p->n_routes;
+        } else if (strcmp(s, "join") == 0)
+            route = 0;
         else if (strncmp(s, "outro:", 6) == 0)
             snprintf(p->outro, sizeof(p->outro), "%s", trim(s + 6));
         else if (strncmp(s, "frame:", 6) == 0) {
@@ -132,7 +161,10 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
         bool      twice = false;  // the same chamber twice: the story would never end
         for (int k = 0; k < p->n; k++) twice |= p->chamber[k] == c;
         if (twice) LOGW("%s: %s twice -- once is enough", folder, files[i]);
-        if (c >= 0 && !twice) p->chamber[p->n++] = c;
+        if (c >= 0 && !twice) {
+            p->route_of[p->n] = p->route_of[i];  // p->n <= i: read before it is written over
+            p->chamber[p->n++] = c;
+        }
     }
     if (p->outro[0] != '\0') {
         char cid[32 + CHAMBER_ID_N];
