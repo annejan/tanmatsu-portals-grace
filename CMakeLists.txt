@@ -30,6 +30,7 @@ set(APP_SOURCES
     main/desk.c
     main/deskview.c
     main/outro.c
+    main/splash.c
     main/physics.c
     main/player.c
     main/portal.c

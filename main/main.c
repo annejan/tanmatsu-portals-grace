@@ -39,6 +39,7 @@
 #include "render.h"
 #include "review.h"
 #include "settings.h"
+#include "splash.h"
 #include "sound.h"
 #include "story.h"
 #include "synthengine3d.h"
@@ -65,7 +66,8 @@ typedef enum {
     MODE_EDIT,
     MODE_TEST,
     MODE_DESK,  // a desk story's desk (desk.h)
-    MODE_CINE   // its outro (outro.h)
+    MODE_CINE,   // its outro (outro.h)
+    MODE_SPLASH  // the game's own splash, after the engine's (splash.h)
 } app_mode_t;
 static app_mode_t s_mode;
 static char       s_play_id[64];  // the chamber play goes back to after the editor
@@ -468,15 +470,20 @@ static void on_init(void* user) {
     }
     if (!s_half_ok) ESP_LOGW(TAG, "no quarter-resolution layer; drawing at full resolution");
 
-    // The engine's own splash, as games show what they are built on; then ours.
+    // The engine's own splash, as games show what they are built on; then
+    // ours, drawn by the game (splash.h), and the title screen after it.
     se_splash();
-    se_splash_ex("PORTALS", "for Tanmatsu", 1.0f);
     sound_init();
     sound_set_music(settings_music());
     sound_set_effects(settings_effects());
     sound_set_voice(settings_voice());
     attract_seed((uint32_t)esp_timer_get_time());
-    to_title();
+    if (splash_start(&s_game)) {
+        s_mode = MODE_SPLASH;
+        render_set_level(&s_game.lv, s_game.portals);
+    } else {
+        to_title();
+    }
     devtest_start(&TEST);
     write_memory();
 }
@@ -532,6 +539,13 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
     if (s_mode == MODE_DESK) {
         desk_action_t const a = deskview_event(&s_desk, ev);
         if (a != DESK_NONE) s_desk_act = a;
+        return;
+    }
+    if (s_mode == MODE_SPLASH) {
+        // Any key: on to the title.
+        if ((ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state) ||
+            ev->type == INPUT_EVENT_TYPE_KEYBOARD)
+            splash_skip();
         return;
     }
     if (s_mode == MODE_CINE) {
@@ -1002,6 +1016,12 @@ static void on_update(float dt, void* user) {
         desk_frame(dt);
     } else if (s_mode == MODE_CINE) {
         cine_frame(dt);
+    } else if (s_mode == MODE_SPLASH) {
+        if (!splash_update(&s_game, dt)) {
+            s_mode = MODE_PLAY;
+            render_set_portal_depth(settings_portal_depth());  // the player's own, again
+            to_title();
+        }
     } else if (s_mode == MODE_TEST && (s_test_back || (s_test_done > 0.0f && (s_test_done -= dt) <= 0.0f))) {
         back_to_editor();
     } else if (menu_active()) {
@@ -1052,6 +1072,7 @@ static void on_render(pax_buf_t* fb, void* user) {
     }
     if (title && attract_lit() < 1.0f) hud_fade(target, attract_lit());
     if (s_mode == MODE_CINE) hud_fade(target, outro_lit());  // the lights low, then out
+    if (s_mode == MODE_SPLASH && splash_lit() < 1.0f) hud_fade(target, splash_lit());  // faded in, and out
     if (half) {
         // The CPU's pixels to PSRAM before the PPA's DMA reads them.
         se_ppa_layer_sync(&s_layer);
@@ -1061,7 +1082,9 @@ static void on_render(pax_buf_t* fb, void* user) {
         }
     }
     s_render_us = esp_timer_get_time() - t0;
-    if (title) {
+    if (s_mode == MODE_SPLASH) {
+        splash_draw(fb);  // the title, over the corridor
+    } else if (title) {
         hud_draw_title(fb, &s_game, menu_title_shown());
     } else {
         hud_timer_t      timer;
