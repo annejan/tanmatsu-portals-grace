@@ -208,6 +208,14 @@ def check():
                                        "FAIL: " + out.stderr.strip()))
             if out.returncode != 0:
                 bad.append("%s/desk" % os.path.basename(folder))
+            # The whole day, played through as a player would.
+            out = subprocess.run([os.path.join(ROOT, "build", "host_review"), "story", folder], capture_output=True,
+                                 text=True)
+            last = [l for l in out.stdout.splitlines() if l.startswith("score")]
+            print("  %-22s %-8s %s" % ("the day", "story", (last[0] if last else "") if out.returncode == 0 else
+                                       "FAIL: " + (out.stdout + out.stderr).strip().replace("\n", "; ")[-300:]))
+            if out.returncode != 0:
+                bad.append("%s/story" % os.path.basename(folder))
             for cid in order + ([info["outro"]] if info.get("outro") else []):
                 kind, why = check_round(os.path.join(folder, cid + ".txt"))
                 print("  %-22s %-8s %s" % (cid, kind, "ok" if not why else "FAIL: " + "; ".join(why)))

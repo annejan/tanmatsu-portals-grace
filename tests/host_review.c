@@ -4,6 +4,7 @@
 //   host_review [-dt SECONDS | -jitter SEED] [-patch LETTERS] [-repair] FILE [SECTION...]
 //   host_review selftest
 //   host_review desk PACK_DIR      its desk/ read, as the badge reads it
+//   host_review story PACK_DIR     a desk story's day played through
 //
 // Each SECTION ("solution", "cheese a", ...; all of them if none given; or
 // a route file, tas/NN-name.txt, a script on its own) is
@@ -25,6 +26,7 @@
 #include "chamber.h"
 #include "demo.h"
 #include "desk.h"
+#include "pack.h"
 #include "review.h"
 #include "story.h"
 
@@ -714,8 +716,89 @@ static int selftest(void) {
     return 0;
 }
 
+// A desk story played through as a player would: each flawed round
+// cheesed a flaw at a time, then solved as meant; each broken one played
+// repaired; the desk kept alongside. Prints the day, and the desk's
+// calendar and inbox at its end. 1 if a round does not go as it should.
+static int story_through(char const* dir) {
+    static desk_data_t d;
+    static desk_t      k;
+    char               err[200], path[300];
+    if (!desk_load(&d, dir, err, sizeof(err))) {
+        fprintf(stderr, "%s: %s\n", dir, err);
+        return 1;
+    }
+    // Its rounds, from pack.txt.
+    snprintf(path, sizeof(path), "%s/pack.txt", dir);
+    char* const pack = slurp(path);
+    if (pack == NULL) return 1;
+    char rounds[PACK_CHAMBERS][CHAMBER_ID_N];
+    int  n = 0;
+    for (char* line = strtok(pack, "\n"); line && n < PACK_CHAMBERS; line = strtok(NULL, "\n"))
+        if (strncmp(line, "round:", 6) == 0) sscanf(line + 6, " %63s", rounds[n++]);
+    free(pack);
+    story_t s;
+    story_begin(&s, 0);
+    desk_begin(&k, &d, &s, n, true);
+    int fails = 0;
+    while (s.at < n) {
+        snprintf(path, sizeof(path), "%s/%s.txt", dir, rounds[s.at]);
+        char* const     text = slurp(path);
+        static review_t r;
+        if (text == NULL || !review_parse(text, &r, err, sizeof(err))) {
+            fprintf(stderr, "%s: %s\n", path, text ? err : "cannot read");
+            return 1;
+        }
+        // The route: the next flaw not yet found, or the solution.
+        char route[16] = "solution";
+        for (int i = 0; i < r.n_flaws; i++)
+            if (!(s.found & (1u << i))) {
+                snprintf(route, sizeof(route), "cheese %c", r.flaws[i].id);
+                break;
+            }
+        static draft_t scratch;
+        static char    round[CHAMBER_FILE_MAX];
+        int const      len = r.kind == REVIEW_BROKEN
+                                 ? review_patch(text, &r, 0, true, &scratch, round, sizeof(round), err, sizeof(err))
+                                 : story_round_text(&s, text, &r, &scratch, round, sizeof(round), err, sizeof(err));
+        static level_t lv;
+        static step_t  steps[SCRIPT_MAX_STEPS];
+        static game_t  g;
+        if (len < 0 || !chamber_parse(round, &lv, NULL, NULL, err, sizeof(err)) ||
+            !chamber_parse_section(text, route, steps, NULL, err, sizeof(err))) {
+            fprintf(stderr, "%s: %s\n", path, err);
+            return 1;
+        }
+        free(text);
+        run_t const run = play(&lv, steps, 1.0f / 30.0f, 0, &g);
+        if (run.exit < 0.0f) {
+            printf("round %d, %s, %s: FAIL\n", s.round, rounds[s.at], route);
+            return 1;
+        }
+        int const            at  = s.at;
+        story_result_t const res = story_exit(&s, &r, &lv, &g.track, n);
+        desk_after_round(&k, &res);
+        printf("%02d:%02d  round %d  %-14s %-9s %s\n", desk_clock(&k) / 60, desk_clock(&k) % 60, res.round, rounds[at],
+               route, res.headline);
+        if (res.outcome == STORY_AGAIN) fails++;
+        if (s.plays > 40) return 1;
+    }
+    printf("score %d; done: %s\n", s.score, desk_done(&k) ? "yes" : "NO");
+    char line[] = "cal";
+    for (char* c = line; *c; c++) desk_key(&k, DK_CHAR, *c);
+    desk_key(&k, DK_ENTER, 0);
+    char rows[DESK_ROWS][DESK_COLS + 1];
+    int  a, b, h;
+    desk_screen(&k, rows, &a, &b, &h);
+    for (int i = 0; i < DESK_ROWS; i++)
+        if (rows[i][0]) printf("  | %s\n", rows[i]);
+    printf("mail in: %d of %d\n", __builtin_popcount(k.told), d.n_mails);
+    return fails || !desk_done(&k) || desk_key(&k, DK_CHAR, 'x') != DESK_NONE ? 1 : 0;
+}
+
 int main(int argc, char** argv) {
     if (argc == 2 && strcmp(argv[1], "selftest") == 0) return selftest();
+    if (argc == 3 && strcmp(argv[1], "story") == 0) return story_through(argv[2]);
     if (argc == 3 && strcmp(argv[1], "desk") == 0) {
         // A pack's desk/, read as the badge reads it.
         static desk_data_t d;

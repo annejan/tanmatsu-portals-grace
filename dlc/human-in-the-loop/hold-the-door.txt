@@ -1,0 +1,107 @@
+name: Hold the door
+hint: A draft: find a way she did not mean. The final draft: the way she did.
+story: A cube. A button. A door. I have tested this design on myself four thousand times. It is flawless. Prove it, or do not.
+review: flawed
+intended: button 1 by cube, door a
+flaw: a no door a -- Over the barrier by portal: a white panel on each side of it was all it took.
+fix: a 3-5 3-4 11 WG
+size: 9 6 12
+facing: north
+
+layer 0
+#########
+#########
+####E####
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+#########
+
+layer 1
+#########
+#.......#
+#.......#
+#.......#
+#.......#
+####a####
+#.......#
+#C......#
+#.......#
+#...S...#
+#......1#
+###WWW###
+
+layer 2
+#########
+#.......#
+#.......#
+#.......#
+#.......#
+####a####
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+###WWW###
+
+layer 3
+###WWW###
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#########
+
+layer 4
+###WWW###
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#.......#
+#########
+
+solution
+// The cube onto the button, and through the door while it holds.
+look 1.5 1.3 4.5
+walk_to 2.4 4.3
+grab
+wait 0.4
+walk_to 6.4 2.2
+look 7.5 1.0 1.5
+wait 0.5
+use
+wait 1.0
+walk_to 4.5 5.0
+walk_to 4.5 9.5
+
+cheese a
+// Blue by the start, orange high on the far wall: out of it, and
+// down, the far side of the barrier.
+shoot blue 4.5 2.0 1.0
+look 4.5 4.0 11.0
+wait 0.4
+shoot orange 4.5 4.0 11.0
+look 4.5 1.6 1.0
+wait 0.4
+walk_to 4.5 0.0
+wait 1.0
+walk_to 4.5 9.5
+
