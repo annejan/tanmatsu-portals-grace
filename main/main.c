@@ -468,6 +468,8 @@ static void on_init(void* user) {
     }
     if (!s_half_ok) ESP_LOGW(TAG, "no quarter-resolution layer; drawing at full resolution");
 
+    // The engine's own splash, as games show what they are built on; then ours.
+    se_splash();
     se_splash_ex("PORTALS", "for Tanmatsu", 1.0f);
     sound_init();
     sound_set_music(settings_music());
