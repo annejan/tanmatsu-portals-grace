@@ -7,6 +7,7 @@
 #include "bsp/input.h"
 #include "level.h"
 #include "pax_gfx.h"
+#include "review.h"
 
 typedef enum {
     EDITOR_CMD_NONE = 0,
@@ -24,3 +25,10 @@ void           editor_draw(pax_buf_t* fb);
 level_t const* editor_level(void);
 // Back from a play-test.
 void           editor_resume(void);
+// The debugger: a broken round's chamber (`text`, as `id`), to repair
+// within its review's `debug:` budget and changes (review.h). Nothing is
+// saved; Quit goes back to the desk. False, with the reason in `err`, if
+// it cannot be opened.
+bool           editor_open_debug(char const* text, char const* id, review_t const* r, char* err, size_t err_n);
+// Whether the editor is the debugger.
+bool           editor_debugging(void);

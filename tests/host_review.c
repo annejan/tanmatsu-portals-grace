@@ -564,6 +564,15 @@ static void test_story(void) {
     story_result_t const res2 = story_exit(&again, &r, &lv, &tr, 2);
     CHECK(res2.outcome == STORY_AGAIN && res2.points == 0 && again.score == 0 && again.round == 1,
           "a patched flaw again: %d \"%s\"", res2.outcome, res2.headline);
+    // A broken draft: through to the exit at all, it is repaired.
+    static review_t broken;
+    CHECK(review_parse("review: broken\ndebug: 1 #W\nsize: 3 3 3\n", &broken, err, sizeof(err)), "broken: %s", err);
+    story_t fixing;
+    story_begin(&fixing, 0);
+    track_t const        none = {0};
+    story_result_t const rep  = story_exit(&fixing, &broken, &lv, &none, 2);
+    CHECK(rep.outcome == STORY_NEXT && strcmp(rep.headline, "Repaired") == 0 && fixing.at == 1 && fixing.plays == 1,
+          "a broken draft repaired: %d %s", rep.outcome, rep.headline);
     free(t);
 }
 

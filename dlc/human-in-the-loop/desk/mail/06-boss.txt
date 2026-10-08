@@ -1,6 +1,6 @@
 from: Your supervisor
 subject: The queue
-after: done 1
+after: done 2
 
 The queue is to be empty today. Today. Overtime is approved in advance,
 by which I mean it is not optional.

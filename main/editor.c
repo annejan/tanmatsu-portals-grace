@@ -39,6 +39,16 @@ static uint32_t s_act;  // menu actions this frame, from events
 static bool     s_want_test, s_want_quit;
 static level_t  s_level;  // the parsed chamber, for a play-test
 
+// The debugger (editor_open_debug): what it may change, and what it has.
+typedef struct {
+    uint8_t x, y, z;
+    char    was;
+} change_t;
+static bool     s_debug;
+static review_t s_rules;
+static change_t s_changes[100];
+static int      s_n_changes;
+
 enum {
     A_UP    = 1,
     A_DOWN  = 2,
@@ -66,7 +76,30 @@ static void fresh_id(char* out, size_t n, char const* base) {
     draft_fresh_id(s_dir, base, out, n);
 }
 
+bool editor_debugging(void) {
+    return s_debug;
+}
+
+bool editor_open_debug(char const* text, char const* id, review_t const* r, char* err, size_t err_n) {
+    if (!draft_from_text(&s_d, id, text, err, err_n)) return false;
+    s_debug     = true;
+    s_rules     = *r;
+    s_n_changes = 0;
+    s_new       = false;
+    s_dir[0]    = '\0';
+    s_brush     = r->n_debug > 0 ? r->debug[0][1] : 'W';
+    s_x         = s_d.w / 2;
+    s_z         = s_d.d / 2;
+    s_y         = s_d.h > 1 ? 1 : 0;
+    s_active    = true;
+    s_menu = s_painting = s_anchor_set = false;
+    snprintf(s_msg, sizeof(s_msg), "DEBUGGER: %d change%s allowed", r->debug_budget, r->debug_budget == 1 ? "" : "s");
+    s_msg_t = 5.0f;
+    return true;
+}
+
 void editor_open(int index, char const* chamber_dir) {
+    s_debug = false;
     snprintf(s_dir, sizeof(s_dir), "%s", chamber_dir);
     char id[CHAMBER_ID_N];
     char err[96];
@@ -105,8 +138,47 @@ void editor_open(int index, char const* chamber_dir) {
 
 // --- Editing ---------------------------------------------------------------
 
+// In the debugger: a change, if the rules allow it and the budget has
+// room; painting a cell back to what it was frees its change.
+static void debug_paint(int x, int y, int z, char ch) {
+    char const now = draft_get(&s_d, x, y, z);
+    if (now == ch) return;
+    int k = 0;
+    while (k < s_n_changes && !(s_changes[k].x == x && s_changes[k].y == y && s_changes[k].z == z)) k++;
+    char const was = k < s_n_changes ? s_changes[k].was : now;
+    if (ch == was) {
+        s_changes[k] = s_changes[--s_n_changes];
+        draft_paint(&s_d, x, y, z, ch);
+        return;
+    }
+    char msg[64];
+    if (!review_debug_allows(&s_rules, was, ch)) {
+        snprintf(msg, sizeof(msg), "The debugger cannot make '%c' into '%c'", was, ch);
+        say("%s", msg);
+        return;
+    }
+    if (k == s_n_changes) {
+        if (s_n_changes >= s_rules.debug_budget || s_n_changes >= (int)(sizeof(s_changes) / sizeof(s_changes[0]))) {
+            say("%s", "No changes left: paint one back to free it");
+            return;
+        }
+        s_changes[s_n_changes++] = (change_t){(uint8_t)x, (uint8_t)y, (uint8_t)z, was};
+    }
+    draft_paint(&s_d, x, y, z, ch);
+}
+
 static void paint_here(void) {
-    draft_paint(&s_d, s_x, s_y, s_z, s_brush);
+    if (s_debug)
+        debug_paint(s_x, s_y, s_z, s_brush);
+    else
+        draft_paint(&s_d, s_x, s_y, s_z, s_brush);
+}
+
+static void revert_all(void) {
+    while (s_n_changes > 0) {
+        change_t const c = s_changes[--s_n_changes];
+        draft_paint(&s_d, c.x, c.y, c.z, c.was);
+    }
 }
 
 static void box_fill(void) {
@@ -166,6 +238,20 @@ static char key_char(uint16_t sc) {
 // The brush on key `k`, if the legend has one there. The door and button
 // keys step through a-h and 1-8 when pressed again.
 static void pick_brush(char k) {
+    if (s_debug) {
+        // Only what a change may make, and what cells were (to paint back).
+        for (int i = 0; k != 0 && i < chamber_legend_n; i++) {
+            if (chamber_legend[i].key != k) continue;
+            char const ch = chamber_legend[i].ch;
+            bool       ok = false;
+            for (int j = 0; j < s_rules.n_debug; j++) ok |= s_rules.debug[j][1] == ch || s_rules.debug[j][0] == ch;
+            if (ok)
+                s_brush = ch;
+            else
+                say("The debugger has no %s", brush_name(ch));
+        }
+        return;
+    }
     for (int i = 0; k != 0 && i < chamber_legend_n; i++) {
         chamber_glyph_t const* g = &chamber_legend[i];
         if (g->key != k) continue;
@@ -331,9 +417,17 @@ void editor_event(bsp_input_event_t const* ev) {
             break;
         case BSP_INPUT_SCANCODE_BACKSPACE:
         case BSP_INPUT_SCANCODE_ESCAPED_GREY_DEL:
+            if (s_debug) {
+                // Back to what it was.
+                for (int k = 0; k < s_n_changes; k++)
+                    if (s_changes[k].x == s_x && s_changes[k].y == s_y && s_changes[k].z == s_z)
+                        debug_paint(s_x, s_y, s_z, s_changes[k].was);
+                break;
+            }
             draft_paint(&s_d, s_x, s_y, s_z, '.');
             break;
         case BSP_INPUT_SCANCODE_B:
+            if (s_debug) break;
             if (s_anchor_set) {
                 box_fill();
                 s_anchor_set = false;
@@ -344,13 +438,13 @@ void editor_event(bsp_input_event_t const* ev) {
             }
             break;
         case BSP_INPUT_SCANCODE_R:
-            turn_facing(1);
+            if (!s_debug) turn_facing(1);
             break;
         case BSP_INPUT_SCANCODE_P:
             playtest();
             break;
         case BSP_INPUT_SCANCODE_F:
-            save();
+            if (!s_debug) save();
             break;
         default:
             pick_brush(key_char(sc));
@@ -417,7 +511,69 @@ static void build_menu(se_menu_def_t* def) {
     };
 }
 
+// The debugger's menu.
+enum {
+    DM_BACK,
+    DM_TEST,
+    DM_REVERT,
+    DM_QUIT,
+    DM_ROWS
+};
+static se_menu_row_t s_drows[DM_ROWS];
+static char          s_dsub[48];
+
+static void build_debug_menu(se_menu_def_t* def) {
+    s_drows[DM_BACK]   = (se_menu_row_t){.label = "Back to debugging"};
+    s_drows[DM_TEST]   = (se_menu_row_t){.label = "Play-test the repair"};
+    s_drows[DM_REVERT] = (se_menu_row_t){.label = "Revert every change"};
+    s_drows[DM_QUIT]   = (se_menu_row_t){.label = "Back to the desk"};
+    snprintf(s_dsub, sizeof(s_dsub), "%d of %d changes made", s_n_changes, s_rules.debug_budget);
+    *def = (se_menu_def_t){
+        .title     = "DEBUGGER",
+        .subtitle  = s_dsub,
+        .rows      = s_drows,
+        .row_count = DM_ROWS,
+        .hint      = "Reach the exit in a play-test: repaired",
+        .panel_w   = 0.70f,
+        .panel_h   = 0.60f,
+        .title_h   = 28.0f,
+        .row_h     = 30.0f,
+        .value_dx  = 270.0f,
+    };
+}
+
+static void debug_menu_frame(void) {
+    uint32_t const act = s_act;
+    s_act              = 0;
+    se_menu_def_t def;
+    build_debug_menu(&def);
+    se_menu_t m = {.def = &def, .cursor = s_menu_cursor};
+    if (act & A_UP) se_menu_input(&m, SE_MENU_ACT_UP);
+    if (act & A_DOWN) se_menu_input(&m, SE_MENU_ACT_DOWN);
+    se_menu_result_t r = SE_MENU_RESULT_NONE;
+    if (act & A_OK) r = se_menu_input(&m, SE_MENU_ACT_ACTIVATE);
+    if (act & A_BACK) r = se_menu_input(&m, SE_MENU_ACT_BACK);
+    if (m.cursor != s_menu_cursor || r == SE_MENU_RESULT_ACTIVATED) sound_play(SND_MENU);
+    s_menu_cursor = m.cursor;
+    if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == DM_BACK)) {
+        s_menu = false;
+    } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == DM_TEST) {
+        if (playtest()) s_menu = false;
+    } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == DM_REVERT) {
+        revert_all();
+        say("%s", "Every change reverted");
+        s_menu = false;
+    } else if (r == SE_MENU_RESULT_ACTIVATED && s_menu_cursor == DM_QUIT) {
+        s_menu      = false;
+        s_want_quit = true;
+    }
+}
+
 static void menu_frame(void) {
+    if (s_debug) {
+        debug_menu_frame();
+        return;
+    }
     uint32_t const act = s_act;
     s_act              = 0;
     se_menu_def_t def;
@@ -572,6 +728,45 @@ void editor_draw(pax_buf_t* fb) {
     // The panel on the right.
     float const tx = 570;
     char        line[96];
+    if (s_debug) {
+        // The debugger's: its budget, and what it may change.
+        rendertext_draw(fb, 0xFF7CFF8Au, pax_font_sky_mono, 18, tx, 8, "DEBUGGER");
+        snprintf(line, sizeof(line), "layer %d of %d  (Q/E)", s_y, s_d.h - 1);
+        rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 32, line);
+        snprintf(line, sizeof(line), "changes: %d of %d", s_n_changes, s_rules.debug_budget);
+        rendertext_draw(fb, s_n_changes < s_rules.debug_budget ? 0xFFFFFFFFu : 0xFFFF7A6Au, pax_font_sky_mono, 12, tx,
+                        50, line);
+        rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 74, "it may change:");
+        for (int j = 0; j < s_rules.n_debug; j++) {
+            char const  to = s_rules.debug[j][1];
+            float const y  = 92.0f + (float)j * 16.0f;
+            pax_simple_rect(fb, cell_colour(s_rules.debug[j][0], true), tx, y + 1, 10, 10);
+            pax_simple_rect(fb, cell_colour(to, true), tx + 14, y + 1, 10, 10);
+            char key = '?';
+            for (int i = 0; i < chamber_legend_n; i++)
+                if (chamber_legend[i].ch == to) key = chamber_legend[i].key;
+            snprintf(line, sizeof(line), "%c  %.10s to %.10s", key, brush_name(s_rules.debug[j][0]), brush_name(to));
+            rendertext_draw(fb, s_brush == to ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 30, y, line);
+        }
+        // Changed cells, outlined.
+        for (int k = 0; k < s_n_changes; k++)
+            if (s_changes[k].y == s_y)
+                pax_outline_rect(fb, 0xFF7CFF8Au, (float)(x0 + s_changes[k].x * cs),
+                                 (float)(y0 + (s_d.d - 1 - s_changes[k].z) * cs), (float)cs - 1, (float)cs - 1);
+        static char const* const dhelp[] = {
+            "arrows  move", "Space   change a cell", "Bksp    change it back", "P       play-test", "Esc     menu",
+        };
+        for (int i = 0; i < 5; i++)
+            rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 300.0f + (float)i * 15.0f, dhelp[i]);
+        if (s_msg_t > 0.0f) rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
+        if (s_menu) {
+            se_menu_def_t def;
+            build_debug_menu(&def);
+            se_menu_t const m = {.def = &def, .cursor = s_menu_cursor};
+            se_menu_draw(&m, fb);
+        }
+        return;
+    }
     rendertext_draw(fb, 0xFFFFFF6Bu, pax_font_sky_mono, 18, tx, 8, "EDITOR");
     rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 32, s_d.id);
     snprintf(line, sizeof(line), "layer %d of %d  (Q/E)", s_y, s_d.h - 1);
@@ -579,25 +774,31 @@ void editor_draw(pax_buf_t* fb) {
     snprintf(line, sizeof(line), "x %d  z %d   %dx%dx%d", s_x, s_z, s_d.w, s_d.h, s_d.d);
     rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 68, line);
 
-    // The brushes: every glyph with a key, in the legend's order.
-    int row = 0;
+    // The brushes: every glyph with a key, in the legend's order, in two
+    // columns (in one, with the help under it, they ran off the screen).
+    int n_keyed = 0;
+    for (int i = 0; i < chamber_legend_n; i++) n_keyed += chamber_legend[i].key != 0;
+    int const per_col = (n_keyed + 1) / 2;
+    int       row     = 0;
     for (int i = 0; i < chamber_legend_n; i++) {
         chamber_glyph_t const* g = &chamber_legend[i];
         if (g->key == 0) continue;
         char const  ch  = g->kind == GLYPH_DOOR ? s_door : g->kind == GLYPH_BUTTON ? s_button : g->ch;
-        float const y   = 86.0f + (float)row++ * 12.0f;
+        float const x   = tx - 6.0f + (float)(row / per_col) * 116.0f;
+        float const y   = 86.0f + (float)(row % per_col) * 12.0f;
         bool const  sel = s_brush == ch;
-        pax_simple_rect(fb, cell_colour(ch, true), tx, y + 1, 10, 10);
-        snprintf(line, sizeof(line), "%c %s", g->key, brush_name(ch));
-        rendertext_draw(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 20, y, line);
+        row++;
+        pax_simple_rect(fb, cell_colour(ch, true), x, y + 1, 8, 9);
+        snprintf(line, sizeof(line), "%c %.12s", g->key, brush_name(ch));
+        rendertext_draw(fb, sel ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 10, x + 11, y + 1, line);
     }
     static char const* const help[] = {
-        "arrows  move",       "Space   paint (hold)", "B       box, twice", "Bksp    erase",
-        "R       turn start", "P       play-test",    "F       save",       "Esc     menu",
+        "arrows move", "Space paint", "B box, twice", "Bksp erase", "R turn start", "P play-test", "F save", "Esc menu",
     };
+    float const hy = 96.0f + (float)per_col * 12.0f;
     for (int i = 0; i < 8; i++)
-        rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 94.0f + (float)row * 12.0f + (float)i * 15.0f,
-                        help[i]);
+        rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx - 6.0f + (float)(i % 2) * 116.0f,
+                        hy + (float)(i / 2) * 15.0f, help[i]);
     if (s_msg_t > 0.0f) rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
 
     if (s_menu) {

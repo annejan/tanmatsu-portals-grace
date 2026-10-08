@@ -488,7 +488,8 @@ static void start_playtest(void) {
     s_mode      = MODE_TEST;
     s_test_back = false;
     s_test_done = 0.0f;
-    hud_message("Play-test: Esc goes back to the editor");
+    hud_message(editor_debugging() ? "Reach the exit: repaired. Esc: the debugger"
+                                   : "Play-test: Esc goes back to the editor");
     input_resync();
 }
 
@@ -625,7 +626,21 @@ static void desk_frame(float dt) {
     desk_action_t const act = s_desk_act;
     s_desk_act              = DESK_NONE;
     switch (act) {
-        case DESK_PLAY:
+        case DESK_PLAY: {
+            // A broken draft: into the debugger, to repair it.
+            int const   c       = round_chamber();
+            char const* text    = chamber_text(c);
+            char        err[96] = "";
+            if (review_parse(text, &s_review, err, sizeof(err)) && s_review.kind == REVIEW_BROKEN) {
+                if (editor_open_debug(text, chamber_id(c), &s_review, err, sizeof(err))) {
+                    desk_print(&s_desk, "GLaDOS cannot solve this draft. It is broken. Opening the debugger...");
+                    s_mode = MODE_EDIT;
+                } else {
+                    desk_print(&s_desk, err);
+                }
+                input_resync();
+                break;
+            }
             s_mode = MODE_PLAY;
             menu_set_round(true);
             if (!play_chamber(round_chamber())) {
@@ -635,6 +650,7 @@ static void desk_frame(float dt) {
             }
             input_resync();
             break;
+        }
         case DESK_TITLE:
             desk_save();
             to_title();
@@ -750,6 +766,13 @@ static void edit_frame(float dt) {
     editor_cmd_t const c = editor_update(dt);
     if (c == EDITOR_CMD_PLAYTEST) start_playtest();
     if (c != EDITOR_CMD_QUIT) return;
+    if (editor_debugging()) {
+        // Out of the debugger, unrepaired: back to the desk.
+        s_mode = MODE_DESK;
+        desk_print(&s_desk, "Debugger closed. The draft is still broken.");
+        input_resync();
+        return;
+    }
     s_mode = MODE_PLAY;
     pack_load(PACK_DIR);  // saving re-read the card, the packs' chambers dropped: read again
     attract_recount();    // and the chambers counted again
@@ -876,6 +899,9 @@ static void play_frame(float dt) {
         if (ev & PL_EV_DIED) {
             start_playtest();
             hud_message("Test subject lost. Again.");
+        } else if ((ev & PL_EV_EXIT) && s_story_on && editor_debugging()) {
+            // The repair works: the round is done.
+            round_exit();
         } else if ((ev & PL_EV_EXIT) && s_test_done <= 0.0f) {
             hud_message("It can be solved. Back to the editor...");
             s_test_done = HUD_MESSAGE_S;

@@ -16,5 +16,8 @@ teaches her nothing, and you will be asked to do it again.
 When every known flaw is patched, the draft is final. Solve the final the
 way she intended: that is your approval, and the queue moves on.
 
+Some drafts are broken: she cannot solve them at all. Those open in the
+debugger instead (DEBUG.TXT, once you have one).
+
 The queue must be empty by the end of the day. Type STATUS to see where
 it stands. See HANDBOOK.TXT for the scoring.
