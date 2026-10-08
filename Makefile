@@ -147,10 +147,16 @@ tas: host_tas $(if $(TASFILM),host_movie)
 # every chamber is solved and builds the packs for the card in build/dlc;
 # `make dlc-upload` puts them in /sd/portals/dlc/, with their solutions as
 # recordings; `make dlc-movies` films each whole story (build/dlc/<pack>.mp4).
-.PHONY: dlc dlc-upload dlc-movies dlc-zip
+.PHONY: dlc dlc-upload dlc-movies dlc-zip story-film
 dlc: host_tas host_review
 	python3 tools/dlc.py check
 	python3 tools/dlc.py card
+
+# A desk story's day as a film: make story-film PACK=human-in-the-loop
+PACK ?= human-in-the-loop
+story-film: host_review host_movie
+	mkdir -p $(BUILD)/dlc
+	python3 tools/story_film.py dlc/$(PACK) --mp4 $(BUILD)/dlc/$(PACK)-story.mp4
 
 # Each card folder as a zip, to unzip into /sd/portals/dlc/: for a release.
 dlc-zip: dlc

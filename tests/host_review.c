@@ -4,7 +4,8 @@
 //   host_review [-dt SECONDS | -jitter SEED] [-patch LETTERS] [-repair] FILE [SECTION...]
 //   host_review selftest
 //   host_review desk PACK_DIR      its desk/ read, as the badge reads it
-//   host_review story PACK_DIR     a desk story's day played through
+//   host_review story PACK_DIR [OUTDIR]  a desk story's day played through
+//                                  (to film, with OUTDIR: tools/story_film.py)
 //
 // Each SECTION ("solution", "cheese a", ...; all of them if none given; or
 // a route file, tas/NN-name.txt, a script on its own) is
@@ -23,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include "chamber.h"
 #include "demo.h"
 #include "desk.h"
@@ -716,14 +718,87 @@ static int selftest(void) {
     return 0;
 }
 
+// --- The day on film (tools/story_film.py) ---------------------------------
+//
+// With an OUTDIR, the day is written out to be filmed: each round's draft
+// as a chamber file (rNN.txt: the draft as played, the route as its
+// solution), what each round was (rounds.tsv), and the desk between them,
+// screen by screen (screens/SEG-NNN.txt: seconds, cursor, highlight, then
+// the 25 rows), SEG the round it comes before.
+
+static char const* s_film;  // OUTDIR, or NULL
+static int         s_seg, s_shot;
+
+static void film_screen(desk_t const* k, float seconds) {
+    if (s_film == NULL) return;
+    char path[400];
+    snprintf(path, sizeof(path), "%s/screens/%02d-%03d.txt", s_film, s_seg, s_shot++);
+    FILE* f = fopen(path, "w");
+    if (f == NULL) return;
+    char rows[DESK_ROWS][DESK_COLS + 1];
+    int  cr, cc, hl;
+    desk_screen(k, rows, &cr, &cc, &hl);
+    fprintf(f, "%.2f %d %d %d\n", (double)seconds, cr, cc, hl);
+    for (int r = 0; r < DESK_ROWS; r++) fprintf(f, "%s\n", rows[r]);
+    fclose(f);
+}
+
+// A command typed, a letter at a time, and what it shows held a while.
+static desk_action_t film_type(desk_t* k, char const* text, float hold) {
+    for (char const* c = text; *c; c++) {
+        desk_key(k, DK_CHAR, *c);
+        film_screen(k, 0.12f);
+    }
+    desk_action_t const a = desk_key(k, DK_ENTER, 0);
+    film_screen(k, hold);
+    return a;
+}
+
+// The newest mail not read, opened and read, and back to the prompt.
+static void film_mail(desk_t* k) {
+    film_type(k, "mail", 1.6f);
+    desk_key(k, DK_ENTER, 0);
+    film_screen(k, 5.0f);
+    desk_key(k, DK_ESC, 0);
+    film_screen(k, 0.6f);
+    desk_key(k, DK_ESC, 0);
+    film_screen(k, 0.4f);
+}
+
+// `route`'s lines in `text`: its section, up to the next.
+static void section_text(char const* text, char const* route, FILE* out) {
+    bool in = false;
+    for (char const* p = text; *p;) {
+        char const* e = strchr(p, '\n');
+        size_t      n = e ? (size_t)(e - p) : strlen(p);
+        while (n > 0 && (p[n - 1] == '\r' || p[n - 1] == ' ')) n--;
+        bool const head = n == strlen(route) && strncmp(p, route, n) == 0;
+        bool const next = (n == 8 && strncmp(p, "cheese ", 7) == 0) || (n == 8 && strncmp(p, "solution", 8) == 0);
+        if (in && next && !head) break;
+        if (in) fprintf(out, "%.*s\n", (int)n, p);
+        if (head) in = true;
+        p = e ? e + 1 : p + strlen(p);
+    }
+}
+
 // A desk story played through as a player would: each flawed round
 // cheesed a flaw at a time, then solved as meant; each broken one played
 // repaired; the desk kept alongside. Prints the day, and the desk's
 // calendar and inbox at its end. 1 if a round does not go as it should.
-static int story_through(char const* dir) {
+static int story_through(char const* dir, char const* film) {
     static desk_data_t d;
     static desk_t      k;
     char               err[200], path[300];
+    s_film    = film;
+    FILE* tsv = NULL;
+    if (film != NULL) {
+        snprintf(path, sizeof(path), "%s/screens", film);
+        mkdir(film, 0755);
+        mkdir(path, 0755);
+        snprintf(path, sizeof(path), "%s/rounds.tsv", film);
+        tsv = fopen(path, "w");
+        if (tsv == NULL) return 1;
+    }
     if (!desk_load(&d, dir, err, sizeof(err))) {
         fprintf(stderr, "%s: %s\n", dir, err);
         return 1;
@@ -740,6 +815,11 @@ static int story_through(char const* dir) {
     story_t s;
     story_begin(&s, 0);
     desk_begin(&k, &d, &s, n, true);
+    // The day starts: the assignment read, the queue opened.
+    film_screen(&k, 3.0f);
+    film_type(&k, "type assign", 0.5f);
+    film_screen(&k, 6.0f);
+    desk_key(&k, DK_ESC, 0);
     int fails = 0;
     while (s.at < n) {
         snprintf(path, sizeof(path), "%s/%s.txt", dir, rounds[s.at]);
@@ -769,21 +849,53 @@ static int story_through(char const* dir) {
             fprintf(stderr, "%s: %s\n", path, err);
             return 1;
         }
+        if (film != NULL) {
+            // Into the queue; a broken draft through the debugger.
+            film_type(&k, "glados", 1.2f);
+            if (r.kind == REVIEW_BROKEN) {
+                desk_print(&k, "GLaDOS cannot solve this draft. It is broken. Opening the debugger...");
+                film_screen(&k, 2.5f);
+            }
+            snprintf(path, sizeof(path), "%s/r%02d.txt", film, s.plays + 1);
+            FILE* f = fopen(path, "w");
+            if (f == NULL) return 1;
+            char const* cut = strstr(round, "\nsolution");
+            fprintf(f, "%.*s\nsolution\n", cut ? (int)(cut - round + 1) : (int)strlen(round), round);
+            section_text(text, route, f);
+            fclose(f);
+        }
         free(text);
         run_t const run = play(&lv, steps, 1.0f / 30.0f, 0, &g);
         if (run.exit < 0.0f) {
             printf("round %d, %s, %s: FAIL\n", s.round, rounds[s.at], route);
             return 1;
         }
-        int const            at  = s.at;
-        story_result_t const res = story_exit(&s, &r, &lv, &g.track, n);
+        int const            at     = s.at;
+        int const            drafts = s.drafts;
+        uint32_t const       told   = k.told;
+        int const            done   = s.at;
+        story_result_t const res    = story_exit(&s, &r, &lv, &g.track, n);
+        if (tsv != NULL)
+            fprintf(tsv, "%d\t%s\t%d\t%s\t%s\t%s\n", res.round, rounds[at], drafts, route, res.headline, res.line);
+        s_seg++;
+        s_shot = 0;
         desk_after_round(&k, &res);
+        film_screen(&k, 3.0f);
+        // New mail: the newest read; and the calendar, a chamber approved.
+        if (film != NULL && k.told != told) film_mail(&k);
+        if (film != NULL && s.at != done && s.at < n) film_type(&k, "cal", 3.0f);
         printf("%02d:%02d  round %d  %-14s %-9s %s\n", desk_clock(&k) / 60, desk_clock(&k) % 60, res.round, rounds[at],
                route, res.headline);
         if (res.outcome == STORY_AGAIN) fails++;
         if (s.plays > 40) return 1;
     }
     printf("score %d; done: %s\n", s.score, desk_done(&k) ? "yes" : "NO");
+    if (film != NULL) {
+        // Out: the calendar once more, and EXIT.
+        film_type(&k, "cal", 3.5f);
+        film_type(&k, "exit", 1.0f);
+        fclose(tsv);
+    }
     char line[] = "cal";
     for (char* c = line; *c; c++) desk_key(&k, DK_CHAR, *c);
     desk_key(&k, DK_ENTER, 0);
@@ -798,7 +910,8 @@ static int story_through(char const* dir) {
 
 int main(int argc, char** argv) {
     if (argc == 2 && strcmp(argv[1], "selftest") == 0) return selftest();
-    if (argc == 3 && strcmp(argv[1], "story") == 0) return story_through(argv[2]);
+    if ((argc == 3 || argc == 4) && strcmp(argv[1], "story") == 0)
+        return story_through(argv[2], argc == 4 ? argv[3] : NULL);
     if (argc == 3 && strcmp(argv[1], "desk") == 0) {
         // A pack's desk/, read as the badge reads it.
         static desk_data_t d;

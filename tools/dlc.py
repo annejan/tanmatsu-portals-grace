@@ -267,6 +267,9 @@ def card():
         for cid in order + ([info["outro"]] if desk and info.get("outro") else []):
             path = os.path.join(folder, cid + ".txt")
             chamber, steps = split(path)
+            if desk and cid == info.get("outro"):
+                # The outro's solution is its walk: it stays.
+                chamber, steps = open(path).read(), ""
             with open(os.path.join(out, cid + ".txt"), "w") as f:
                 f.write(chamber)
             if steps.strip():

@@ -94,6 +94,9 @@ def main():
     ap.add_argument("--title", help="the opening card's title: a story pack's name, say")
     ap.add_argument("--about", help="under it: what it is")
     ap.add_argument("--ending", help="the closing card's words")
+    ap.add_argument("--interludes", help="a JSON file: {\"K\": [[png, seconds], ...], \"end\": [...]}, pictures "
+                    "shown before the K-th chamber (from 0) and before the closing card, in silence "
+                    "(tools/story_film.py: the desk between rounds)")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
@@ -142,6 +145,36 @@ def main():
             frames.append({"kind": line[0]})
     total = before + done
     names = [l[1] for l in lines if l[0] == "S"]
+
+    # Interludes: pictures between the chambers, the sound stopped for them.
+    silences = []  # (at the original frame, for so many frames)
+    if a.interludes:
+        with open(a.interludes) as f:
+            inter = json.load(f)
+        out, k, closing_seen = [], 0, False
+        def pictures(key):
+            got = []
+            for png, secs in inter.get(key, []):
+                got += [{"kind": "I", "png": png}] * max(1, int(round(float(secs) * FPS)))
+            return got
+        fi = 0  # into frames, which has one per P, C or E line
+        for line in lines:
+            if line[0] == "S":
+                extra = pictures(str(k))
+                if extra:
+                    silences.append((fi, len(extra)))
+                out += extra
+                k += 1
+            else:  # every other line is a frame (as read above)
+                if line[0] == "E" and not closing_seen:
+                    closing_seen = True
+                    extra = pictures("end")
+                    if extra:
+                        silences.append((fi, len(extra)))
+                    out += extra
+                out.append(frames[fi])
+                fi += 1
+        frames = out
 
     # The game's version, on the titles: which game this is a film of.
     with open(os.path.join(root, "metadata", "metadata.json")) as f:
@@ -204,16 +237,43 @@ def main():
             d.text((w - sw - 18 * SCALE, 80 * SCALE), small, font=f_hud, fill=(200, 200, 200))
         return im
 
+    wav = os.path.join(build, "movie.wav")
+    if silences:
+        # The sound, with silence where the interludes go.
+        import wave
+        with wave.open(wav) as src:
+            params = src.getparams()
+            audio = src.readframes(src.getnframes())
+        step = params.sampwidth * params.nchannels
+        per_frame = params.framerate / FPS
+        pieces, last = [], 0
+        for at, n_frames in silences:
+            cut = int(round(at * per_frame)) * step
+            pieces += [audio[last:cut], b"\0" * (int(round(n_frames * per_frame)) * step)]
+            last = cut
+        pieces.append(audio[last:])
+        wav = os.path.join(build, "movie-interludes.wav")
+        with wave.open(wav, "wb") as dst:
+            dst.setparams(params)
+            dst.writeframes(b"".join(pieces))
+    pic_cache = {}
+
+    def picture(f):
+        if f["png"] not in pic_cache:
+            pic_cache.clear()
+            pic_cache[f["png"]] = Image.open(f["png"]).convert("RGB").resize((w, h), Image.LANCZOS)
+        return pic_cache[f["png"]]
+
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
                            "%dx%d" % (w, h), "-framerate", str(FPS), "-i", "-", "-i",
-                           os.path.join(build, "movie.wav"), "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                           wav, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
                            "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-shortest",
                            "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
     for kind, run in runs(frames):
         for j, f in enumerate(run):
-            im = opening if kind == "C" else closing if kind == "E" else hud(f)
+            im = opening if kind == "C" else closing if kind == "E" else picture(f) if kind == "I" else hud(f)
             ff.stdin.write(fade(im, min(j, len(run) - 1 - j) / fade_n).tobytes())
             n += 1
     ff.stdin.close()
