@@ -420,6 +420,109 @@ static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_
     submit_poly(q, 4, n, cam, cs, m, argb, flags);
 }
 
+// --- Glow: the energy pellets light what is round them ----------------------
+//
+// The engine's one light is the sun, far off; a pellet is a light of the
+// game's own (SE_TRI_GLOW): so much light added to each face near it, by
+// how far off it is and how squarely the face meets it. A face's halves
+// get one value, so nothing splits down a diagonal; near a pellet the
+// big merged quads are cut into cells, each lit on its own, for a pool
+// of light rather than a lit wall.
+
+#define GLOW_RADIUS 4.5f   // m: past this a pellet lights nothing
+#define GLOW_PEAK   44.0f  // a face right beside one: past SE_TRI_GLOW_MAX, so held there
+
+static vec3_t s_glow_at[LV_MAX_PELLETS];
+static int    s_glow_n;
+
+// The glow on a face at `c`, facing `n`: 0..SE_TRI_GLOW_MAX.
+static uint32_t glow_at(vec3_t c, vec3_t n) {
+    float g = 0.0f;
+    for (int i = 0; i < s_glow_n; i++) {
+        vec3_t const d    = v3_sub(s_glow_at[i], c);
+        float const  dist = v3_len(d);
+        if (dist >= GLOW_RADIUS) continue;
+        float const facing = dist > 1e-3f ? v3_dot(n, d) / dist : 1.0f;
+        if (facing <= 0.0f) continue;  // behind the face
+        float const fall  = 1.0f - dist / GLOW_RADIUS;
+        g                += GLOW_PEAK * fall * fall * (0.35f + 0.65f * facing);
+    }
+    return g >= (float)SE_TRI_GLOW_MAX ? SE_TRI_GLOW_MAX : (uint32_t)(g + 0.5f);
+}
+
+// Part of quad `q`: its fractions [a0, a1] along du and [b0, b1] along dv.
+static void submit_part(mquad_t const* q, float a0, float a1, float b0, float b1, float ou, float ov, cam_t const* cam,
+                        clipset_t const* cs, material_info_t const* m, uint32_t flags) {
+    vec3_t const  p00 = v3_add(q->origin, v3_add(v3_scale(q->du, a0), v3_scale(q->dv, b0)));
+    vec3_t const  du  = v3_scale(q->du, a1 - a0), dv = v3_scale(q->dv, b1 - b0);
+    cvert_t const v[4] = {
+        {p00, q->su * a0 + ou, q->sv * b0 + ov},
+        {v3_add(p00, du), q->su * a1 + ou, q->sv * b0 + ov},
+        {v3_add(v3_add(p00, du), dv), q->su * a1 + ou, q->sv * b1 + ov},
+        {v3_add(p00, dv), q->su * a0 + ou, q->sv * b1 + ov},
+    };
+    submit_quad(v, q->n, cam, cs, m, m->argb, flags);
+}
+
+// A quad near a pellet: the cells round it lit one by one, the rest of
+// the quad -- up to four strips round them -- as it was.
+static void submit_glowing(mquad_t const* q, float ou, float ov, cam_t const* cam, clipset_t const* cs,
+                           material_info_t const* m) {
+    // The cells the pellets' light reaches, as a range on the quad's grid.
+    int const nu = (int)(q->su + 0.5f), nv = (int)(q->sv + 0.5f);
+    int       u0 = nu, u1 = -1, v0 = nv, v1 = -1;
+    for (int i = 0; i < s_glow_n; i++) {
+        vec3_t const d  = v3_sub(s_glow_at[i], q->origin);
+        float const  pu = v3_dot(d, q->du) / (q->su * q->su), pv = v3_dot(d, q->dv) / (q->sv * q->sv);
+        int const    a  = (int)floorf((pu * q->su) - GLOW_RADIUS), b = (int)ceilf((pu * q->su) + GLOW_RADIUS);
+        int const    c  = (int)floorf((pv * q->sv) - GLOW_RADIUS), e = (int)ceilf((pv * q->sv) + GLOW_RADIUS);
+        if (a < u0) u0 = a;
+        if (b > u1) u1 = b;
+        if (c < v0) v0 = c;
+        if (e > v1) v1 = e;
+    }
+    if (u0 < 0) u0 = 0;
+    if (v0 < 0) v0 = 0;
+    if (u1 > nu) u1 = nu;
+    if (v1 > nv) v1 = nv;
+    uint32_t const flags = m->flags;
+    if (u0 >= u1 || v0 >= v1) {
+        submit_part(q, 0, 1, 0, 1, ou, ov, cam, cs, m, flags);
+        return;
+    }
+    float const fu = 1.0f / (float)nu, fv = 1.0f / (float)nv;
+    // The strips round the lit window, unlit.
+    if (v0 > 0) submit_part(q, 0, 1, 0, (float)v0 * fv, ou, ov, cam, cs, m, flags);
+    if (v1 < nv) submit_part(q, 0, 1, (float)v1 * fv, 1, ou, ov, cam, cs, m, flags);
+    if (u0 > 0) submit_part(q, 0, (float)u0 * fu, (float)v0 * fv, (float)v1 * fv, ou, ov, cam, cs, m, flags);
+    if (u1 < nu) submit_part(q, (float)u1 * fu, 1, (float)v0 * fv, (float)v1 * fv, ou, ov, cam, cs, m, flags);
+    // The window, a cell at a time.
+    for (int b = v0; b < v1; b++)
+        for (int a = u0; a < u1; a++) {
+            vec3_t const   c = v3_add(q->origin, v3_add(v3_scale(q->du, ((float)a + 0.5f) * fu),
+                                                        v3_scale(q->dv, ((float)b + 0.5f) * fv)));
+            uint32_t const g = glow_at(c, q->n);
+            submit_part(q, (float)a * fu, (float)(a + 1) * fu, (float)b * fv, (float)(b + 1) * fv, ou, ov, cam, cs, m,
+                        flags | SE_TRI_GLOW(g));
+        }
+}
+
+// Whether a pellet's light reaches quad `q` at all: in front of it, and
+// within GLOW_RADIUS of its rectangle.
+static bool quad_glows(mquad_t const* q) {
+    for (int i = 0; i < s_glow_n; i++) {
+        vec3_t const d = v3_sub(s_glow_at[i], q->origin);
+        float const  h = v3_dot(d, q->n);
+        if (h <= 0.0f || h >= GLOW_RADIUS) continue;
+        float pu = v3_dot(d, q->du) / v3_dot(q->du, q->du), pv = v3_dot(d, q->dv) / v3_dot(q->dv, q->dv);
+        pu       = pu < 0 ? 0 : pu > 1 ? 1 : pu;
+        pv       = pv < 0 ? 0 : pv > 1 ? 1 : pv;
+        vec3_t const near = v3_add(q->origin, v3_add(v3_scale(q->du, pu), v3_scale(q->dv, pv)));
+        if (v3_len(v3_sub(s_glow_at[i], near)) < GLOW_RADIUS) return true;
+    }
+    return false;
+}
+
 static void submit_level(cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < s_nquads; i++) {
         mquad_t const*         q    = &s_quads[i];
@@ -427,6 +530,11 @@ static void submit_level(cam_t const* cam, clipset_t const* cs) {
         bool const             goo  = q->mat == MAT_GOO;
         float const            ou   = goo ? fmodf(s_time * GOO_DRIFT_U, 1.0f) : 0.0f;
         float const            ov   = goo ? fmodf(s_time * GOO_DRIFT_V, 1.0f) : 0.0f;
+        // Lit by a pellet: an opaque surface that is not itself a light.
+        if (s_glow_n > 0 && !(m->flags & (SE_TRI_EMISSIVE | SE_TRI_BLEND)) && quad_glows(q)) {
+            submit_glowing(q, ou, ov, cam, cs, m);
+            continue;
+        }
         cvert_t const          v[4] = {
             {q->origin, ou, ov},
             {v3_add(q->origin, q->du), q->su + ou, ov},
@@ -1363,6 +1471,10 @@ void render_frame(pax_buf_t* target, game_t const* g) {
     s_stat_passes           = 0;
     s_stat_tris             = 0;
     cam_t const cam         = {player_eye(&g->pl), player_view(&g->pl)};
+    // The pellets in flight: lights of their own (submit_level).
+    s_glow_n = 0;
+    for (int i = 0; i < LV_MAX_PELLETS; i++)
+        if (g->pellets[i].live) s_glow_at[s_glow_n++] = g->pellets[i].pos;
 
     // Glass and fizzlers blend, and only come out right drawn after
     // everything solid and far to near: the engine's depth-order pass.

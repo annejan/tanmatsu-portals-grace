@@ -277,6 +277,12 @@ static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32
         s_lit          = (1.0f - s_light.brightness) + s_light.brightness * d;
         col            = shade(argb, s_lit);
     }
+    // The game's own light (SE_TRI_LIGHT) multiplied in, and its glow
+    // (SE_TRI_GLOW) added, as the engine does: shade() saturates.
+    if (flags & (SE_TRI_LIGHT_MASK | SE_TRI_GLOW_MASK)) {
+        s_lit = s_lit * (float)se_tri_light_level(flags) / 32.0f + (float)se_tri_glow_level(flags) / 32.0f;
+        col   = shade(argb, s_lit);
+    }
     // To camera space, then clip at the near plane.
     rv_t in[3], buf[2][8];
     for (int i = 0; i < 3; i++) {
