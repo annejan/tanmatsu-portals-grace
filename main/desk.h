@@ -15,6 +15,8 @@
 //                    its first line keeps it hidden until then
 //   mail/NN-id.txt   from: / subject: / after: <when>, a blank line, the mail
 //   calendar.txt     event: / at: HH:MM / moves: <when> HH:MM|never, per event
+//   outro.txt        card: a line, typed on black, one card each
+//                    reveal: the last card, big; coda: lines under it
 //
 // <when> is `round N` (N rounds played), `done N` (N chambers approved),
 // `mail ID` (that mail read) or `time HH:MM` (the clock that far on).
@@ -32,6 +34,7 @@
 #define DESK_MOVES  6
 #define DESK_LINES  160  // the prompt's scrollback
 #define DESK_ARENA  (64 * 1024)
+#define DESK_CARDS  12
 
 typedef enum {
     WHEN_ALWAYS,
@@ -79,6 +82,11 @@ typedef struct {
     int          n_mails;
     desk_event_t events[DESK_EVENTS];
     int          n_events;
+    char const*  cards[DESK_CARDS];  // the outro's (outro.txt)
+    int          n_cards;
+    char const*  reveal;  // its last card, or NULL
+    char const*  coda[4];
+    int          n_coda;
     char         arena[DESK_ARENA];  // the texts
     size_t       used;
 } desk_data_t;

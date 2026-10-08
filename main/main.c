@@ -30,6 +30,7 @@
 #include "level.h"
 #include "menu.h"
 #include "nvs_settings_owner.h"
+#include "outro.h"
 #include "pack.h"
 #include "pax_gfx.h"
 #include "player.h"
@@ -63,7 +64,8 @@ typedef enum {
     MODE_PLAY,
     MODE_EDIT,
     MODE_TEST,
-    MODE_DESK  // a desk story's desk (desk.h)
+    MODE_DESK,  // a desk story's desk (desk.h)
+    MODE_CINE   // its outro (outro.h)
 } app_mode_t;
 static app_mode_t s_mode;
 static char       s_play_id[64];  // the chamber play goes back to after the editor
@@ -134,7 +136,7 @@ static void story_off(void) {
     s_desk_return = false;
     s_leaving     = false;
     menu_set_round(false);
-    if (s_mode == MODE_DESK) s_mode = MODE_PLAY;
+    if (s_mode == MODE_DESK || s_mode == MODE_CINE) s_mode = MODE_PLAY;
     free(s_round_draft);
     free(s_round_text);
     s_round_draft = NULL;
@@ -530,6 +532,17 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         if (a != DESK_NONE) s_desk_act = a;
         return;
     }
+    if (s_mode == MODE_CINE) {
+        // Esc, Enter or Space: on.
+        if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state &&
+            (ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_ESC ||
+             ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_RETURN ||
+             ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_SPACE_L ||
+             ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_SPACE_M ||
+             ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_SPACE_R))
+            outro_skip();
+        return;
+    }
     // Watching a recording, Esc stops it; nothing else plays.
     if (watch_on()) {
         if (menu_is_open_key(ev)) watch_stop();
@@ -657,13 +670,24 @@ static void desk_frame(float dt) {
             break;
         case DESK_LEAVE: {
             // The day is done: its save gone, so the story starts afresh;
-            // the ending said and printed.
+            // the ending said -- over the outro, if there is one, else at
+            // the desk.
             char path[96];
             save_path(path, sizeof(path));
             chamber_remove_file(path);
             char ending[sizeof(s_game.lv.story)];
             snprintf(ending, sizeof(ending), "%s", pack_get(s_story.pack)->ending);
             personalise(ending, sizeof(ending));
+            int const outro = pack_get(s_story.pack)->outro_chamber;
+            if (outro >= 0 && outro_start(&s_game, outro, &s_desk_data)) {
+                s_mode = MODE_CINE;
+                snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", ending);
+                hud_quiet();
+                hud_story_start();
+                sound_say(ending[0] ? ending : NULL);
+                render_set_level(&s_game.lv, s_game.portals);
+                break;
+            }
             desk_print(&s_desk, "");
             desk_print(&s_desk, ending);
             sound_say(ending[0] ? ending : NULL);
@@ -674,6 +698,19 @@ static void desk_frame(float dt) {
         default:
             break;
     }
+}
+
+// A frame of the outro; the title screen once it is over.
+static void cine_frame(float dt) {
+    int ev = 0;
+    hud_tick(dt);
+    if (!outro_update(&s_game, dt, &ev)) {
+        if (s_story_back[0]) settings_set_chamber(s_story_back);
+        to_title();
+        return;
+    }
+    sound_events(ev);
+    if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
 }
 
 // The menu's frame: the game stands still underneath it.
@@ -943,7 +980,7 @@ static void on_update(float dt, void* user) {
     (void)user;
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
     // The portals on LEDs A and B, while playing and if wanted.
-    if (settings_leds() && s_mode != MODE_EDIT && s_mode != MODE_DESK && !menu_on_title())
+    if (settings_leds() && s_mode != MODE_EDIT && s_mode != MODE_DESK && s_mode != MODE_CINE && !menu_on_title())
         leds_portals(s_game.portals[0].open, s_game.portals[1].open);
     else
         leds_release();
@@ -961,6 +998,8 @@ static void on_update(float dt, void* user) {
         edit_frame(dt);
     } else if (s_mode == MODE_DESK) {
         desk_frame(dt);
+    } else if (s_mode == MODE_CINE) {
+        cine_frame(dt);
     } else if (s_mode == MODE_TEST && (s_test_back || (s_test_done > 0.0f && (s_test_done -= dt) <= 0.0f))) {
         back_to_editor();
     } else if (menu_active()) {
@@ -989,6 +1028,10 @@ static void on_render(pax_buf_t* fb, void* user) {
         deskview_draw(fb, &s_desk);
         return;
     }
+    if (s_mode == MODE_CINE && !outro_world()) {
+        outro_draw(fb);
+        return;
+    }
     bool const       half   = settings_half_res() && s_half_ok;
     bool const       title  = menu_on_title();
     pax_buf_t* const target = half ? &s_layer.buf : fb;
@@ -1006,6 +1049,7 @@ static void on_render(pax_buf_t* fb, void* user) {
         render_frame(target, &s_game);
     }
     if (title && attract_lit() < 1.0f) hud_fade(target, attract_lit());
+    if (s_mode == MODE_CINE) hud_fade(target, outro_lit());  // the lights low, then out
     if (half) {
         // The CPU's pixels to PSRAM before the PPA's DMA reads them.
         se_ppa_layer_sync(&s_layer);

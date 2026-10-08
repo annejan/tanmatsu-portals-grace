@@ -29,6 +29,7 @@ set(APP_SOURCES
     main/story.c
     main/desk.c
     main/deskview.c
+    main/outro.c
     main/physics.c
     main/player.c
     main/portal.c

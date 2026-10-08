@@ -239,6 +239,27 @@ bool desk_load(desk_data_t* d, char const* pack_dir, char* err, size_t err_n) {
     }
     for (int i = 0; i < d->n_events; i++)
         if (d->events[i].at < 0) return fail(err, err_n, "desk/calendar.txt: %s has no at:", d->events[i].what);
+
+    // The outro's cards.
+    snprintf(path, sizeof(path), "%.200s/desk/outro.txt", pack_dir);
+    t = slurp(d, path);
+    for (char* p = t; p != NULL && *p;) {
+        char* e    = strchr(p, '\n');
+        char* next = e ? e + 1 : p + strlen(p);
+        if (e) *e = '\0';
+        char* const s = trim(p);
+        p             = next;
+        if (*s == '\0' || strncmp(s, "//", 2) == 0) continue;
+        if (strncmp(s, "card:", 5) == 0 && d->n_cards < DESK_CARDS)
+            d->cards[d->n_cards++] = trim(s + 5);
+        else if (strncmp(s, "reveal:", 7) == 0)
+            d->reveal = trim(s + 7);
+        else if (strncmp(s, "coda:", 5) == 0 && d->n_coda < 4)
+            d->coda[d->n_coda++] = trim(s + 5);
+        else
+            return fail(err, err_n, "desk/outro.txt: card:, reveal: or coda: (at most %d cards, 4 coda lines)",
+                        DESK_CARDS);
+    }
     return true;
 }
 

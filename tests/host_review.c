@@ -603,6 +603,9 @@ static void test_desk(void) {
     CHECK(d.n_files == 2 && d.n_mails == 3 && d.n_events == 2 && strcmp(d.user, "DRATTMANN") == 0 &&
               d.start == 9 * 60 && d.step == 40 && strstr(d.boot, "ENRICHMENT OS") != NULL,
           "desk read: %d files, %d mails, %d events", d.n_files, d.n_mails, d.n_events);
+    CHECK(d.n_cards == 2 && strcmp(d.cards[1], "Second card.") == 0 && d.reveal != NULL &&
+              strcmp(d.reveal, "SOMEBODY") == 0 && d.n_coda == 1,
+          "the outro's cards: %d", d.n_cards);
     story_t s;
     story_begin(&s, 0);
     desk_begin(&k, &d, &s, 2, true);
