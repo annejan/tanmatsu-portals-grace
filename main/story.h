@@ -25,6 +25,7 @@ typedef struct {
     int      round;   // drafts played, from 1: the round number on the desk
     int      score;   // flaws logged: 1 a known one, 2 a novel one
     int      drafts;  // drafts of this file so far, from 1
+    int      plays;   // exits judged: the desk's clock goes by these
 } story_t;
 
 typedef enum {
@@ -36,6 +37,7 @@ typedef enum {
 
 typedef struct {
     uint8_t outcome;             // story_outcome_t
+    int     round;               // the round judged
     int     points;              // added to the score
     char    headline[48];        // a word or two: "Flaw logged", "Approved"
     char    line[STORY_LINE_N];  // GLaDOS's, said and typed out

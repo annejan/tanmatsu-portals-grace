@@ -1,0 +1,8 @@
+user: DRATTMANN
+host: RLHF-07
+prompt: C:\RLHF>
+start: 09:00
+step: 0:40
+
+APERTURE SCIENCE ENRICHMENT OS 4.1
+Logged in as DRATTMANN.

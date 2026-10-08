@@ -31,7 +31,9 @@ static void next_draft(story_t* s, bool next_file) {
 }
 
 story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, int n_rounds) {
-    story_result_t         out = {0};
+    story_result_t out = {0};
+    out.round          = s->round;
+    s->plays++;
     review_verdict_t const v   = review_judge(r, lv, t);
     bool const             fin = story_final(s, r);
 

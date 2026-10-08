@@ -202,6 +202,12 @@ def check():
         print("%s (%s)" % (info["name"], os.path.basename(folder)))
         env = dict(os.environ, PORTALS_CHAMBERS=folder)
         if info.get("frame") == "desk":
+            out = subprocess.run([os.path.join(ROOT, "build", "host_review"), "desk", folder], capture_output=True,
+                                 text=True)
+            print("  %-22s %-8s %s" % ("desk/", "desk", out.stdout.strip() if out.returncode == 0 else
+                                       "FAIL: " + out.stderr.strip()))
+            if out.returncode != 0:
+                bad.append("%s/desk" % os.path.basename(folder))
             for cid in order + ([info["outro"]] if info.get("outro") else []):
                 kind, why = check_round(os.path.join(folder, cid + ".txt"))
                 print("  %-22s %-8s %s" % (cid, kind, "ok" if not why else "FAIL: " + "; ".join(why)))

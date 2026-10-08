@@ -3,6 +3,7 @@
 //
 //   host_review [-dt SECONDS | -jitter SEED] [-patch LETTERS] [-repair] FILE [SECTION...]
 //   host_review selftest
+//   host_review desk PACK_DIR      its desk/ read, as the badge reads it
 //
 // Each SECTION ("solution", "cheese a", ...; all of them if none given; or
 // a route file, tas/NN-name.txt, a script on its own) is
@@ -23,6 +24,7 @@
 #include <string.h>
 #include "chamber.h"
 #include "demo.h"
+#include "desk.h"
 #include "review.h"
 #include "story.h"
 
@@ -565,7 +567,125 @@ static void test_story(void) {
     free(t);
 }
 
+// The desk: its screen as one text, to search.
+static char const* screen_text(desk_t const* k) {
+    static char text[DESK_ROWS * (DESK_COLS + 2)];
+    char        rows[DESK_ROWS][DESK_COLS + 1];
+    int         cr, cc, hl;
+    desk_screen(k, rows, &cr, &cc, &hl);
+    text[0] = '\0';
+    for (int r = 0; r < DESK_ROWS; r++) {
+        strcat(text, rows[r]);
+        strcat(text, "\n");
+    }
+    return text;
+}
+
+static desk_action_t type(desk_t* k, char const* line) {
+    for (char const* c = line; *c; c++) desk_key(k, DK_CHAR, *c);
+    return desk_key(k, DK_ENTER, 0);
+}
+
+static void test_desk(void) {
+    static desk_data_t d;
+    static desk_t      k;
+    char               err[160];
+    CHECK(desk_load(&d, "tests/review/desk-pack", err, sizeof(err)), "desk: %s", err);
+    CHECK(d.n_files == 2 && d.n_mails == 3 && d.n_events == 2 && strcmp(d.user, "DRATTMANN") == 0 &&
+              d.start == 9 * 60 && d.step == 40 && strstr(d.boot, "ENRICHMENT OS") != NULL,
+          "desk read: %d files, %d mails, %d events", d.n_files, d.n_mails, d.n_events);
+    story_t s;
+    story_begin(&s, 0);
+    desk_begin(&k, &d, &s, 2, true);
+    CHECK(strstr(screen_text(&k), "ENRICHMENT OS") && strstr(screen_text(&k), "New mail from HR: Welcome aboard") &&
+              !strstr(screen_text(&k), "Overtime"),
+          "booted, the first mail told:\n%s", screen_text(&k));
+    CHECK(strstr(screen_text(&k), "C:\\RLHF>") != NULL, "the prompt");
+    // DIR: the files that are out yet.
+    CHECK(type(&k, "dir") == DESK_NONE && strstr(screen_text(&k), "ASSIGN   TXT") && !strstr(screen_text(&k), "SECRET"),
+          "dir:\n%s", screen_text(&k));
+    type(&k, "type secret.txt");
+    CHECK(strstr(screen_text(&k), "File not found") != NULL, "a hidden file is not there");
+    type(&k, "TYPE assign");
+    CHECK(k.view == DV_PAGE && strstr(screen_text(&k), "ASSIGN.TXT") && strstr(screen_text(&k), "Cheese them."),
+          "type:\n%s", screen_text(&k));
+    desk_key(&k, DK_ESC, 0);
+    CHECK(k.view == DV_PROMPT, "Esc: back from a page");
+    type(&k, "frobnicate");
+    CHECK(strstr(screen_text(&k), "Bad command or file name") != NULL, "an unknown command");
+    // Typing: Backspace, the cursor, history.
+    for (char const* c = "dur"; *c; c++) desk_key(&k, DK_CHAR, *c);
+    desk_key(&k, DK_LEFT, 0);
+    desk_key(&k, DK_BACK, 0);
+    desk_key(&k, DK_CHAR, 'i');
+    CHECK(strcmp(k.in, "dir") == 0 && k.in_cur == 2, "line editing: \"%s\" at %d", k.in, k.in_cur);
+    desk_key(&k, DK_ESC, 0);
+    CHECK(k.in_len == 0, "Esc clears the line");
+    desk_key(&k, DK_UP, 0);
+    CHECK(strcmp(k.in, "frobnicate") == 0, "up: the last command (%s)", k.in);
+    desk_key(&k, DK_ESC, 0);
+    // Mail: reading HR's brings Henry's.
+    type(&k, "mail");
+    CHECK(k.view == DV_MAIL && strstr(screen_text(&k), "* HR") && !strstr(screen_text(&k), "Henry"), "inbox:\n%s",
+          screen_text(&k));
+    desk_key(&k, DK_ENTER, 0);
+    CHECK(k.view == DV_PAGE && strstr(screen_text(&k), "Welcome to Aperture.") && (k.read & 1), "a mail read:\n%s",
+          screen_text(&k));
+    desk_key(&k, DK_ESC, 0);
+    CHECK(k.view == DV_MAIL && strstr(screen_text(&k), "* Henry") && strstr(screen_text(&k), "  HR"),
+          "back in the inbox, the reply in:\n%s", screen_text(&k));
+    desk_key(&k, DK_ESC, 0);
+    CHECK(strstr(screen_text(&k), "New mail from Henry") != NULL, "the reply told at the prompt");
+    // The calendar, and the clock.
+    type(&k, "cal");
+    CHECK(strstr(screen_text(&k), "15:00  Henry's birthday cake") && strstr(screen_text(&k), "09:30  Stand-up") &&
+              strstr(screen_text(&k), "09:00"),
+          "cal:\n%s", screen_text(&k));
+    // GLADOS: a round.
+    CHECK(type(&k, "glados") == DESK_PLAY, "glados: play");
+    CHECK(type(&k, "exit") == DESK_NONE && strstr(screen_text(&k), "not empty"), "no leaving yet");
+    // Two rounds played, the first chamber approved.
+    story_result_t r = {.round = 1};
+    snprintf(r.headline, sizeof(r.headline), "Flaw a logged, +1");
+    s.plays = 1;
+    desk_after_round(&k, &r);
+    CHECK(strstr(screen_text(&k), "[09:40] Round 1: Flaw a logged") && !strstr(screen_text(&k), "Overtime"),
+          "after round 1:\n%s", screen_text(&k));
+    s.plays = 2;
+    s.at    = 1;
+    r.round = 2;
+    snprintf(r.headline, sizeof(r.headline), "Approved");
+    desk_after_round(&k, &r);
+    CHECK(strstr(screen_text(&k), "New mail from The boss: Overtime") != NULL, "round 2 brings the boss");
+    type(&k, "cal");
+    CHECK(strstr(screen_text(&k), "16:30  Henry's birthday cake  (moved, was 15:00)") != NULL, "the cake moves:\n%s",
+          screen_text(&k));
+    type(&k, "dir");
+    CHECK(strstr(screen_text(&k), "SECRET   TXT") != NULL, "done 1: the secret file");
+    s.plays = 3;
+    type(&k, "cal");
+    CHECK(strstr(screen_text(&k), "--:--  Henry's birthday cake  (cancelled)") != NULL, "and is cancelled:\n%s",
+          screen_text(&k));
+    type(&k, "time");
+    CHECK(strstr(screen_text(&k), "Current time is 11:00") != NULL, "time");
+    // A save, and back.
+    char save[512];
+    CHECK(desk_save_text(&k, save, sizeof(save)) > 0, "save");
+    story_t  back;
+    uint32_t read = 0;
+    story_begin(&back, 0);
+    CHECK(desk_load_save(save, &back, &d, &read) && memcmp(&back, &s, sizeof(s)) == 0 && read == k.read,
+          "save read back: %s", save);
+    CHECK(!desk_load_save("at: 1\n", &back, &d, &read), "a save cut short does not read");
+    // The last approved: out of the door.
+    s.at = 2;
+    CHECK(type(&k, "exit") == DESK_LEAVE, "exit, the queue empty");
+    CHECK(type(&k, "glados") == DESK_NONE && strstr(screen_text(&k), "nothing left"), "no more rounds");
+    CHECK(desk_key(&k, DK_ESC, 0) == DESK_TITLE, "Esc at an empty prompt: the title");
+}
+
 static int selftest(void) {
+    test_desk();
     test_story();
     test_parse_errors();
     test_sections();
@@ -584,6 +704,18 @@ static int selftest(void) {
 
 int main(int argc, char** argv) {
     if (argc == 2 && strcmp(argv[1], "selftest") == 0) return selftest();
+    if (argc == 3 && strcmp(argv[1], "desk") == 0) {
+        // A pack's desk/, read as the badge reads it.
+        static desk_data_t d;
+        char               err[160];
+        if (!desk_load(&d, argv[2], err, sizeof(err))) {
+            fprintf(stderr, "%s: %s\n", argv[2], err);
+            return 1;
+        }
+        printf("desk: %d files, %d mails, %d events, %d of %d bytes\n", d.n_files, d.n_mails, d.n_events, (int)d.used,
+               DESK_ARENA);
+        return 0;
+    }
     unsigned jitter      = 0;
     float    dt          = 1.0f / 50.0f;
     char     letters[32] = "";

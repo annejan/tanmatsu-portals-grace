@@ -17,6 +17,8 @@
 #include "bsp/device.h"
 #include "chamber.h"
 #include "demo.h"
+#include "desk.h"
+#include "deskview.h"
 #include "editor.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
@@ -60,7 +62,8 @@ static char  s_story_back[CHAMBER_ID_N];  // where Continue was before the story
 typedef enum {
     MODE_PLAY,
     MODE_EDIT,
-    MODE_TEST
+    MODE_TEST,
+    MODE_DESK  // a desk story's desk (desk.h)
 } app_mode_t;
 static app_mode_t s_mode;
 static char       s_play_id[64];  // the chamber play goes back to after the editor
@@ -110,6 +113,16 @@ static review_t s_review;    // its file's review keys
 static draft_t* s_round_draft;
 static char*    s_round_text;
 
+static desk_data_t    s_desk_data;
+static desk_t         s_desk;
+static desk_action_t  s_desk_act;     // what a key at the desk asked for
+static bool           s_desk_return;  // a round judged: back to the desk once GLaDOS is done
+static story_result_t s_desk_result;  // ... with this
+static bool           s_leaving;      // the day done: the ending said, then the title
+static float          s_leaving_t;
+
+#define SAVE_DIR "/sd/portals/saves"
+
 // The round in play's chamber, in the chamber list.
 static int round_chamber(void) {
     pack_t const* const p = pack_get(s_story.pack);
@@ -117,7 +130,11 @@ static int round_chamber(void) {
 }
 
 static void story_off(void) {
-    s_story_on = false;
+    s_story_on    = false;
+    s_desk_return = false;
+    s_leaving     = false;
+    menu_set_round(false);
+    if (s_mode == MODE_DESK) s_mode = MODE_PLAY;
     free(s_round_draft);
     free(s_round_text);
     s_round_draft = NULL;
@@ -314,7 +331,15 @@ static void to_title(void) {
     s_story_of        = -2;  // ... and tells the chamber's story again on the way back in
     s_pending_chamber = -1;
     hud_quiet();
-    menu_title(chamber_find(settings_chamber()));
+    // Continue: a chamber, or a desk story ("desk:<pack>").
+    int story = -1;
+    if (strncmp(settings_chamber(), "desk:", 5) == 0)
+        for (int i = 0; i < pack_count(); i++)
+            if (pack_get(i)->desk && strcmp(pack_get(i)->id, settings_chamber() + 5) == 0) story = i;
+    if (story >= 0)
+        menu_title_story(story);
+    else
+        menu_title(chamber_find(settings_chamber()));
     attract_begin(&s_game);
     render_set_level(&s_game.lv, s_game.portals);
 }
@@ -499,6 +524,11 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         input_event(ev);
         return;
     }
+    if (s_mode == MODE_DESK) {
+        desk_action_t const a = deskview_event(&s_desk, ev);
+        if (a != DESK_NONE) s_desk_act = a;
+        return;
+    }
     // Watching a recording, Esc stops it; nothing else plays.
     if (watch_on()) {
         if (menu_is_open_key(ev)) watch_stop();
@@ -513,6 +543,120 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         if (!watch_just_stopped()) menu_open(s_game.chamber);
     } else {
         input_event(ev);
+    }
+}
+
+// --- The desk ---------------------------------------------------------------
+
+static void save_path(char* out, size_t n) {
+    snprintf(out, n, "%s/%.40s.txt", SAVE_DIR, pack_get(s_story.pack)->id);
+}
+
+// The story where it stands, on the card: Continue comes back to it.
+static void desk_save(void) {
+    char text[512], path[96];
+    if (desk_save_text(&s_desk, text, sizeof(text)) < 0) return;
+    mkdir("/sd/portals", 0755);
+    mkdir(SAVE_DIR, 0755);
+    save_path(path, sizeof(path));
+    FILE* f = fopen(path, "w");
+    if (f == NULL) {
+        ESP_LOGW(TAG, "cannot save %s", path);
+        return;
+    }
+    bool const ok = fputs(text, f) >= 0;
+    if (fclose(f) != 0 || !ok) ESP_LOGW(TAG, "saving %s failed", path);
+}
+
+// To desk story `pk`'s desk: where its save left it, or its day's start.
+static bool desk_enter(int pk) {
+    pack_t const* const p = pack_get(pk);
+    char                dir[160], err[96];
+    snprintf(dir, sizeof(dir), "%s/%.40s", PACK_DIR, p->id);
+    if (!desk_load(&s_desk_data, dir, err, sizeof(err))) {
+        ESP_LOGW(TAG, "%s: %s", dir, err);
+        char msg[HUD_MESSAGE_N];
+        snprintf(msg, sizeof(msg), "%.60s", err);
+        hud_message(msg);
+        return false;
+    }
+    story_off();
+    story_begin(&s_story, pk);
+    // A save, if there is one.
+    char     path[96];
+    uint32_t read  = 0;
+    bool     saved = false;
+    save_path(path, sizeof(path));
+    FILE* f = fopen(path, "r");
+    if (f != NULL) {
+        char         text[512];
+        size_t const n = fread(text, 1, sizeof(text) - 1, f);
+        fclose(f);
+        text[n] = '\0';
+        saved   = desk_load_save(text, &s_story, &s_desk_data, &read);
+        if (!saved) ESP_LOGW(TAG, "%s does not read: the day from its start", path);
+    }
+    desk_begin(&s_desk, &s_desk_data, &s_story, p->n, true);
+    if (saved) {
+        s_desk.read = read;
+        desk_print(&s_desk, "Session restored.");
+    }
+    s_story_on = true;
+    s_desk_act = DESK_NONE;
+    s_mode     = MODE_DESK;
+    hud_quiet();
+    char id[CHAMBER_ID_N];
+    snprintf(id, sizeof(id), "desk:%.40s", p->id);
+    settings_set_chamber(id);
+    return true;
+}
+
+// A frame at the desk: what its keys asked for.
+static void desk_frame(float dt) {
+    if (s_leaving) {
+        // The ending said, a moment more, then the title screen.
+        s_leaving_t += dt;
+        if (s_leaving_t > 4.0f && !sound_saying()) {
+            if (s_story_back[0]) settings_set_chamber(s_story_back);
+            to_title();
+        }
+        return;
+    }
+    desk_action_t const act = s_desk_act;
+    s_desk_act              = DESK_NONE;
+    switch (act) {
+        case DESK_PLAY:
+            s_mode = MODE_PLAY;
+            menu_set_round(true);
+            if (!play_chamber(round_chamber())) {
+                s_mode = MODE_DESK;
+                menu_set_round(false);
+                desk_print(&s_desk, hud_message_text());
+            }
+            input_resync();
+            break;
+        case DESK_TITLE:
+            desk_save();
+            to_title();
+            break;
+        case DESK_LEAVE: {
+            // The day is done: its save gone, so the story starts afresh;
+            // the ending said and printed.
+            char path[96];
+            save_path(path, sizeof(path));
+            chamber_remove_file(path);
+            char ending[sizeof(s_game.lv.story)];
+            snprintf(ending, sizeof(ending), "%s", pack_get(s_story.pack)->ending);
+            personalise(ending, sizeof(ending));
+            desk_print(&s_desk, "");
+            desk_print(&s_desk, ending);
+            sound_say(ending[0] ? ending : NULL);
+            s_leaving   = true;
+            s_leaving_t = 0.0f;
+            break;
+        }
+        default:
+            break;
     }
 }
 
@@ -535,25 +679,28 @@ static void menu_frame(void) {
         case MENU_CMD_RECORD_STOP:
             record_stop();
             break;
+        case MENU_CMD_DESK:
+            // Back to the desk from a round: the draft as it was.
+            sound_hush();
+            s_pending_chamber = -1;
+            s_desk_return     = false;
+            menu_set_round(false);
+            s_mode = MODE_DESK;
+            break;
         case MENU_CMD_STORY: {
             // A story pack from its start: the music from its first bar.
             pack_t const* const p = pack_get(cmd.chamber);
             if (p == NULL) break;
             record_stop();
+            if (p->desk) {
+                snprintf(s_story_back, sizeof(s_story_back), "%s",
+                         strncmp(settings_chamber(), "desk:", 5) == 0 ? "" : settings_chamber());
+                if (!desk_enter(cmd.chamber) && title) title_saying_why();
+                break;
+            }
             snprintf(s_story_back, sizeof(s_story_back), "%s", settings_chamber());
             sound_restart_music();
             s_story_of = -2;
-            if (p->desk) {
-                // Its rounds, from the first.
-                story_off();
-                story_begin(&s_story, cmd.chamber);
-                s_story_on = true;
-                if (!play_chamber(p->chamber[0])) {
-                    story_off();
-                    if (title) title_saying_why();
-                }
-                break;
-            }
             if (!play_from(p->chamber[0]) && title) title_saying_why();
             break;
         }
@@ -642,17 +789,15 @@ static void round_exit(void) {
     char                 terms[160];
     review_describe(&s_game.lv, &s_game.track, terms, sizeof(terms));
     ESP_LOGI(TAG, "round %d: %s (%s); score %d", s_story.round, res.headline, terms, s_story.score);
-    if (res.outcome == STORY_DONE) {
-        story_ending(s_story.pack);
-        return;
-    }
     hud_message(res.headline);
     snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", res.line);
     hud_story_start();
     sound_say(s_game.lv.story);
-    s_pending_chamber = round_chamber();
-    // The next file's chamber tells its own story; the same one's does not.
-    if (res.outcome == STORY_NEXT) s_story_of = -2;
+    // Back to the desk once she is done; the next file's chamber tells its
+    // own story, the same one's does not.
+    s_desk_return = true;
+    s_desk_result = res;
+    if (res.outcome == STORY_NEXT || res.outcome == STORY_DONE) s_story_of = -2;
 }
 
 // A frame of play, or of a play-test.
@@ -686,10 +831,14 @@ static void play_frame(float dt) {
         }
         return;
     }
-    if (s_pending_chamber >= 0 && s_story_on && !hud_message_up() && !sound_saying()) {
-        // The next round, once GLaDOS has had her say: the same draft, the
-        // same chamber patched, or the next file's.
-        if (!play_chamber(s_pending_chamber)) title_saying_why();
+    if (s_desk_return) {
+        // A round judged: back to the desk once GLaDOS has had her say.
+        if (hud_message_up() || sound_saying()) return;
+        s_desk_return = false;
+        s_mode        = MODE_DESK;
+        menu_set_round(false);
+        desk_after_round(&s_desk, &s_desk_result);
+        desk_save();
         return;
     }
     if (s_pending_chamber >= 0 && !hud_message_up()) {
@@ -768,7 +917,7 @@ static void on_update(float dt, void* user) {
     (void)user;
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
     // The portals on LEDs A and B, while playing and if wanted.
-    if (settings_leds() && s_mode != MODE_EDIT && !menu_on_title())
+    if (settings_leds() && s_mode != MODE_EDIT && s_mode != MODE_DESK && !menu_on_title())
         leds_portals(s_game.portals[0].open, s_game.portals[1].open);
     else
         leds_release();
@@ -784,6 +933,8 @@ static void on_update(float dt, void* user) {
         watch_update(dt);
     } else if (s_mode == MODE_EDIT) {
         edit_frame(dt);
+    } else if (s_mode == MODE_DESK) {
+        desk_frame(dt);
     } else if (s_mode == MODE_TEST && (s_test_back || (s_test_done > 0.0f && (s_test_done -= dt) <= 0.0f))) {
         back_to_editor();
     } else if (menu_active()) {
@@ -806,6 +957,10 @@ static void on_render(pax_buf_t* fb, void* user) {
     (void)user;
     if (s_mode == MODE_EDIT) {
         editor_draw(fb);
+        return;
+    }
+    if (s_mode == MODE_DESK) {
+        deskview_draw(fb, &s_desk);
         return;
     }
     bool const       half   = settings_half_res() && s_half_ok;

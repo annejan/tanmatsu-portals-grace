@@ -151,11 +151,16 @@ static void fit_name(char* out, size_t n, char const* name) {
     }
 }
 
-void menu_title(int continue_chamber) {
-    bool const cont    = continue_chamber >= 0 && continue_chamber < level_count();
-    s_chamber          = cont ? continue_chamber : 0;
+static int s_continue_story = -1;  // Continue's desk story (pack.h), or -1
+
+static void title(int continue_chamber, int story) {
+    s_continue_story   = story >= 0 && story < pack_count() ? story : -1;
+    bool const cont    = s_continue_story >= 0 || (continue_chamber >= 0 && continue_chamber < level_count());
+    s_chamber          = continue_chamber >= 0 && continue_chamber < level_count() ? continue_chamber : 0;
     s_continue_name[0] = '\0';
-    if (cont) {
+    if (s_continue_story >= 0) {
+        fit_name(s_continue_name, sizeof(s_continue_name), pack_get(s_continue_story)->name);
+    } else if (cont) {
         char name[sizeof(s_lv.name)];
         chamber_name(continue_chamber, name, sizeof(name));
         fit_name(s_continue_name, sizeof(s_continue_name), name);
@@ -179,6 +184,14 @@ void menu_title(int continue_chamber) {
     s_opened_us         = esp_timer_get_time();
     s_cursor[SCR_TITLE] = 0;  // Continue if there is one, else New game
     go(SCR_TITLE);
+}
+
+void menu_title(int continue_chamber) {
+    title(continue_chamber, -1);
+}
+
+void menu_title_story(int pack) {
+    title(-1, pack);
 }
 
 bool menu_on_title(void) {
@@ -289,6 +302,20 @@ static se_menu_row_t s_pause_rows[PAUSE_ROWS] = {
 };
 static bool s_recording;
 
+// A desk story's round: its own pause menu, and each row's place in the
+// one above (-1: back to the desk).
+#define ROUND_ROWS 7
+static se_menu_row_t s_round_rows[ROUND_ROWS] = {
+    {.label = "Resume"},   {.label = "Restart draft"}, {.label = "Back to the desk"}, {.label = "Settings"},
+    {.label = "Controls"}, {.label = "Title screen"},  {.label = "Quit to launcher"},
+};
+static int const s_round_of[ROUND_ROWS] = {0, 1, -1, 4, 5, 8, 9};
+static bool      s_round;
+
+void menu_set_round(bool on) {
+    s_round = on;
+}
+
 void menu_set_recording(bool on) {
     s_recording                      = on;
     s_pause_rows[PAUSE_RECORD].label = on ? "Stop recording" : "Record from here";
@@ -383,10 +410,10 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
         case SCR_PAUSE:
             def->title     = "PORTALS";
             def->subtitle  = "Paused";
-            def->rows      = s_pause_rows;
-            def->row_count = PAUSE_ROWS;
+            def->rows      = s_round ? s_round_rows : s_pause_rows;
+            def->row_count = s_round ? ROUND_ROWS : PAUSE_ROWS;
             def->hint      = "Enter: choose   Esc: back to the game";
-            return PAUSE_ROWS;
+            return s_round ? ROUND_ROWS : PAUSE_ROWS;
         case SCR_SETTINGS:
             snprintf(s_depth_text, sizeof(s_depth_text), "%d", settings_portal_depth());
             s_set_rows[SET_GYRO] =
@@ -517,8 +544,8 @@ menu_cmd_t menu_update(void) {
             switch (s_title_of[cur]) {
                 case T_CONTINUE:
                     s_scr       = SCR_NONE;
-                    cmd.kind    = MENU_CMD_CHAMBER;
-                    cmd.chamber = s_chamber;
+                    cmd.kind    = s_continue_story >= 0 ? MENU_CMD_STORY : MENU_CMD_CHAMBER;
+                    cmd.chamber = s_continue_story >= 0 ? s_continue_story : s_chamber;
                     break;
                 case T_STORIES:
                     go(SCR_STORIES);
@@ -559,8 +586,11 @@ menu_cmd_t menu_update(void) {
             if (r == SE_MENU_RESULT_BACK) {
                 s_scr    = SCR_NONE;
                 cmd.kind = MENU_CMD_RESUME;
+            } else if (r == SE_MENU_RESULT_ACTIVATED && s_round && s_round_of[cur] < 0) {
+                s_scr    = SCR_NONE;
+                cmd.kind = MENU_CMD_DESK;
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
-                switch (cur) {
+                switch (s_round ? s_round_of[cur] : cur) {
                     case 0:
                         s_scr    = SCR_NONE;
                         cmd.kind = MENU_CMD_RESUME;

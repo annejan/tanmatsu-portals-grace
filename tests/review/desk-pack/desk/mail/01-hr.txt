@@ -1,0 +1,4 @@
+from: HR
+subject: Welcome aboard
+
+Welcome to Aperture.

@@ -19,7 +19,8 @@ typedef enum {
     MENU_CMD_TITLE,     // back to the title screen
     MENU_CMD_RECORD,    // record from the start of menu_cmd_t.chamber on (title: a new game)
     MENU_CMD_RECORD_STOP,
-    MENU_CMD_STORY,  // play story pack menu_cmd_t.chamber (pack.h) from its start
+    MENU_CMD_STORY,  // play story pack menu_cmd_t.chamber (pack.h) from its start (a desk story: where it was)
+    MENU_CMD_DESK,   // from a desk story's round, back to its desk
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;
 
@@ -35,6 +36,11 @@ void       menu_open(int current_chamber);
 // The title screen, the game's first: Continue goes back to
 // `continue_chamber`, or there is no Continue if it is -1.
 void       menu_title(int continue_chamber);
+// The same, Continue going back to desk story `pack` (pack.h) instead.
+void       menu_title_story(int pack);
+// Whether play is a desk story's round: the pause menu offers the desk,
+// and nothing that leaves the story by another way.
+void       menu_set_round(bool on);
 // Whether the title screen, or a screen opened from it, is up.
 bool       menu_on_title(void);
 // Whether the title screen itself is up.

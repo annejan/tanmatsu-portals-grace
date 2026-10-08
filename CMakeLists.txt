@@ -27,6 +27,8 @@ set(APP_SOURCES
     main/pack.c
     main/review.c
     main/story.c
+    main/desk.c
+    main/deskview.c
     main/physics.c
     main/player.c
     main/portal.c
