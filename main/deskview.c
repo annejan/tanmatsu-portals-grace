@@ -5,7 +5,12 @@
 #include "se_text.h"
 #include "synthengine3d.h"
 
-#define TEXT_H    14.0f  // the font's size: 10 x 19 px a cell
+// The engine's text is Hershey simplex, which is proportional ('m' is
+// nearly four times an 'i'): a terminal wants columns, so each character
+// is drawn on its own, centred in its cell. 80 cells of 10 px fill the
+// screen's 800, and at 12.5 the widest letter's ink still fits one.
+#define TEXT_H    12.5f
+#define CELL_W    10.0f
 #define ROW_H     19.0f
 #define GREEN     0xFF7CFF8Au
 #define DIM       0xFF2E6B38u
@@ -65,26 +70,40 @@ desk_action_t deskview_event(desk_t* k, bsp_input_event_t const* ev) {
     }
 }
 
+// A row of text, a character to a cell from `x0`.
+static void row_text(pax_buf_t* fb, pax_col_t col, float x0, float y, char const* text) {
+    static float adv[95];  // each printable character's advance at TEXT_H
+    if (adv[0] <= 0.0f)
+        for (int c = 0; c < 95; c++) {
+            char const s[2] = {(char)(32 + c), 0};
+            adv[c]          = rendertext_size(pax_font_sky_mono, TEXT_H, s).x;
+        }
+    for (int i = 0; text[i] && i < DESK_COLS; i++) {
+        unsigned char const ch = (unsigned char)text[i];
+        if (ch <= 32 || ch > 126) continue;
+        char const s[2] = {(char)ch, 0};
+        rendertext_draw(fb, col, pax_font_sky_mono, TEXT_H, x0 + CELL_W * (float)i + (CELL_W - adv[ch - 32]) * 0.5f,
+                        y, s);
+    }
+}
+
 void deskview_draw(pax_buf_t* fb, desk_t const* k) {
     static char rows[DESK_ROWS][DESK_COLS + 1];
     int         cur_row, cur_col, hl;
     desk_screen(k, rows, &cur_row, &cur_col, &hl);
     pax_background(fb, SCREEN_BG);
-    // Cells as wide as the font's, the grid in the middle.
-    static float cell_w;
-    if (cell_w <= 0.0f) cell_w = rendertext_size(pax_font_sky_mono, TEXT_H, "M").x;
-    float const x0 = ((float)DISPLAY_LOG_W - cell_w * DESK_COLS) * 0.5f;
+    float const x0 = ((float)DISPLAY_LOG_W - CELL_W * DESK_COLS) * 0.5f;
     float const y0 = ((float)DISPLAY_LOG_H - ROW_H * DESK_ROWS) * 0.5f;
     for (int r = 0; r < DESK_ROWS; r++) {
         float const y = y0 + ROW_H * (float)r;
         if (r == hl) {
-            pax_simple_rect(fb, GREEN, x0, y, cell_w * DESK_COLS, ROW_H);
-            if (rows[r][0]) rendertext_draw(fb, SCREEN_BG, pax_font_sky_mono, TEXT_H, x0, y + 2, rows[r]);
+            pax_simple_rect(fb, GREEN, x0, y, CELL_W * DESK_COLS, ROW_H);
+            row_text(fb, SCREEN_BG, x0, y + 4, rows[r]);
         } else if (rows[r][0]) {
-            rendertext_draw(fb, GREEN, pax_font_sky_mono, TEXT_H, x0, y + 2, rows[r]);
+            row_text(fb, GREEN, x0, y + 4, rows[r]);
         }
     }
-    // The cursor, blinking: a block under the character.
+    // The cursor, blinking: a bar under its cell.
     if (cur_row >= 0 && (esp_timer_get_time() / 500000) % 2 == 0)
-        pax_simple_rect(fb, DIM, x0 + cell_w * (float)cur_col, y0 + ROW_H * (float)cur_row + ROW_H - 4, cell_w, 3);
+        pax_simple_rect(fb, DIM, x0 + CELL_W * (float)cur_col, y0 + ROW_H * (float)cur_row + ROW_H - 4, CELL_W, 3);
 }
