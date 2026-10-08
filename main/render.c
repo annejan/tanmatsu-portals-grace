@@ -310,6 +310,9 @@ void render_stats(int* passes, int* tris) {
 #define DECAL_STEPS  2.0f
 #define DECAL_SHIFT  30  // flag bits of our own, above the engine's: taken off before it sees them
 #define DECAL(layer) ((uint32_t)(layer) << DECAL_SHIFT)
+// Another of our own: a level quad whose glow submit_level has worked out
+// already, lit or not, which submit_poly must not light again as a whole.
+#define LIT          (1u << 29)
 
 static cam_t s_eye;  // the pass's camera (set_camera)
 
@@ -321,7 +324,7 @@ static vec3_t nearer(vec3_t p, float steps) {
 
 static void emit_poly(cvert_t const* v, int n, material_info_t const* m, uint32_t argb, uint32_t flags) {
     float const lift  = DECAL_STEPS * (float)(flags >> DECAL_SHIFT);
-    flags            &= ~DECAL(3);
+    flags            &= ~(DECAL(3) | LIT);
     for (int i = 1; i + 1 < n; i++) {
         cvert_t t[3] = {v[0], v[i], v[i + 1]};
         if (lift > 0.0f)
@@ -392,6 +395,10 @@ static void keep_front(portal_t const* p) {
 // A quad, if it faces the eye, clipped to `cs` when there is one.
 // A convex polygon of `n` corners facing `n`ormal: dropped if it faces
 // away from the eye, clipped to `cs`, and drawn.
+// What glows lights what is round it: below (glow_gather).
+static int      s_glow_n;
+static uint32_t glow_at(vec3_t c, vec3_t n);
+
 static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, clipset_t const* cs,
                         material_info_t const* m, uint32_t argb, uint32_t flags) {
     static cvert_t moved[CLIP_MAX_VERTS], kept[CLIP_MAX_VERTS];  // static: off the task's stack
@@ -401,6 +408,13 @@ static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, cl
         n = portal_map_dir(s_via[0], s_via[1], n);
     }
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
+    // Lit by what glows (glow_at): a thing's face, by its middle. The
+    // level's quads have theirs worked out already (LIT).
+    if (s_glow_n > 0 && !(flags & (LIT | SE_TRI_EMISSIVE | SE_TRI_BLEND | SE_TRI_GLOW_MASK))) {
+        vec3_t c = q[0].p;
+        for (int i = 1; i < nq; i++) c = v3_add(c, q[i].p);
+        flags |= SE_TRI_GLOW(glow_at(v3_scale(c, 1.0f / (float)nq), n));
+    }
     if (s_keep.n) {
         nq = clip_polygon(&s_keep, q, nq, kept);
         if (nq < 3) return;
@@ -420,32 +434,123 @@ static void submit_quad(cvert_t const q[4], vec3_t n, cam_t const* cam, clipset_
     submit_poly(q, 4, n, cam, cs, m, argb, flags);
 }
 
-// --- Glow: the energy pellets light what is round them ----------------------
+// --- Glow: what shines lights what is round it ---------------------------
 //
-// The engine's one light is the sun, far off; a pellet is a light of the
-// game's own (SE_TRI_GLOW): so much light added to each face near it, by
-// how far off it is and how squarely the face meets it. A face's halves
-// get one value, so nothing splits down a diagonal; near a pellet the
-// big merged quads are cut into cells, each lit on its own, for a pool
-// of light rather than a lit wall.
+// The engine's one light is the sun, far off. What glows in a chamber --
+// a pellet in flight, a launcher charged with one, a receiver that has
+// caught one -- is a light of the game's own (SE_TRI_GLOW): so much light
+// added to each face near it, by how far off it is and how squarely the
+// face meets it. A face's halves get one value, so nothing splits down a
+// diagonal; near a light the big merged quads are cut into cells, each
+// lit on its own, for a pool of light rather than a lit wall.
+//
+// Light goes through portals as everything else does: a light near an
+// open portal shines out of the other one too, as if from behind it --
+// on what is in front of that portal only.
 
-#define GLOW_RADIUS 4.5f   // m: past this a pellet lights nothing
-#define GLOW_PEAK   44.0f  // a face right beside one: past SE_TRI_GLOW_MAX, so held there
+#define GLOW_LIGHTS 16
 
-static vec3_t s_glow_at[LV_MAX_PELLETS];
+typedef struct {
+    vec3_t at;
+    float  radius;  // m: past this it lights nothing
+    float  peak;    // a face right beside it, square on; past SE_TRI_GLOW_MAX is held there
+    bool   bound;   // through a portal: it lights only what it can reach through that portal's opening
+    vec3_t pn;      // ... the portal's plane: pn.x + pd > 0 in front of it
+    float  pd;
+    vec3_t oc, orr, oup;  // ... and its opening: centre, right, up
+} glow_t;
+
+static glow_t s_glow[GLOW_LIGHTS];
 static int    s_glow_n;
+
+static void glow_add(vec3_t at, float radius, float peak) {
+    if (s_glow_n < GLOW_LIGHTS) s_glow[s_glow_n++] = (glow_t){.at = at, .radius = radius, .peak = peak};
+}
+
+// This frame's lights, from what glows in `g`.
+static void glow_gather(game_t const* g) {
+    s_glow_n = 0;
+    for (int k = 0; k < g->lv.n_launchers; k++) {
+        pellet_t const* p = &g->pellets[k];
+        if (p->live) glow_add(p->pos, 4.5f, 44.0f);
+        // The launcher, charged: its mouth glows until its pellet is caught.
+        emitter_t const* L = &g->lv.launchers[k];
+        vec3_t const     n = dir_vec(L->dir);
+        if (!p->done) glow_add(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), n, 0.75f), 2.5f, 20.0f);
+    }
+    // Receivers that have caught theirs: a lit lens on each open side.
+    for (int i = 0; i < g->lv.n_buttons; i++) {
+        button_t const* bt = &g->lv.buttons[i];
+        if (!bt->receiver || !bt->pressed) continue;
+        vec3_t const mid = v3((float)bt->x + 0.5f, (float)bt->y + 0.5f, (float)bt->z + 0.5f);
+        for (int face = 0; face < 6; face++) {
+            if (face == DIR_PY || face == DIR_NY) continue;
+            int dx, dy, dz;
+            dir_step(face, &dx, &dy, &dz);
+            if (!level_solid(&g->lv, bt->x + dx, bt->y + dy, bt->z + dz))
+                glow_add(v3_mad(mid, dir_vec(face), 0.75f), 2.5f, 20.0f);
+        }
+    }
+    // And each, near an open portal, out of the other one.
+    portal_t const* pt = g->portals;
+    if (!pt[0].open || !pt[1].open) return;
+    int const n0 = s_glow_n;
+    for (int i = 0; i < n0; i++)
+        for (int a = 0; a < 2; a++) {
+            portal_t const* in  = &pt[a];
+            portal_t const* out = &pt[a ^ 1];
+            vec3_t const    d   = v3_sub(s_glow[i].at, in->center);
+            float const     h   = v3_dot(d, in->n);  // in front of the opening, and near it
+            if (h <= 0.0f || v3_len(d) > s_glow[i].radius + PORTAL_HALF_H || s_glow_n >= GLOW_LIGHTS) continue;
+            s_glow[s_glow_n++] = (glow_t){.at     = portal_map_point(in, out, s_glow[i].at),
+                                          .radius = s_glow[i].radius,
+                                          .peak   = s_glow[i].peak,
+                                          .bound  = true,
+                                          .pn     = out->n,
+                                          .pd     = -v3_dot(out->n, out->center),
+                                          .oc     = out->center,
+                                          .orr    = out->right,
+                                          .oup    = out->up};
+        }
+}
+
+// Whether light `l` gets to `c`: always, unless it shines out of a portal
+// -- then only in front of it, and only along a line through the opening
+// (a little wider, so the pool's edge stays soft).
+static bool glow_reaches(glow_t const* l, vec3_t c) {
+    if (!l->bound) return true;
+    float const hc = v3_dot(l->pn, c) + l->pd;
+    if (hc <= 0.02f) return false;
+    float const  ha  = v3_dot(l->pn, l->at) + l->pd;  // < 0: behind the portal
+    vec3_t const hit = v3_add(l->at, v3_scale(v3_sub(c, l->at), ha / (ha - hc)));
+    vec3_t const off = v3_sub(hit, l->oc);
+    return fabsf(v3_dot(off, l->orr)) < PORTAL_HALF_W + 0.4f && fabsf(v3_dot(off, l->oup)) < PORTAL_HALF_H + 0.4f;
+}
+
+// Whether light `l` gets to the front of `c` at all: the plane alone, the
+// quick test (a big quad's corners may all be outside the light's cone
+// through the opening, and cells in its middle inside it).
+static bool glow_front(glow_t const* l, vec3_t c) {
+    return !l->bound || v3_dot(l->pn, c) + l->pd > 0.02f;
+}
+
+// How far from light `l` a face square on to it still gets a glow of one.
+static float glow_reach(glow_t const* l) {
+    return l->radius * (1.0f - sqrtf(0.5f / l->peak));
+}
 
 // The glow on a face at `c`, facing `n`: 0..SE_TRI_GLOW_MAX.
 static uint32_t glow_at(vec3_t c, vec3_t n) {
     float g = 0.0f;
     for (int i = 0; i < s_glow_n; i++) {
-        vec3_t const d    = v3_sub(s_glow_at[i], c);
-        float const  dist = v3_len(d);
-        if (dist >= GLOW_RADIUS) continue;
+        glow_t const* l    = &s_glow[i];
+        vec3_t const  d    = v3_sub(l->at, c);
+        float const   dist = v3_len(d);
+        if (dist >= l->radius || !glow_reaches(l, c)) continue;
         float const facing = dist > 1e-3f ? v3_dot(n, d) / dist : 1.0f;
         if (facing <= 0.0f) continue;  // behind the face
-        float const fall  = 1.0f - dist / GLOW_RADIUS;
-        g                += GLOW_PEAK * fall * fall * (0.35f + 0.65f * facing);
+        float const fall  = 1.0f - dist / l->radius;
+        g                += l->peak * fall * fall * (0.35f + 0.65f * facing);
     }
     return g >= (float)SE_TRI_GLOW_MAX ? SE_TRI_GLOW_MAX : (uint32_t)(g + 0.5f);
 }
@@ -464,18 +569,51 @@ static void submit_part(mquad_t const* q, float a0, float a1, float b0, float b1
     submit_quad(v, q->n, cam, cs, m, m->argb, flags);
 }
 
-// A quad near a pellet: the cells round it lit one by one, the rest of
-// the quad -- up to four strips round them -- as it was.
-static void submit_glowing(mquad_t const* q, float ou, float ov, cam_t const* cam, clipset_t const* cs,
+// Whether light `l` reaches quad `q` at all -- in front of it, and within
+// its radius of the quad -- and if so, the cells it reaches.
+static bool glow_window(glow_t const* l, mquad_t const* q, int* u0, int* u1, int* v0, int* v1) {
+    vec3_t const d     = v3_sub(l->at, q->origin);
+    float const  h     = v3_dot(d, q->n);
+    float const  reach = glow_reach(l);
+    if (h <= 0.0f || h >= reach) return false;
+    float const  pu = v3_dot(d, q->du) / (q->su * q->su), pv = v3_dot(d, q->dv) / (q->sv * q->sv);
+    float const  cu = pu < 0 ? 0 : pu > 1 ? 1 : pu, cv = pv < 0 ? 0 : pv > 1 ? 1 : pv;
+    vec3_t const near = v3_add(q->origin, v3_add(v3_scale(q->du, cu), v3_scale(q->dv, cv)));
+    if (v3_len(v3_sub(l->at, near)) >= reach) return false;
+    // A light from behind a portal: only if part of the quad is in front of it.
+    if (l->bound) {
+        bool front = false;
+        for (int k = 0; k < 4 && !front; k++)
+            front = glow_front(l, v3_add(q->origin, v3_add(v3_scale(q->du, (float)(k & 1)),
+                                                            v3_scale(q->dv, (float)(k >> 1)))));
+        if (!front) return false;
+    }
+    // The circle the light reaches on the quad's plane, at its height.
+    float const w = sqrtf(reach * reach - h * h);
+    *u0           = (int)floorf(pu * q->su - w);
+    *u1           = (int)ceilf(pu * q->su + w);
+    *v0           = (int)floorf(pv * q->sv - w);
+    *v1           = (int)ceilf(pv * q->sv + w);
+    return true;
+}
+
+// A quad near a light: the cells round it lit one by one, the rest of
+// the quad -- up to four strips round them -- as it was. False if no
+// light reaches it.
+// Cells cut for light this pass, at most GLOW_CELLS: past that a quad is
+// drawn whole, unlit, rather than run the engine out of triangles.
+#define GLOW_CELLS 400
+static int s_glow_cells;
+
+static bool submit_glowing(mquad_t const* q, float ou, float ov, cam_t const* cam, clipset_t const* cs,
                            material_info_t const* m) {
-    // The cells the pellets' light reaches, as a range on the quad's grid.
+    // Facing away from the eye: drawn whole, and then dropped.
+    if (v3_dot(v3_sub(cam->pos, q->origin), q->n) <= 0.0f) return false;
     int const nu = (int)(q->su + 0.5f), nv = (int)(q->sv + 0.5f);
     int       u0 = nu, u1 = -1, v0 = nv, v1 = -1;
     for (int i = 0; i < s_glow_n; i++) {
-        vec3_t const d  = v3_sub(s_glow_at[i], q->origin);
-        float const  pu = v3_dot(d, q->du) / (q->su * q->su), pv = v3_dot(d, q->dv) / (q->sv * q->sv);
-        int const    a  = (int)floorf((pu * q->su) - GLOW_RADIUS), b = (int)ceilf((pu * q->su) + GLOW_RADIUS);
-        int const    c  = (int)floorf((pv * q->sv) - GLOW_RADIUS), e = (int)ceilf((pv * q->sv) + GLOW_RADIUS);
+        int a, b, c, e;
+        if (!glow_window(&s_glow[i], q, &a, &b, &c, &e)) continue;
         if (a < u0) u0 = a;
         if (b > u1) u1 = b;
         if (c < v0) v0 = c;
@@ -485,42 +623,36 @@ static void submit_glowing(mquad_t const* q, float ou, float ov, cam_t const* ca
     if (v0 < 0) v0 = 0;
     if (u1 > nu) u1 = nu;
     if (v1 > nv) v1 = nv;
-    uint32_t const flags = m->flags;
-    if (u0 >= u1 || v0 >= v1) {
-        submit_part(q, 0, 1, 0, 1, ou, ov, cam, cs, m, flags);
-        return;
-    }
-    float const fu = 1.0f / (float)nu, fv = 1.0f / (float)nv;
+    if (u0 >= u1 || v0 >= v1 || s_glow_cells + (u1 - u0) * (v1 - v0) > GLOW_CELLS) return false;
+    s_glow_cells         += (u1 - u0) * (v1 - v0);
+    uint32_t const flags  = m->flags | LIT;
+    float const    fu = 1.0f / (float)nu, fv = 1.0f / (float)nv;
     // The strips round the lit window, unlit.
     if (v0 > 0) submit_part(q, 0, 1, 0, (float)v0 * fv, ou, ov, cam, cs, m, flags);
     if (v1 < nv) submit_part(q, 0, 1, (float)v1 * fv, 1, ou, ov, cam, cs, m, flags);
     if (u0 > 0) submit_part(q, 0, (float)u0 * fu, (float)v0 * fv, (float)v1 * fv, ou, ov, cam, cs, m, flags);
     if (u1 < nu) submit_part(q, (float)u1 * fu, 1, (float)v0 * fv, (float)v1 * fv, ou, ov, cam, cs, m, flags);
-    // The window, a cell at a time.
-    for (int b = v0; b < v1; b++)
-        for (int a = u0; a < u1; a++) {
-            vec3_t const   c = v3_add(q->origin, v3_add(v3_scale(q->du, ((float)a + 0.5f) * fu),
-                                                        v3_scale(q->dv, ((float)b + 0.5f) * fv)));
-            uint32_t const g = glow_at(c, q->n);
-            submit_part(q, (float)a * fu, (float)(a + 1) * fu, (float)b * fv, (float)(b + 1) * fv, ou, ov, cam, cs, m,
-                        flags | SE_TRI_GLOW(g));
+    // The window, a cell at a time -- a run of cells with one glow along
+    // a row as one quad.
+    for (int b = v0; b < v1; b++) {
+        int      a0 = u0;
+        uint32_t g0 = 0;
+        for (int a = u0; a <= u1; a++) {
+            uint32_t g = 0;
+            if (a < u1) {
+                vec3_t const c = v3_add(q->origin, v3_add(v3_scale(q->du, ((float)a + 0.5f) * fu),
+                                                          v3_scale(q->dv, ((float)b + 0.5f) * fv)));
+                g              = glow_at(c, q->n);
+            }
+            if (a > u0 && (a == u1 || g != g0)) {
+                submit_part(q, (float)a0 * fu, (float)a * fu, (float)b * fv, (float)(b + 1) * fv, ou, ov, cam, cs, m,
+                            flags | SE_TRI_GLOW(g0));
+                a0 = a;
+            }
+            g0 = g;
         }
-}
-
-// Whether a pellet's light reaches quad `q` at all: in front of it, and
-// within GLOW_RADIUS of its rectangle.
-static bool quad_glows(mquad_t const* q) {
-    for (int i = 0; i < s_glow_n; i++) {
-        vec3_t const d = v3_sub(s_glow_at[i], q->origin);
-        float const  h = v3_dot(d, q->n);
-        if (h <= 0.0f || h >= GLOW_RADIUS) continue;
-        float pu = v3_dot(d, q->du) / v3_dot(q->du, q->du), pv = v3_dot(d, q->dv) / v3_dot(q->dv, q->dv);
-        pu       = pu < 0 ? 0 : pu > 1 ? 1 : pu;
-        pv       = pv < 0 ? 0 : pv > 1 ? 1 : pv;
-        vec3_t const near = v3_add(q->origin, v3_add(v3_scale(q->du, pu), v3_scale(q->dv, pv)));
-        if (v3_len(v3_sub(s_glow_at[i], near)) < GLOW_RADIUS) return true;
     }
-    return false;
+    return true;
 }
 
 static void submit_level(cam_t const* cam, clipset_t const* cs) {
@@ -530,18 +662,16 @@ static void submit_level(cam_t const* cam, clipset_t const* cs) {
         bool const             goo  = q->mat == MAT_GOO;
         float const            ou   = goo ? fmodf(s_time * GOO_DRIFT_U, 1.0f) : 0.0f;
         float const            ov   = goo ? fmodf(s_time * GOO_DRIFT_V, 1.0f) : 0.0f;
-        // Lit by a pellet: an opaque surface that is not itself a light.
-        if (s_glow_n > 0 && !(m->flags & (SE_TRI_EMISSIVE | SE_TRI_BLEND)) && quad_glows(q)) {
-            submit_glowing(q, ou, ov, cam, cs, m);
+        // Lit by what glows: an opaque surface that is not itself a light.
+        if (s_glow_n > 0 && !(m->flags & (SE_TRI_EMISSIVE | SE_TRI_BLEND)) && submit_glowing(q, ou, ov, cam, cs, m))
             continue;
-        }
         cvert_t const          v[4] = {
             {q->origin, ou, ov},
             {v3_add(q->origin, q->du), q->su + ou, ov},
             {v3_add(v3_add(q->origin, q->du), q->dv), q->su + ou, q->sv + ov},
             {v3_add(q->origin, q->dv), ou, q->sv + ov},
         };
-        submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
+        submit_quad(v, q->n, cam, cs, m, m->argb, m->flags | LIT);
     }
 }
 
@@ -580,9 +710,11 @@ static void portal_frame(portal_t const* p, cam_t const* cam, clipset_t const* c
         float const  su = (k < 2) ? 1.0f : -1.0f;
         vec3_t const corner =
             v3_add(p->center, v3_add(v3_scale(p->right, sr * PORTAL_HALF_W), v3_scale(p->up, su * PORTAL_HALF_H)));
+        // Lit as the wall cell it stands in: the cells round it are (glow_at).
+        uint32_t const g = s_glow_n > 0 ? glow_at(v3_mad(p->center, p->up, su * 0.5f * PORTAL_HALF_H), p->n) : 0;
         for (int i = 0; i < q; i++)
             portal_tri(p, corner, o[k * q + i], o[(k * q + i + 1) % PORTAL_OVAL_N], 0.0f, cam, cs, m, m->argb,
-                       m->flags);
+                       m->flags | SE_TRI_GLOW(g));
     }
 }
 
@@ -1372,6 +1504,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
                       int cut, uint32_t const fill_argb[2]) {
     scene_begin(target);
     set_camera(cam);
+    s_glow_cells = 0;
     se_light_set(&(se_light_t){.x = s_light.x, .y = s_light.y, .z = s_light.z, .brightness = 0.55f});
     s_ncut = 0;
     for (int i = 0; i < 2; i++)
@@ -1471,10 +1604,7 @@ void render_frame(pax_buf_t* target, game_t const* g) {
     s_stat_passes           = 0;
     s_stat_tris             = 0;
     cam_t const cam         = {player_eye(&g->pl), player_view(&g->pl)};
-    // The pellets in flight: lights of their own (submit_level).
-    s_glow_n = 0;
-    for (int i = 0; i < LV_MAX_PELLETS; i++)
-        if (g->pellets[i].live) s_glow_at[s_glow_n++] = g->pellets[i].pos;
+    glow_gather(g);  // what glows lights what is round it
 
     // Glass and fizzlers blend, and only come out right drawn after
     // everything solid and far to near: the engine's depth-order pass.
