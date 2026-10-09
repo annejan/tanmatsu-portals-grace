@@ -473,12 +473,13 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             int const n = pack_count();
             for (int i = 0; i < n; i++) s_st_rows[i] = (se_menu_row_t){.label = pack_get(i)->name};
             s_st_rows[n]          = (se_menu_row_t){.label = "Back"};
-            // The one the cursor is on: who made it, and what it is.
+            // The one the cursor is on: who made it (what it is goes under
+            // the list, wrapped: menu_draw -- the subtitle is one line).
             pack_t const* const p = pack_get(s_cursor[SCR_STORIES]);
             if (p != NULL && p->author[0])
-                snprintf(s_st_sub, sizeof(s_st_sub), "by %.30s: %.60s", p->author, p->about);
+                snprintf(s_st_sub, sizeof(s_st_sub), "by %.40s", p->author);
             else
-                snprintf(s_st_sub, sizeof(s_st_sub), "%.90s", p != NULL ? p->about : "Story packs from the card");
+                snprintf(s_st_sub, sizeof(s_st_sub), "%s", p != NULL ? "" : "Story packs from the card");
             def->title     = "STORIES";
             def->subtitle  = s_st_sub;
             def->rows      = s_st_rows;
@@ -738,12 +739,50 @@ menu_cmd_t menu_update(void) {
     return cmd;
 }
 
+// `text` in lines of whole words no wider than `w`, from (x, y), at most
+// `max` of them.
+static void draw_wrapped(pax_buf_t* fb, float x, float y, float w, float h, pax_col_t col, char const* text, int max) {
+    char        line[128];
+    char const* p = text;
+    for (int n = 0; n < max && *p; n++) {
+        while (*p == ' ') p++;
+        // As many words as fit.
+        size_t len = 0, fit = 0;
+        while (p[len] && len < sizeof(line) - 1) {
+            size_t end = len;
+            while (p[end] == ' ') end++;
+            while (p[end] && p[end] != ' ') end++;
+            if (end >= sizeof(line)) break;
+            snprintf(line, sizeof(line), "%.*s", (int)end, p);
+            if (rendertext_size(NULL, h, line).x > w && fit > 0) break;
+            fit = len = end;
+            if (!p[end]) break;
+        }
+        if (fit == 0) fit = strlen(p) < sizeof(line) - 1 ? strlen(p) : sizeof(line) - 1;  // one long word
+        snprintf(line, sizeof(line), "%.*s", (int)fit, p);
+        rendertext_draw(fb, col, NULL, h, x, y + (float)n * h * 1.45f, line);
+        p += fit;
+    }
+}
+
 void menu_draw(pax_buf_t* fb) {
     if (s_scr == SCR_NONE) return;
     se_menu_def_t def;
-    build(s_scr, &def);
+    int const     n = build(s_scr, &def);
     se_menu_t const m = {.def = &def, .cursor = s_cursor[s_scr]};
     se_menu_draw(&m, fb);
+    // Stories: what the one under the cursor is, wrapped under the list,
+    // as se_menu_draw lays the panel out.
+    pack_t const* const p = s_scr == SCR_STORIES ? pack_get(s_cursor[SCR_STORIES]) : NULL;
+    if (p != NULL && p->about[0]) {
+        float const panel_x = (float)DISPLAY_LOG_W * (1.0f - MENU_PANEL_W) * 0.5f;
+        float const panel_y = (float)DISPLAY_LOG_H * (1.0f - MENU_PANEL_H) * 0.5f;
+        float const x       = panel_x + SE_UI_TEXT_INSET + SE_UI_CHEVRON_GUTTER;
+        int const   rows    = def.visible_rows > 0 ? def.visible_rows : n;
+        float const y = panel_y + SE_UI_TOP_PAD + MENU_TITLE_H + 14.0f + 18.0f + 16.0f + (float)rows * MENU_ROW_H + 14.0f;
+        draw_wrapped(fb, x, y, (float)DISPLAY_LOG_W * MENU_PANEL_W - 2.0f * (x - panel_x), 16.0f, SE_UI_COL_HINT,
+                     p->about, 4);
+    }
 }
 
 void menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total) {

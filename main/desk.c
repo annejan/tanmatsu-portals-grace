@@ -87,8 +87,14 @@ static bool day_key(char const* k, char* v, void* ctx) {
         snprintf(d->user, sizeof(d->user), "%s", v);
     else if (strcmp(k, "host") == 0)
         snprintf(d->host, sizeof(d->host), "%s", v);
-    else if (strcmp(k, "prompt") == 0)
-        snprintf(d->prompt, sizeof(d->prompt), "%s", v);
+    else if (strcmp(k, "prompt") == 0) {
+        // In quotes, it keeps its spaces: prompt: "you@tanmatsu:~$ "
+        size_t const n = strlen(v);
+        if (n >= 2 && v[0] == '"' && v[n - 1] == '"')
+            snprintf(d->prompt, sizeof(d->prompt), "%.*s", (int)n - 2, v + 1);
+        else
+            snprintf(d->prompt, sizeof(d->prompt), "%s", v);
+    }
     else if (strcmp(k, "style") == 0) {
         if (strcmp(v, "badge") != 0 && strcmp(v, "dos") != 0) return false;
         d->badge = strcmp(v, "badge") == 0;

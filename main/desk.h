@@ -10,7 +10,7 @@
 //                    countdown: 18:00 Hackfest   ... and what it counts down to
 //                    user: DRATTMANN       who is logged in
 //                    host: RLHF-07         ... where
-//                    prompt: C:\RLHF>
+//                    prompt: C:\RLHF>       (in quotes to keep a space: "$ ")
 //                    start: 09:00          the clock as the day begins
 //                    step: 0:40            ... and on, each round played
 //                    (a blank line, then what the terminal says as it starts)
