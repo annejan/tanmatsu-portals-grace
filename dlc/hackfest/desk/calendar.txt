@@ -1,0 +1,11 @@
+event: Leave for Hackfest (early, this time)
+at: 13:00
+moves: done 2 14:30
+moves: done 4 16:00
+moves: done 6 17:30
+
+event: Hackfest opens, Enschede
+at: 18:00
+
+event: Soldering workshop (you have the irons)
+at: 18:30

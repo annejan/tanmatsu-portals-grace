@@ -1,0 +1,14 @@
+style: badge
+header: TANMATSU
+day: Fri
+user: you
+host: tanmatsu
+prompt: "you@tanmatsu:~$ "
+start: 13:00
+step: 0:45
+countdown: 18:00 Hackfest
+
+Tanmatsu launcher -- Portals edition.   Battery 87%.   Wi-Fi: home.
+
+Hackfest opens at 18:00, in Enschede. You are in Amsterdam.
+You were going to leave early. You have a TODO list.

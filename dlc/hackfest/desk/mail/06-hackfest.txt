@@ -1,0 +1,7 @@
+from: #hackfest
+subject: almost there?
+after: done 6
+
+the badge firmware hackathon moved to the big tent.
+also: free Club-Mate at the registration desk until it runs out.
+it will not run out. it never runs out.

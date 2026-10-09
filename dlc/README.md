@@ -7,6 +7,7 @@ with its solution.
 | Pack | |
 |---|---|
 | `human-in-the-loop/` | **Human in the loop**: a desk story. You are an RLHF specialist at an Aperture terminal, and GLaDOS's test chamber drafts are your queue: cheese them so she can patch them, debug the broken one, approve the finals. Mail, a calendar, a cake. *Hold the door* (the tutorial), *Pressure*, *Light work* (broken), *Momentum*, and the walk out. `dlc-src/` has the generators. |
+| `hackfest/` | **Off to Hackfest**: a desk story on your own badge's launcher. Hackfest opens at 18:00 in Enschede, and there are chores first: geeky ones. TODO, GO, CHAT, and ROUTE -- by train, by bike or in a friend's van, each its own two chambers. `dlc-src/` has the generators. |
 | `after-hours/` | **After hours**: the tests are over; the testing is not. *Overtime* (everything you have learned, in the right order), *Momentum* (nothing in there gives you speed: make your own, then pass it on), then *Spire*, 100 x 32 x 40 m (a fall keeps its speed through a portal, and only the top is high enough). `tools/spire_gen.py` makes Spire. |
 
 ## Making one
