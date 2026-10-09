@@ -20,6 +20,7 @@
 #include "desk.h"
 #include "deskview.h"
 #include "editor.h"
+#include "ghost.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -46,6 +47,16 @@
 #include "testkit/devtest.h"
 #include "testkit/showtime.h"
 #include "watch.h"
+
+#if __has_include("app_version.h")
+#include "app_version.h"
+#endif
+#ifndef APP_VERSION
+#define APP_VERSION ""
+#endif
+#ifndef APP_GIT_HASH
+#define APP_GIT_HASH "unknown"
+#endif
 
 static char const TAG[] = "portal";
 
@@ -170,6 +181,35 @@ static bool round_load(int index) {
     return true;
 }
 
+// --- Ghost races (ghost.h) ---------------------------------------------------
+
+static ghost_t s_ghost;
+static bool    s_ghost_live;  // this attempt is raced, and recorded for the next
+static char    s_race_msg[HUD_MESSAGE_N];  // how the race went, at the exit
+
+// The race, on the HUD where a recording's timer goes: this attempt's
+// time, and the best to beat.
+static bool race_timer(hud_timer_t* t) {
+    if (!s_ghost_live || s_mode != MODE_PLAY) return false;
+    static char best[32];
+    if (s_ghost.best_s >= 0.0f)
+        snprintf(best, sizeof(best), "best");
+    else
+        snprintf(best, sizeof(best), "first run: no ghost yet");
+    *t = (hud_timer_t){.name = best, .total = s_ghost.now, .run = s_ghost.best_s};
+    return true;
+}
+
+// No more racing: out of play, into a story, a recording, the editor.
+static void race_stop(void) {
+    if (s_ghost_live) ghost_end(&s_ghost);
+    s_ghost_live = false;
+}
+
+static bool ghosts_wanted(void) {
+    return settings_ghosts() && s_mode == MODE_PLAY && !s_story_on && !watch_on() && s_demo < 0;
+}
+
 static bool load_chamber(int index) {
     bool const round = s_story_on && index == round_chamber();
     if (round ? !round_load(index) : !game_load(&s_game, index)) {
@@ -188,6 +228,10 @@ static bool load_chamber(int index) {
     if (fresh) sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
     render_set_level(&s_game.lv, s_game.portals);
     ESP_LOGI(TAG, "chamber %d: %s", index, s_game.lv.name);
+    // A new attempt -- the chamber's start, a restart, after a death: raced
+    // against its best, if there is one.
+    s_ghost_live = ghosts_wanted();
+    if (s_ghost_live) ghost_begin(&s_ghost, GHOST_DIR, chamber_id(index), &s_game.lv, APP_VERSION);
     return true;
 }
 
@@ -250,15 +294,7 @@ static void title_saying_why(void) {
 // a restart starts the chamber's recording over, so a run keeps only the
 // clean ones. Saved to RECORDING_DIR/run-NN.txt, for Watch a recording.
 
-#if __has_include("app_version.h")
-#include "app_version.h"
-#endif
-#ifndef APP_VERSION
-#define APP_VERSION ""
-#endif
-#ifndef APP_GIT_HASH
-#define APP_GIT_HASH "unknown"
-#endif
+
 
 static recording_capture_t s_cap;
 static bool                s_capturing;
@@ -331,6 +367,7 @@ static void restart_chamber(void) {
 // To the title screen, the chambers playing behind it.
 static void to_title(void) {
     record_stop();
+    race_stop();
     story_off();
     s_story_end = -1;
     sound_hush();            // GLaDOS stops mid-sentence ...
@@ -613,6 +650,7 @@ static bool desk_enter(int pk) {
         return false;
     }
     story_off();
+    race_stop();
     story_begin(&s_story, pk);
     // A save, if there is one.
     char     path[96];
@@ -794,11 +832,13 @@ static void menu_frame(void) {
             snprintf(s_play_id, sizeof(s_play_id), "%s", chamber_id(cmd.chamber));
             s_pending_chamber = -1;
             s_edit_title      = title;
+            race_stop();
             editor_open(cmd.chamber, CHAMBER_DIR);
             s_mode = MODE_EDIT;
             break;
         case MENU_CMD_WATCH:
             record_stop();
+            race_stop();
             s_pending_chamber = -1;
             if (!watch_start(cmd.recording_dir, cmd.recording, cmd.pack, title, chamber_id(s_game.chamber)) && title) {
                 char err[HUD_MESSAGE_N];
@@ -944,14 +984,16 @@ static void play_frame(float dt) {
     };
     game_input_t step_in = gin;
     float        st      = dt;
-    if (s_capturing && s_mode == MODE_PLAY) {
-        // Recording: played on the frame's whole numbers, as a playback
-        // of them will be.
-        recording_frame_t const f = recording_frame(dt, &gin);
-        st                        = recording_frame_input(&f, &step_in);
-        if (!recording_capture_frame(&s_cap, &f)) record_stop();  // out of memory: what there is, kept
+    recording_frame_t f = {0};
+    if (s_mode == MODE_PLAY) {
+        // Played on the frame's whole numbers, as a playback of them -- a
+        // recording, a ghost -- will be.
+        f  = recording_frame(dt, &gin);
+        st = recording_frame_input(&f, &step_in);
+        if (s_capturing && !recording_capture_frame(&s_cap, &f)) record_stop();  // out of memory: what there is, kept
     }
     int const ev = game_step(&s_game, &step_in, st);
+    if (s_ghost_live && s_mode == MODE_PLAY) ghost_frame(&s_ghost, &f);
     sound_events(ev);
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     if (s_mode == MODE_TEST) {
@@ -983,10 +1025,40 @@ static void play_frame(float dt) {
         int const  pk      = pack_of(s_game.chamber, &at);
         int const  inorder = chamber_main_n();
         bool const last    = pk >= 0 ? at + 1 >= pack_get(pk)->n : s_game.chamber + 1 >= inorder;
+        // Raced: the time, against the best; a better one saved.
+        s_race_msg[0] = '\0';
+        if (s_ghost_live) {
+            mkdir("/sd/portals", 0755);
+            mkdir(GHOST_DIR, 0755);
+            ghost_result_t const gr = ghost_finish(&s_ghost, GHOST_DIR);
+            if (gr.best && gr.before >= 0.0f)
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s -- a new best! (-%.2f)", (double)gr.time,
+                         (double)(gr.before - gr.time));
+            else if (gr.best)
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s -- your best, for now", (double)gr.time);
+            else if (gr.faster)
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (no card: ghost not saved)", (double)gr.time);
+            else
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (+%.2f on your best)", (double)gr.time,
+                         (double)(gr.time - gr.before));
+            s_ghost_live = false;
+        }
         if (pk >= 0 && last) {
             story_ending(pk);
+            if (s_race_msg[0]) {
+                // The pack's end, and how the last race went.
+                char msg[HUD_MESSAGE_N];
+                snprintf(msg, sizeof(msg), "%.18s: the end. %.42s", pack_get(pk)->name, s_race_msg);
+                hud_message(msg);
+            }
         } else {
-            hud_message(last ? "All chambers complete. Cake later." : "Chamber complete");
+            char done[HUD_MESSAGE_N];
+            if (last && s_race_msg[0])
+                snprintf(done, sizeof(done), "All done! %.53s", s_race_msg);
+            else
+                snprintf(done, sizeof(done), "%s",
+                         s_race_msg[0] ? s_race_msg : last ? "All chambers complete. Cake later." : "Chamber complete");
+            hud_message(done);
             s_pending_chamber = pk >= 0 ? pack_get(pk)->chamber[at + 1] : (s_game.chamber + 1) % inorder;
             // Continue: the next one, even if play stops before it loads.
             settings_set_chamber(chamber_id(s_pending_chamber));
@@ -1036,6 +1108,7 @@ static void on_update(float dt, void* user) {
             if (attract_update(&s_game, dt)) render_set_level(&s_game.lv, s_game.portals);
         }
         menu_frame();
+        if (s_ghost_live && !settings_ghosts()) race_stop();  // turned off in Settings
     } else {
         play_frame(dt);
     }
@@ -1065,6 +1138,10 @@ static void on_render(pax_buf_t* fb, void* user) {
     pax_buf_t* const target = half ? &s_layer.buf : fb;
     scene_set_render_scale(half ? 2 : 1);
 
+    // The ghost being raced, where it is.
+    player_t   gp;
+    bool const ghost = s_ghost_live && s_mode == MODE_PLAY && !title && ghost_pose(&s_ghost, &gp);
+    render_set_ghost(ghost ? &gp : NULL);
     int64_t const t0 = esp_timer_get_time();
     if (title) {
         // Through the attract mode's camera, the player's own view kept.
@@ -1093,7 +1170,7 @@ static void on_render(pax_buf_t* fb, void* user) {
     } else if (title) {
         hud_draw_title(fb, &s_game, menu_title_shown());
     } else {
-        hud_timer_t      timer;
+        hud_timer_t      timer, race;
         hud_info_t const info = {
             .fps       = s_fps,
             .render_ms = (int)(s_render_us / 1000),
@@ -1102,6 +1179,7 @@ static void on_render(pax_buf_t* fb, void* user) {
             .test      = s_demo >= 0,
             .recording = s_capturing,
             .timer     = watch_timer(&timer) ? &timer : NULL,
+            .race      = race_timer(&race) ? &race : NULL,
         };
         hud_draw(fb, &s_game, &info);
     }

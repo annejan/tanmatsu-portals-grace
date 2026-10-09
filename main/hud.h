@@ -38,6 +38,7 @@ typedef struct {
     bool               test;        // a device test's shots: nothing that varies run to run
     bool               recording;   // a run being recorded: REC, under the keys
     hud_timer_t const* timer;       // or NULL
+    hud_timer_t const* race;        // a ghost race (ghost.h): this attempt and the best, or NULL
 } hud_info_t;
 
 void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info);

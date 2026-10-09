@@ -28,6 +28,7 @@ set(APP_SOURCES
     main/review.c
     main/story.c
     main/desk.c
+    main/ghost.c
     main/deskview.c
     main/outro.c
     main/splash.c

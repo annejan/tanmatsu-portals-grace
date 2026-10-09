@@ -67,7 +67,7 @@ build: check
 # the near plane and horizon the badge does.
 # ---------------------------------------------------------------------
 HOSTCC      ?= cc
-HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c main/pack.c main/review.c main/story.c main/desk.c \
+HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game.c main/demo.c main/chamber.c main/draft.c main/recording.c main/attract.c main/cine.c main/pack.c main/review.c main/story.c main/desk.c main/ghost.c \
                $(BUILD)/generated/chambers_builtin.c
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include

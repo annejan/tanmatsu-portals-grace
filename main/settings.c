@@ -15,6 +15,7 @@ static bool s_fx    = true;
 static bool s_leds  = true;
 static bool s_voice = true;
 static bool s_ftime = false;
+static bool s_ghost = true;
 static char s_chamber[CHAMBER_ID_N];
 
 static uint8_t get(nvs_handle_t h, char const* key, uint8_t fallback) {
@@ -44,6 +45,7 @@ void settings_load(void) {
         s_leds   = get(h, "leds", s_leds) != 0;
         s_voice  = get(h, "voice", s_voice) != 0;
         s_ftime  = get(h, "ftime", s_ftime) != 0;
+        s_ghost  = get(h, "ghost", s_ghost) != 0;
         size_t n = sizeof(s_chamber);
         if (nvs_get_str(h, "chamber", s_chamber, &n) != ESP_OK) s_chamber[0] = '\0';
         nvs_close(h);
@@ -86,6 +88,15 @@ bool settings_voice(void) {
 void settings_set_voice(bool on) {
     s_voice = on;
     put("voice", on);
+}
+
+bool settings_ghosts(void) {
+    return s_ghost;
+}
+
+void settings_set_ghosts(bool on) {
+    s_ghost = on;
+    put("ghost", on);
 }
 
 bool settings_frame_times(void) {

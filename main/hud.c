@@ -114,7 +114,10 @@ static void draw_message(pax_buf_t* fb) {
 static void draw_timer(pax_buf_t* fb, hud_timer_t const* t) {
     char big[24], small[80];
     snprintf(big, sizeof(big), "%d:%05.2f", (int)(t->total / 60.0f), (double)fmodf(t->total, 60.0f));
-    snprintf(small, sizeof(small), "%s  %.2f", t->name, (double)t->run);
+    if (t->run >= 0.0f)
+        snprintf(small, sizeof(small), "%s  %.2f", t->name, (double)t->run);
+    else
+        snprintf(small, sizeof(small), "%s", t->name);
     pax_vec2f const bs = rendertext_size(pax_font_sky_mono, 24, big);
     pax_simple_rect(fb, 0xC0000000u, DISPLAY_LOG_W - bs.x - 20, 4, bs.x + 14, 46);
     rendertext_draw(fb, 0xFF78FF8Cu, pax_font_sky_mono, 24, DISPLAY_LOG_W - bs.x - 13, 6, big);
@@ -157,6 +160,22 @@ void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
         pax_vec2f const rs = rendertext_size(pax_font_sky_mono, 14, "REC");
         pax_simple_circle(fb, 0xFFFF3030u, DISPLAY_LOG_W - 14, 30, 5);
         rendertext_draw(fb, 0xFFFF6060u, pax_font_sky_mono, 14, DISPLAY_LOG_W - 24 - rs.x, 23, "REC");
+    }
+    if (info->race != NULL) {
+        // The race: this attempt's time, and the best to beat, under the keys.
+        char         now[24], best[48];
+        float const  y = info->recording ? 42.0f : 24.0f;
+        hud_timer_t const* r = info->race;
+        snprintf(now, sizeof(now), "%.2f", (double)r->total);
+        if (r->run >= 0.0f)
+            snprintf(best, sizeof(best), "%s %.2f", r->name, (double)r->run);
+        else
+            snprintf(best, sizeof(best), "%s", r->name);
+        pax_vec2f const ns = rendertext_size(pax_font_sky_mono, 20, now);
+        pax_vec2f const bs = rendertext_size(pax_font_sky_mono, 12, best);
+        bool const      ahead = r->run < 0.0f || r->total <= r->run;
+        rendertext_draw(fb, ahead ? 0xFF78FF8Cu : 0xFFFF8A6Au, pax_font_sky_mono, 20, DISPLAY_LOG_W - 8 - ns.x, y, now);
+        rendertext_draw(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - bs.x, y + 22, best);
     }
 
     if (info->test) return;

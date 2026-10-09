@@ -11,6 +11,7 @@
 #include "demo.h"
 #include "draft.h"
 #include "game.h"
+#include "ghost.h"
 #include "level.h"
 #include "pack.h"
 #include "player.h"
@@ -1447,6 +1448,108 @@ static void test_map_edge(void) {
     }
 }
 
+// Ghost races: a run played again is the run, frame for frame; a faster
+// one replaces the best.
+static void test_ghosts(void) {
+    char const* build = getenv("BUILD");
+    char        dir[200];
+    snprintf(dir, sizeof(dir), "%s/test_ghosts", build != NULL && build[0] ? build : "build");
+    mkdir(dir, 0755);
+    char path[260];
+    snprintf(path, sizeof(path), "%s/after-hours~gap.txt", dir);
+    remove(path);
+    static level_t lv;
+    CHECK(chamber_build(chamber_find("01-gap"), &lv, NULL, NULL), "chamber 01");
+    // Frames of play: forward, turning a little, a jump now and then, a
+    // portal or two.
+    static recording_frame_t f[240];
+    for (int i = 0; i < 240; i++) {
+        game_input_t in = {.fwd = 1.0f, .strafe = (i / 40) % 2 ? 0.3f : -0.2f, .dyaw = 0.01f * sinf((float)i * 0.1f),
+                           .dpitch = 0.0f, .jump = i % 50 == 10};
+        in.fire[0] = i == 30;
+        in.fire[1] = i == 90;
+        f[i]       = recording_frame(1.0f / 30.0f + 0.004f * (float)(i % 3), &in);
+    }
+    static ghost_t g;
+    static game_t  pl;
+    // The first attempt: no ghost; the best, saved.
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(!g.racing && g.best_s < 0.0f, "no best yet");
+    game_load_level(&pl, &lv);
+    for (int i = 0; i < 200; i++) {
+        game_input_t in;
+        float const  st = recording_frame_input(&f[i], &in);
+        game_step(&pl, &in, st);
+        ghost_frame(&g, &f[i]);
+    }
+    ghost_result_t r = ghost_finish(&g, dir);
+    CHECK(r.best && r.before < 0.0f && r.time > 6.0f, "the first run, the best: %.2f", (double)r.time);
+    FILE* fh = fopen(path, "r");
+    CHECK(fh != NULL, "saved as %s", path);
+    if (fh) fclose(fh);
+    // The same again: the ghost is where the player is, every frame.
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(g.racing && fabsf(g.best_s - r.time) < 1e-3f, "racing the best: %.2f", (double)g.best_s);
+    game_load_level(&pl, &lv);
+    int apart = 0;
+    for (int i = 0; i < 200; i++) {
+        game_input_t in;
+        float const  st = recording_frame_input(&f[i], &in);
+        game_step(&pl, &in, st);
+        ghost_frame(&g, &f[i]);
+        player_t gp;
+        if (!ghost_pose(&g, &gp) || v3_len(v3_sub(gp.pos, pl.pl.pos)) > 1e-5f || gp.yaw != pl.pl.yaw) apart++;
+    }
+    CHECK(apart == 0, "the ghost replays the run exactly: %d frames apart", apart);
+    r = ghost_finish(&g, dir);
+    CHECK(!r.best && fabsf(r.time - r.before) < 1e-3f, "as fast: not a new best");
+    // Faster: the new best.
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    for (int i = 0; i < 150; i++) ghost_frame(&g, &f[i]);
+    r = ghost_finish(&g, dir);
+    CHECK(r.best && r.time < r.before, "faster: %.2f, was %.2f", (double)r.time, (double)r.before);
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(g.racing && fabsf(g.best_s - r.time) < 1e-3f, "the new best raced: %.2f", (double)g.best_s);
+    // A slower run never replaces it.
+    ghost_end(&g);
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    float const kept = g.best_s;
+    for (int i = 0; i < 200; i++) ghost_frame(&g, &f[i]);
+    r = ghost_finish(&g, dir);
+    CHECK(!r.best && !r.faster && r.time > r.before, "slower: not saved");
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(g.racing && fabsf(g.best_s - kept) < 1e-3f, "the best kept: %.2f", (double)g.best_s);
+    ghost_end(&g);
+    // Another release, or the chamber changed: its ghost is no best.
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "2.0");
+    CHECK(!g.racing && g.best_s < 0.0f, "another release: no ghost");
+    ghost_end(&g);
+    static level_t edited;
+    edited = lv;
+    level_set(&edited, 2, 1, 2, MAT_METAL);
+    ghost_begin(&g, dir, "after-hours/gap", &edited, "1.0");
+    CHECK(!g.racing && g.best_s < 0.0f, "the chamber edited: no ghost");
+    ghost_end(&g);
+    // A ghost file that does not read: no best, and the next exit replaces it.
+    FILE* bad = fopen(path, "w");
+    if (bad) {
+        fputs("this is not a recording\n", bad);
+        fclose(bad);
+    }
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(!g.racing, "a bad file: no ghost");
+    for (int i = 0; i < 100; i++) ghost_frame(&g, &f[i]);
+    r = ghost_finish(&g, dir);
+    CHECK(r.best && r.before < 0.0f, "a bad file replaced");
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(g.racing, "raced again after");
+    // Its run over, the ghost is gone a second later.
+    for (int i = 0; i < 190; i++) ghost_frame(&g, &f[i]);
+    player_t gp;
+    CHECK(!ghost_pose(&g, &gp), "gone after its run");
+    ghost_end(&g);
+}
+
 static void test_packs(void) {
     char const* build = getenv("BUILD");
     char        dir[200], a[260], b[260];
@@ -2279,6 +2382,7 @@ int main(void) {
     test_draft();
     test_chamber_dir();
     test_map_edge();
+    test_ghosts();
     test_packs();
     test_dir_limits();
     if (s_fail) {

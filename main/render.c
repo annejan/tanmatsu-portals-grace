@@ -410,6 +410,23 @@ static void keep_front(portal_t const* p) {
 // A quad, if it faces the eye, clipped to `cs` when there is one.
 // A convex polygon of `n` corners facing `n`ormal: dropped if it faces
 // away from the eye, clipped to `cs`, and drawn.
+// A ghost (ghost.h) is drawn as Chell is, in a glow of its own colour.
+static bool     s_ghostly;
+static player_t s_ghost_pl;
+static bool     s_ghost_on;
+
+static uint32_t ghostly(uint32_t argb) {
+    uint32_t const r = (argb >> 16) & 255, g = (argb >> 8) & 255, b = argb & 255;
+    uint32_t const l  = (r * 3 + g * 6 + b) / 10;
+    uint32_t const gg = 60 + l * 3 / 4, bb = 90 + l * 2 / 3;
+    return 0xFF000000u | ((l / 3) << 16) | ((gg > 255 ? 255 : gg) << 8) | (bb > 255 ? 255 : bb);
+}
+
+void render_set_ghost(player_t const* pl) {
+    s_ghost_on = pl != NULL;
+    if (pl != NULL) s_ghost_pl = *pl;
+}
+
 // What glows lights what is round it: below (glow_gather).
 static int      s_glow_n;
 static uint32_t glow_at(vec3_t c, vec3_t n);
@@ -423,6 +440,11 @@ static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, cl
         n = portal_map_dir(s_via[0], s_via[1], n);
     }
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
+    // A ghost: its own colour, glowing, lit by nothing.
+    if (s_ghostly) {
+        argb  = ghostly(argb);
+        flags = (flags & ~SE_TRI_GLOW_MASK) | SE_TRI_EMISSIVE;
+    }
     // Lit by what glows (glow_at): a thing's face, by its middle. The
     // level's quads have theirs worked out already (LIT).
     if (s_glow_n > 0 && !(flags & (LIT | SE_TRI_EMISSIVE | SE_TRI_BLEND | SE_TRI_GLOW_MASK))) {
@@ -1527,6 +1549,12 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
     submit_chell(s_game, cam, cs);
+    // The ghost of the best run, where it is -- not when the eye is in it.
+    if (s_ghost_on && v3_len(v3_sub(cam->pos, player_eye(&s_ghost_pl))) > 0.6f) {
+        s_ghostly = true;
+        submit_chell_at(&s_ghost_pl, cam, cs);
+        s_ghostly = false;
+    }
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
         portal_frame(&portals[i], cam, cs);
