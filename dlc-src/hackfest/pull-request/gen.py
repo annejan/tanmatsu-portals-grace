@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Geeky chores, Friday 13:00: merge the pull request before you leave.
+"""Geeky chores, Saturday 07:00: merge the pull request before you leave.
 
 The "merge button" is a floor button by the door; it wants a cube. The only
 cube sits on a high shelf (3 m up, too high to jump). One white panel by the
@@ -48,7 +48,7 @@ box(5, 6, 0, 0, 11, 11, "E")                       # the exit
 
 out = ["name: Pull request",
        "hint: The merge button wants a cube. The cube is on the shelf.",
-       "story: Friday 13:00. Hackfest awaits, [Subject-Name-here], but your PR "
+       "story: Saturday 07:00. Hackfest awaits, [Subject-Name-here], but your PR "
        "is still open. Merge it first. Approved by: me, your badge. LGTM.",
        "size: %d %d %d" % (W, H, D),
        "facing: north"]

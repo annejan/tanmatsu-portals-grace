@@ -67,9 +67,9 @@ put(14, 1, 2, 'S')
 
 name = "Daisy chain"
 hint = "Daisy-chain the beam through both power strips to the stage. Meet the bridge."
-story = ("17:00, doors at 18:00, and the stage is dark, [Subject-Name-here]. One socket, "
-         "two power strips. Daisy-chain them. The fire marshal is at dinner. Beep.")
-done = "Stage powered. The PA hums, the LEDs blink, and nobody saw the daisy chain. Doors open in an hour."
+story = ("11:15, doors at noon, and the stage is dark, [Subject-Name-here]. One socket, "
+         "two power strips. Daisy-chain them. The fire marshal is at lunch. Beep.")
+done = "Stage powered. The PA hums, the LEDs blink, and nobody saw the daisy chain. Doors open in half an hour."
 assert len(name) <= 31 and len(hint) <= 79 and len(story) <= 159 and len(done) <= 159, \
     (len(name), len(hint), len(story), len(done))
 

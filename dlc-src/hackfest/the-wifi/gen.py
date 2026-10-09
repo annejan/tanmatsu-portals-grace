@@ -45,7 +45,7 @@ g[1][4][10] = 'S'
 
 HEAD = """name: The Wi-Fi
 hint: The funnel goes where the portals send it. The truss is six metres up.
-story: Hackfest, 17:00. Doors at 18:00, and the Wi-Fi is down, [Subject-Name-here]. The access point hangs from the truss. Have you tried turning it off and on again?
+story: Sickhouse, 11:00. Doors at noon, and the Wi-Fi is down, [Subject-Name-here]. The access point hangs from the truss. Have you tried turning it off and on again?
 done: Access point rebooted. 400 laptops reconnect at once and nobody says thanks. That is how you know it works. SSID: hackfest. Password: hackfest.
 size: %d %d %d
 facing: north

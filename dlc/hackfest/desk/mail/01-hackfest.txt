@@ -1,7 +1,8 @@
 from: #hackfest
-subject: doors open at 18:00!
+subject: doors open at 12:00!
 
-doors open at 18:00 in the big hall. bring your badge, bring a power strip,
-bring the soldering irons you promised.
+doors open at 12:00 at Sickhouse, Enschede. the makers' exposition runs
+until 18:00. bring your badge, bring a power strip, bring the soldering
+irons you promised.
 
-registration closes at 23:00. after that you are a stowaway.
+makers: set up your stand before noon. after that you are an exhibit.
