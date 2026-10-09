@@ -1423,6 +1423,30 @@ static void test_big_chamber(void) {
 // Story packs: a folder each, its pack.txt giving the order, its chambers
 // joining the list as "<pack>/<file>" after those played in order; a
 // folder without pack.txt takes its files by name.
+// The map's edge is a wall: an open cell against it has a face there
+// (the eye saw out into nothing on the badge, and it smeared).
+static void test_map_edge(void) {
+    static level_t lv;
+    static mquad_t q[256];
+    char           err[96];
+    // Layer 1 open right to the map's edge on every side.
+    CHECK(chamber_parse("size: 3 3 3\nlayer 0\nWWW\nWWW\nWWW\nlayer 1\n...\n.S.\n...\nlayer 2\n...\n...\n...\n", &lv, NULL,
+                        NULL, err, sizeof(err)),
+          "edge chamber: %s", err);
+    int const n    = level_mesh(&lv, NULL, 0, q, 256);
+    int       west = 0, top = 0;
+    for (int i = 0; i < n && i < 256; i++) {
+        if (q[i].n.x > 0.5f && q[i].origin.x == 0.0f) west += (int)(q[i].su * q[i].sv + 0.5f);
+        if (q[i].n.y < -0.5f && q[i].origin.y == 3.0f) top += (int)(q[i].su * q[i].sv + 0.5f);
+    }
+    CHECK(west == 6, "the west edge: a face for each of its 6 open cells (%d)", west);
+    CHECK(top == 9, "the top edge: a face for each of its 9 open cells (%d)", top);
+    for (int f = 0; f < 6; f++) {
+        int const b = level_mesh_border(&lv, f, NULL, 0);
+        CHECK(b > 0 || f == DIR_PY, "border faces facing %d: %d", f, b);  // the floor is solid: nothing faces up from below
+    }
+}
+
 static void test_packs(void) {
     char const* build = getenv("BUILD");
     char        dir[200], a[260], b[260];
@@ -2254,6 +2278,7 @@ int main(void) {
     test_chamber_write();
     test_draft();
     test_chamber_dir();
+    test_map_edge();
     test_packs();
     test_dir_limits();
     if (s_fail) {

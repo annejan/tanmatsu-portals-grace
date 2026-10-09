@@ -230,11 +230,20 @@ int level_mesh_slices(level_t const* lv, int face) {
     return dims[face / 2];
 }
 
+int level_mesh_border(level_t const* lv, int face, mquad_t* out, int max_out) {
+    // The slice just outside: before the first for a face that points up
+    // its axis, past the last for one that points down it.
+    int const dims[3] = {lv->w, lv->h, lv->d};
+    return level_mesh_slice(lv, NULL, 0, face, face % 2 == 0 ? -1 : dims[face / 2], out, max_out);
+}
+
 int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out, int max_out) {
     int n = 0;
-    for (int face = 0; face < 6; face++)
+    for (int face = 0; face < 6; face++) {
         for (int s = 0; s < level_mesh_slices(lv, face); s++)
             n += level_mesh_slice(lv, holes, n_holes, face, s, out != NULL && n < max_out ? out + n : NULL,
                                   max_out - n > 0 ? max_out - n : 0);
+        n += level_mesh_border(lv, face, out != NULL && n < max_out ? out + n : NULL, max_out - n > 0 ? max_out - n : 0);
+    }
     return n;
 }

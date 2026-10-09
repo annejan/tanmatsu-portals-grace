@@ -215,10 +215,21 @@ static bool     remesh(level_t const* lv, hole_t const* holes, int nh) {
             }
         }
     }
-    // The new mesh: the dirty slices meshed, the rest as they were.
+    // The map's edge, where an open cell meets it (level_mesh_border): it
+    // changes only with the whole level.
+#define BORDER_MAX 512
+    static mquad_t border[6][BORDER_MAX];
+    static int     border_n[6];
+    if (whole)
+        for (int face = 0; face < 6; face++) {
+            border_n[face] = level_mesh_border(lv, face, border[face], BORDER_MAX);
+            if (border_n[face] > BORDER_MAX) border_n[face] = BORDER_MAX;
+        }
+    // The new mesh: the dirty slices meshed, the rest as they were; each
+    // face's border after its slices, as level_mesh() gives them.
     static mquad_t fresh[LV_MAX_QUADS];
     int            n = 0, k = 0;
-    for (int face = 0; face < 6; face++)
+    for (int face = 0; face < 6; face++) {
         for (int s = 0; s < dims[face / 2]; s++, k++) {
             int got;
             if (s_dirty[k]) {
@@ -232,6 +243,10 @@ static bool     remesh(level_t const* lv, hole_t const* holes, int nh) {
             s_slice_n[k]   = (int16_t)got;
             n             += got;
         }
+        int const b = border_n[face] < LV_MAX_QUADS - n ? border_n[face] : LV_MAX_QUADS - n;
+        memcpy(fresh + n, border[face], (size_t)b * sizeof(mquad_t));
+        n += b;
+    }
     memcpy(s_quads, fresh, (size_t)n * sizeof(mquad_t));
     s_nquads = n;
     if (whole) {

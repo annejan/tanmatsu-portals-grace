@@ -292,5 +292,10 @@ int level_mesh(level_t const* lv, hole_t const* holes, int n_holes, mquad_t* out
 // level_mesh() gives them: what to re-mesh when a portal moves (render.c).
 int level_mesh_slice(level_t const* lv, hole_t const* holes, int n_holes, int face, int s, mquad_t* out, int max_out);
 int level_mesh_slices(level_t const* lv, int face);
+// The map's own edge, where an open cell meets it: what is past the edge
+// is metal, and has a face there like any other (without one, the eye saw
+// straight out of the map). Facing `face`: one slice, outside the map; it
+// never changes with the level's cells inside it.
+int level_mesh_border(level_t const* lv, int face, mquad_t* out, int max_out);
 // The faces of glass and fizzler a chamber needs drawn.
 int level_clear_faces(level_t const* lv);
