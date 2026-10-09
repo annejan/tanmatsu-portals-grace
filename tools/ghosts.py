@@ -68,6 +68,7 @@ def fetch(dest):
     files = re.findall(r"^file\s*\|\s*(\S+\.txt)", listing, re.M)
     # Into a fresh folder, swapped in once it is all there: an earlier
     # badge's ghosts must not stay and be pushed under another name.
+    os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
     tmp = tempfile.mkdtemp(prefix=".ghosts-", dir=os.path.dirname(dest) or ".")
     for f in files:
         badgelink("fs", "download", GHOSTS + "/" + f, os.path.join(tmp, f))
