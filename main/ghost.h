@@ -28,7 +28,7 @@ typedef struct {
 
 typedef struct {
     char                id[CHAMBER_ID_N];
-    char                sig[48];  // what a run is good for: the release and the chamber as it is (ghost.c)
+    char                sig[48];  // what a run is good for: the physics and the chamber as it is (ghost.c)
     ghost_racer_t       racer[1 + GHOST_RIVALS];
     int                 n;      // racers loaded
     bool                mine;   // racer[0] is your own best
@@ -48,12 +48,13 @@ typedef struct {
     int   of;      // how many raced, you included
 } ghost_result_t;
 
-// An attempt at chamber `id` begins in level `lv` (as it starts), on game
-// `release` ("0.12.0"): your best and the fastest rivals from `dir` to race
-// -- runs made on this release in this chamber as it is now (a chamber
-// edited, or a game whose physics may have changed, plays them otherwise).
+// An attempt at chamber `id` begins in level `lv` (as it starts), on
+// `physics` (GAME_PHYSICS, game.h): your best and the fastest rivals from
+// `dir` to race -- runs made on this physics in this chamber as it is now
+// (a chamber edited, or other physics, plays them otherwise). Releases
+// that leave the physics be keep every ghost.
 // The runs are read once per chamber; a restart only sets them off again.
-void           ghost_begin(ghost_t* g, char const* dir, char const* id, level_t const* lv, char const* release);
+void           ghost_begin(ghost_t* g, char const* dir, char const* id, level_t const* lv, char const* physics);
 // A frame of the player's, as stepped: recorded, and every racer brought
 // up to the same moment.
 void           ghost_frame(ghost_t* g, recording_frame_t const* f);

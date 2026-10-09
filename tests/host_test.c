@@ -333,6 +333,65 @@ static void test_demos(void) {
     CHECK(loops >= 2, "c1loop goes round more than once (%d)", loops);
 }
 
+// The physics, fingerprinted: every built-in solution played at 30 and at
+// 50 steps a second, the player's position and speed (to the millimetre)
+// and the events hashed at every step. Ghosts race only on the physics
+// they were made on (GAME_PHYSICS, game.h); a change that makes runs go
+// otherwise changes this, and tests/physics.txt says which physics it was.
+typedef struct {
+    uint32_t h;
+} fp_t;
+
+static void fp_mix(fp_t* f, int32_t v) {
+    for (int k = 0; k < 4; k++) f->h = (f->h ^ (uint32_t)((v >> (8 * k)) & 0xFF)) * 16777619u;
+}
+
+static void fp_tick(game_t const* g, int ev, float now, void* ctx) {
+    (void)now;
+    fp_t* f = ctx;
+    fp_mix(f, (int32_t)lroundf(g->pl.pos.x * 1000.0f));
+    fp_mix(f, (int32_t)lroundf(g->pl.pos.y * 1000.0f));
+    fp_mix(f, (int32_t)lroundf(g->pl.pos.z * 1000.0f));
+    fp_mix(f, (int32_t)lroundf(g->pl.vel.x * 1000.0f));
+    fp_mix(f, (int32_t)lroundf(g->pl.vel.y * 1000.0f));
+    fp_mix(f, (int32_t)lroundf(g->pl.vel.z * 1000.0f));
+    fp_mix(f, ev);
+}
+
+static void test_physics(void) {
+    fp_t f = {2166136261u};
+    for (int i = 0; i < chamber_builtin_count; i++) {
+        int const d = demo_find(chamber_builtins[i].id);
+        if (d < 0 || !demo_has_solution(d)) continue;
+        static demo_state_t st;
+        demo_run(d, demo_duration(d), 1.0f / 30.0f, &st, fp_tick, &f, 0.0f);
+        demo_run(d, demo_duration(d), 1.0f / 50.0f, &st, fp_tick, &f, 0.0f);
+    }
+    char line[64];
+    snprintf(line, sizeof(line), "%s %08x", GAME_PHYSICS, (unsigned)f.h);
+    if (getenv("PHYSICS_UPDATE") != NULL) {
+        FILE* o = fopen("tests/physics.txt", "w");
+        CHECK(o != NULL, "tests/physics.txt: cannot write");
+        if (o != NULL) {
+            fprintf(o, "%s\n", line);
+            fclose(o);
+        }
+        return;
+    }
+    char  want[64] = "";
+    FILE* in       = fopen("tests/physics.txt", "r");
+    CHECK(in != NULL, "tests/physics.txt: cannot read");
+    if (in == NULL) return;
+    if (fgets(want, sizeof(want), in) == NULL) want[0] = '\0';
+    fclose(in);
+    want[strcspn(want, "\n")] = '\0';
+    CHECK(strcmp(line, want) == 0,
+          "physics: now \"%s\", tests/physics.txt has \"%s\". If runs play otherwise now (game, player, physics, "
+          "portals), bump GAME_PHYSICS in main/game.h -- ghosts made before will not race; if only a built-in "
+          "chamber's solution changed, keep it. Either way: PHYSICS_UPDATE=1 make check",
+          line, want);
+}
+
 // Walking into an eye-level portal pair at badge frame rates: one clean
 // teleport, feet on the floor throughout. At 15-25 fps the box used to
 // stop "fitting" mid-move, the wall behind the portal turned solid round
@@ -2448,6 +2507,7 @@ int main(void) {
     test_things();
     test_frame_rates();
     test_demos();
+    test_physics();
     test_basis();
     test_map();
     test_clip();

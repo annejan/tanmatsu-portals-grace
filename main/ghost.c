@@ -110,11 +110,11 @@ static void load_runs(ghost_t* g, char const* dir) {
     g->stale = false;
 }
 
-void ghost_begin(ghost_t* g, char const* dir, char const* id, level_t const* lv, char const* release) {
+void ghost_begin(ghost_t* g, char const* dir, char const* id, level_t const* lv, char const* physics) {
     // The attempt before: dropped.
     if (g->capturing) recording_capture_free(&g->cap);
     char sig[48];
-    snprintf(sig, sizeof(sig), "%.24s L%08x", release, (unsigned)level_sig(lv));
+    snprintf(sig, sizeof(sig), "%.24s L%08x", physics, (unsigned)level_sig(lv));
     // The runs: read again only for another chamber, or after a new best.
     if (g->stale || strcmp(g->id, id) != 0 || strcmp(g->sig, sig) != 0) {
         snprintf(g->id, sizeof(g->id), "%s", id);

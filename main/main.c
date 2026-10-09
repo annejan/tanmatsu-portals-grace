@@ -278,7 +278,7 @@ static bool load_chamber(int index) {
     // A new attempt -- the chamber's start, a restart, after a death: raced
     // against its best, if there is one.
     s_ghost_live = ghosts_wanted();
-    if (s_ghost_live) ghost_begin(&s_ghost, GHOST_DIR, chamber_id(index), &s_game.lv, APP_VERSION);
+    if (s_ghost_live) ghost_begin(&s_ghost, GHOST_DIR, chamber_id(index), &s_game.lv, GAME_PHYSICS);
     return true;
 }
 

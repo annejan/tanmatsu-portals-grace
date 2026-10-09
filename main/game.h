@@ -9,6 +9,12 @@
 #include "player.h"
 #include "portal.h"
 
+// How runs play: a ghost (ghost.h) races only on the physics it was made
+// on. Bump it when a change to the game, the player, the physics or the
+// portals makes a recorded run go otherwise -- not for each release, which
+// would retire every ghost. make check holds it to tests/physics.txt.
+#define GAME_PHYSICS "0.12.0"
+
 #define CUBE_HALF      0.3f  // the cube is 0.6 m on a side
 #define CUBE_HOLD      1.3f  // carried this far in front of the eye
 #define CUBE_REACH     2.0f  // picked up from no further than this
