@@ -24,6 +24,9 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W, H = 1600, 960
 GREEN, DIM, BG = (0x7C, 0xFF, 0x8A), (0x2E, 0x6B, 0x38), (5, 8, 6)
+# A badge's launcher (day.txt `style: badge`), as deskview.c draws it.
+BADGE = {"fg": (0xED, 0xE4, 0xF5), "bg": (0x14, 0x0A, 0x1E), "bar": (0xB0, 0x38, 0x9C), "dim": (0x6A, 0x4A, 0x80)}
+DOS = {"fg": GREEN, "bg": BG, "bar": GREEN, "dim": DIM}
 TYPE_RATE = 24.0  # letters a second, as outro.c types the cards
 FPS = 10
 
@@ -71,23 +74,23 @@ def set_header(text, key, value):
     return "%s: %s\n%s" % (key, value, text)
 
 
-def screen(path, f_mono, cell_w, row_h):
+def screen(path, f_mono, cell_w, row_h, pal=DOS):
     """A desk screen file (host_review's) as a picture: the terminal."""
     with open(path) as f:
         head = f.readline().split()
         rows = [f.readline().rstrip("\n") for _ in range(25)]
     secs, cur_row, cur_col, hl = float(head[0]), int(head[1]), int(head[2]), int(head[3])
-    im = Image.new("RGB", (W, H), BG)
+    im = Image.new("RGB", (W, H), pal["bg"])
     d = ImageDraw.Draw(im)
     x0, y0 = (W - cell_w * 80) / 2, (H - row_h * 25) / 2
     for r, text in enumerate(rows):
         y = y0 + r * row_h
         if r == hl:
-            d.rectangle([x0, y, x0 + cell_w * 80, y + row_h], fill=GREEN)
-        d.text((x0, y + 4), text, font=f_mono, fill=BG if r == hl else GREEN)
+            d.rectangle([x0, y, x0 + cell_w * 80, y + row_h], fill=pal["bar"])
+        d.text((x0, y + 4), text, font=f_mono, fill=(pal["fg"] if pal is BADGE else pal["bg"]) if r == hl else pal["fg"])
     if cur_row >= 0:
         x = x0 + cell_w * cur_col
-        d.rectangle([x, y0 + row_h * (cur_row + 1) - 7, x + cell_w, y0 + row_h * (cur_row + 1) - 2], fill=DIM)
+        d.rectangle([x, y0 + row_h * (cur_row + 1) - 7, x + cell_w, y0 + row_h * (cur_row + 1) - 2], fill=pal["dim"])
     return im, secs
 
 
@@ -200,9 +203,11 @@ def main():
     cell_w = f_mono.getlength("M")
     row_h = 37
     inter = {}
+    with open(os.path.join(folder, "desk", "day.txt")) as f:
+        pal = BADGE if any(l.strip() == "style: badge" for l in f) else DOS
     for name in sorted(os.listdir(os.path.join(day, "screens"))):
         seg = str(int(name.split("-")[0]))
-        im, secs = screen(os.path.join(day, "screens", name), f_mono, cell_w, row_h)
+        im, secs = screen(os.path.join(day, "screens", name), f_mono, cell_w, row_h, pal)
         p = os.path.join(pics, "desk-" + name[:-4] + ".png")
         im.save(p)
         inter.setdefault(seg, []).append([p, secs])
