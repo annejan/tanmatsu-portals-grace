@@ -28,9 +28,13 @@ void render_set_level(level_t const* lv, portal_t const portals[2]);
 // portals, seen by the player.
 void render_frame(pax_buf_t* target, game_t const* g);
 
-void render_set_portal_depth(int depth);
-// A ghost to draw (ghost.h): Chell's figure, glowing, where `pl` is; NULL for none.
-void render_set_ghost(player_t const* pl);  // 1 .. RENDER_PORTAL_DEPTH_MAX
+void render_set_portal_depth(int depth);  // 1 .. RENDER_PORTAL_DEPTH_MAX
+// Ghosts to draw (ghost.h): Chell's figure where each of `pls` is, glowing
+// in tint `tints[i]` (0 cyan, 1 magenta, 2 yellow, 3 lime); at most 4.
+void render_set_ghosts(player_t const* pls, uint8_t const* tints, int n);
+// Where world point `p` is on the screen, as the last frame was seen:
+// false if it is behind the eye.
+bool render_to_screen(vec3_t p, float* sx, float* sy);
 // Seconds since the start, for what moves by itself: the goo drifts, the
 // fizzlers' streaks fall.
 void render_set_time(float seconds);

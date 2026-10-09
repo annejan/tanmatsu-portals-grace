@@ -152,6 +152,14 @@ dlc: host_tas host_review
 	python3 tools/dlc.py check
 	python3 tools/dlc.py card
 
+# Ghost races: a badge's own ghosts to the PC, and someone's onto a badge as
+# a rival (tools/ghosts.py). make ghosts-push FROM=build/ghosts/mine NAME=nick
+.PHONY: ghosts-fetch ghosts-push
+ghosts-fetch:
+	python3 tools/ghosts.py fetch $(if $(TO),$(TO))
+ghosts-push:
+	python3 tools/ghosts.py push $(FROM) $(NAME)
+
 # A desk story's day as a film: make story-film PACK=human-in-the-loop
 PACK ?= human-in-the-loop
 story-film: host_review host_movie

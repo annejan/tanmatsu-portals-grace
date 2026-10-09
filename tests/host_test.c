@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include "attract.h"
 #include "chamber.h"
 #include "demo.h"
@@ -1449,15 +1450,24 @@ static void test_map_edge(void) {
 }
 
 // Ghost races: a run played again is the run, frame for frame; a faster
-// one replaces the best.
+// one replaces the best; rivals race too, the fastest three.
 static void test_ghosts(void) {
     char const* build = getenv("BUILD");
-    char        dir[200];
+    char        dir[200], path[260], rivals[260];
     snprintf(dir, sizeof(dir), "%s/test_ghosts", build != NULL && build[0] ? build : "build");
     mkdir(dir, 0755);
-    char path[260];
     snprintf(path, sizeof(path), "%s/after-hours~gap.txt", dir);
     remove(path);
+    snprintf(rivals, sizeof(rivals), "%s/rivals", dir);
+    mkdir(rivals, 0755);
+    static char const* const nicks[] = {"alice", "bob", "carol", "dave"};
+    for (int i = 0; i < 4; i++) {
+        char d[300], f[340];
+        snprintf(d, sizeof(d), "%s/%s", rivals, nicks[i]);
+        snprintf(f, sizeof(f), "%s/after-hours~gap.txt", d);
+        remove(f);
+        rmdir(d);
+    }
     static level_t lv;
     CHECK(chamber_build(chamber_find("01-gap"), &lv, NULL, NULL), "chamber 01");
     // Frames of play: forward, turning a little, a jump now and then, a
@@ -1472,9 +1482,9 @@ static void test_ghosts(void) {
     }
     static ghost_t g;
     static game_t  pl;
-    // The first attempt: no ghost; the best, saved.
+    // The first attempt: no ghost; the best, saved, named for its owner.
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(!g.racing && g.best_s < 0.0f, "no best yet");
+    CHECK(ghost_count(&g) == 0 && !g.mine, "no best yet");
     game_load_level(&pl, &lv);
     for (int i = 0; i < 200; i++) {
         game_input_t in;
@@ -1482,14 +1492,18 @@ static void test_ghosts(void) {
         game_step(&pl, &in, st);
         ghost_frame(&g, &f[i]);
     }
-    ghost_result_t r = ghost_finish(&g, dir);
-    CHECK(r.best && r.before < 0.0f && r.time > 6.0f, "the first run, the best: %.2f", (double)r.time);
-    FILE* fh = fopen(path, "r");
-    CHECK(fh != NULL, "saved as %s", path);
-    if (fh) fclose(fh);
+    ghost_result_t r = ghost_finish(&g, dir, "tester");
+    CHECK(r.best && r.before < 0.0f && r.time > 6.0f && r.place == 1 && r.of == 1, "the first run, the best: %.2f",
+          (double)r.time);
+    static recording_t rec;
+    char               err[96];
+    CHECK(recording_load(dir, "after-hours~gap", &rec, err, sizeof(err)) && strncmp(rec.name, "tester, ", 8) == 0,
+          "saved as %s, named %s", path, rec.name);
+    recording_free(&rec);
     // The same again: the ghost is where the player is, every frame.
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(g.racing && fabsf(g.best_s - r.time) < 1e-3f, "racing the best: %.2f", (double)g.best_s);
+    CHECK(ghost_count(&g) == 1 && g.mine && fabsf(g.racer[0].best_s - r.time) < 1e-3f, "racing the best: %.2f",
+          (double)g.racer[0].best_s);
     game_load_level(&pl, &lv);
     int apart = 0;
     for (int i = 0; i < 200; i++) {
@@ -1498,38 +1512,82 @@ static void test_ghosts(void) {
         game_step(&pl, &in, st);
         ghost_frame(&g, &f[i]);
         player_t gp;
-        if (!ghost_pose(&g, &gp) || v3_len(v3_sub(gp.pos, pl.pl.pos)) > 1e-5f || gp.yaw != pl.pl.yaw) apart++;
+        if (!ghost_pose(&g, 0, &gp) || v3_len(v3_sub(gp.pos, pl.pl.pos)) > 1e-5f || gp.yaw != pl.pl.yaw) apart++;
     }
     CHECK(apart == 0, "the ghost replays the run exactly: %d frames apart", apart);
-    r = ghost_finish(&g, dir);
-    CHECK(!r.best && fabsf(r.time - r.before) < 1e-3f, "as fast: not a new best");
-    // Faster: the new best.
+    r = ghost_finish(&g, dir, "tester");
+    CHECK(!r.best && !r.faster && fabsf(r.time - r.before) < 1e-3f, "as fast: not a new best");
+    // Faster: the new best, raced from the next attempt.
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
     for (int i = 0; i < 150; i++) ghost_frame(&g, &f[i]);
-    r = ghost_finish(&g, dir);
+    r = ghost_finish(&g, dir, "tester");
     CHECK(r.best && r.time < r.before, "faster: %.2f, was %.2f", (double)r.time, (double)r.before);
+    float const best = r.time;
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(g.racing && fabsf(g.best_s - r.time) < 1e-3f, "the new best raced: %.2f", (double)g.best_s);
+    CHECK(g.mine && fabsf(g.racer[0].best_s - best) < 1e-3f, "the new best raced: %.2f", (double)g.racer[0].best_s);
     // A slower run never replaces it.
-    ghost_end(&g);
-    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    float const kept = g.best_s;
     for (int i = 0; i < 200; i++) ghost_frame(&g, &f[i]);
-    r = ghost_finish(&g, dir);
-    CHECK(!r.best && !r.faster && r.time > r.before, "slower: not saved");
+    r = ghost_finish(&g, dir, "tester");
+    CHECK(!r.best && !r.faster, "slower: not saved");
+    // Rivals: four folders of others' runs (copies of a run, cut shorter
+    // for each, so their times differ); the fastest three race.
+    int const cut[4] = {120, 180, 90, 160};  // alice, bob, carol, dave
+    for (int k = 0; k < 4; k++) {
+        char d[300], file[340];
+        snprintf(d, sizeof(d), "%s/%s", rivals, nicks[k]);
+        mkdir(d, 0755);
+        snprintf(file, sizeof(file), "%s/after-hours~gap.txt", d);
+        static ghost_t w;
+        ghost_begin(&w, d, "after-hours/gap", &lv, "1.0");
+        for (int i = 0; i < cut[k]; i++) ghost_frame(&w, &f[i]);
+        ghost_finish(&w, d, nicks[k]);
+        ghost_end(&w);
+    }
+    ghost_end(&g);
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(g.racing && fabsf(g.best_s - kept) < 1e-3f, "the best kept: %.2f", (double)g.best_s);
-    ghost_end(&g);
-    // Another release, or the chamber changed: its ghost is no best.
+    CHECK(ghost_count(&g) == 4 && g.mine, "you and three rivals: %d", ghost_count(&g));
+    bool has_bob = false, has_carol = false, has_alice = false, has_dave = false;
+    for (int i = 1; i < ghost_count(&g); i++) {
+        has_alice |= strcmp(g.racer[i].name, "alice") == 0;
+        has_bob |= strcmp(g.racer[i].name, "bob") == 0;
+        has_carol |= strcmp(g.racer[i].name, "carol") == 0;
+        has_dave |= strcmp(g.racer[i].name, "dave") == 0;
+    }
+    CHECK(has_alice && has_carol && has_dave && !has_bob, "the fastest three: alice, carol, dave -- not bob");
+    // Each rival replays exactly as it was played.
+    game_load_level(&pl, &lv);
+    apart = 0;
+    int carol = -1;
+    for (int i = 1; i < ghost_count(&g); i++)
+        if (strcmp(g.racer[i].name, "carol") == 0) carol = i;
+    for (int i = 0; i < 80; i++) {
+        game_input_t in;
+        float const  st = recording_frame_input(&f[i], &in);
+        game_step(&pl, &in, st);
+        ghost_frame(&g, &f[i]);
+        player_t gp;
+        if (!ghost_pose(&g, carol, &gp) || v3_len(v3_sub(gp.pos, pl.pl.pos)) > 1e-5f) apart++;
+    }
+    CHECK(carol > 0 && apart == 0, "a rival replays its run exactly: %d frames apart", apart);
+    // Your place: carol (90 frames) and alice (120) faster, your best
+    // (150) and dave (160) slower than 140 frames.
+    for (int i = 80; i < 140; i++) ghost_frame(&g, &f[i]);
+    r = ghost_finish(&g, dir, "tester");
+    CHECK(r.place == 3 && r.of == 5 && r.best, "3rd of 5, a new best of yours: %d of %d", r.place, r.of);
+    // A restart of the same chamber reads nothing again, but races afresh.
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(g.mine && g.racer[0].best_s < best, "the new best of yours, read again after it was saved");
+    ghost_frame(&g, &f[0]);
+    ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+    CHECK(ghost_count(&g) == 4 && g.now == 0.0f && g.racer[1].at == 0, "a restart: the same racers, off again");
+    // Another release, or the chamber changed: their runs are no runs.
     ghost_begin(&g, dir, "after-hours/gap", &lv, "2.0");
-    CHECK(!g.racing && g.best_s < 0.0f, "another release: no ghost");
-    ghost_end(&g);
+    CHECK(ghost_count(&g) == 0, "another release: nobody to race");
     static level_t edited;
     edited = lv;
     level_set(&edited, 2, 1, 2, MAT_METAL);
     ghost_begin(&g, dir, "after-hours/gap", &edited, "1.0");
-    CHECK(!g.racing && g.best_s < 0.0f, "the chamber edited: no ghost");
-    ghost_end(&g);
+    CHECK(ghost_count(&g) == 0, "the chamber edited: nobody to race");
     // A ghost file that does not read: no best, and the next exit replaces it.
     FILE* bad = fopen(path, "w");
     if (bad) {
@@ -1537,16 +1595,36 @@ static void test_ghosts(void) {
         fclose(bad);
     }
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(!g.racing, "a bad file: no ghost");
+    CHECK(!g.mine && ghost_count(&g) == 3, "a bad file: no best of yours, the rivals still");
     for (int i = 0; i < 100; i++) ghost_frame(&g, &f[i]);
-    r = ghost_finish(&g, dir);
+    r = ghost_finish(&g, dir, "tester");
     CHECK(r.best && r.before < 0.0f, "a bad file replaced");
+    // A rival whose folder name is longer than a name shown: still raced,
+    // its name cut short on the screen.
+    {
+        char d[320], file[360];
+        snprintf(d, sizeof(d), "%s/a-rival-whose-name-is-very-long-indeed", rivals);
+        mkdir(d, 0755);
+        snprintf(file, sizeof(file), "%s/after-hours~gap.txt", d);
+        static ghost_t w;
+        ghost_begin(&w, d, "after-hours/gap", &lv, "1.0");
+        for (int i = 0; i < 60; i++) ghost_frame(&w, &f[i]);
+        ghost_finish(&w, d, "long");
+        ghost_end(&w);
+        ghost_end(&g);
+        ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
+        bool found = false;
+        for (int i = 0; i < ghost_count(&g); i++)
+            found |= strncmp(g.racer[i].name, "a-rival-whose-name-is-v", 23) == 0 && strlen(g.racer[i].name) == 23;
+        CHECK(found, "a long-named rival raced, its name cut to 23");
+        remove(file);
+        rmdir(d);
+    }
+    // Its run over, a ghost is gone a second later.
     ghost_begin(&g, dir, "after-hours/gap", &lv, "1.0");
-    CHECK(g.racing, "raced again after");
-    // Its run over, the ghost is gone a second later.
     for (int i = 0; i < 190; i++) ghost_frame(&g, &f[i]);
     player_t gp;
-    CHECK(!ghost_pose(&g, &gp), "gone after its run");
+    CHECK(!ghost_pose(&g, 0, &gp), "gone after its run");
     ghost_end(&g);
 }
 

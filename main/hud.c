@@ -162,20 +162,35 @@ void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
         rendertext_draw(fb, 0xFFFF6060u, pax_font_sky_mono, 14, DISPLAY_LOG_W - 24 - rs.x, 23, "REC");
     }
     if (info->race != NULL) {
-        // The race: this attempt's time, and the best to beat, under the keys.
-        char         now[24], best[48];
-        float const  y = info->recording ? 42.0f : 24.0f;
-        hud_timer_t const* r = info->race;
-        snprintf(now, sizeof(now), "%.2f", (double)r->total);
-        if (r->run >= 0.0f)
-            snprintf(best, sizeof(best), "%s %.2f", r->name, (double)r->run);
-        else
-            snprintf(best, sizeof(best), "%s", r->name);
+        // The race: this attempt's time, green while it beats them all,
+        // and each racer's time in its colour, under the keys.
+        hud_race_t const* r     = info->race;
+        float             y     = info->recording ? 42.0f : 24.0f;
+        bool              ahead = true;
+        for (int i = 0; i < r->n; i++) ahead &= r->now <= r->line[i].time;
+        char now[24];
+        snprintf(now, sizeof(now), "%.2f", (double)r->now);
         pax_vec2f const ns = rendertext_size(pax_font_sky_mono, 20, now);
-        pax_vec2f const bs = rendertext_size(pax_font_sky_mono, 12, best);
-        bool const      ahead = r->run < 0.0f || r->total <= r->run;
         rendertext_draw(fb, ahead ? 0xFF78FF8Cu : 0xFFFF8A6Au, pax_font_sky_mono, 20, DISPLAY_LOG_W - 8 - ns.x, y, now);
-        rendertext_draw(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - bs.x, y + 22, best);
+        y += 22.0f;
+        if (r->n == 0) {
+            pax_vec2f const fs = rendertext_size(pax_font_sky_mono, 12, "first run: no ghost yet");
+            rendertext_draw(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - fs.x, y,
+                            "first run: no ghost yet");
+        }
+        for (int i = 0; i < r->n; i++, y += 14.0f) {
+            char line[48];
+            snprintf(line, sizeof(line), "%.20s %.2f", r->line[i].name, (double)r->line[i].time);
+            pax_vec2f const ls = rendertext_size(pax_font_sky_mono, 12, line);
+            rendertext_draw(fb, r->line[i].col, pax_font_sky_mono, 12, DISPLAY_LOG_W - 8 - ls.x, y, line);
+        }
+        // Their names over their heads.
+        for (int i = 0; i < r->n_tags; i++) {
+            pax_vec2f const ts = rendertext_size(pax_font_sky_mono, 12, r->tag[i].name);
+            float const     x  = r->tag[i].x - ts.x * 0.5f, ty = r->tag[i].y - 14.0f;
+            if (x < 0 || x + ts.x > DISPLAY_LOG_W || ty < 0 || ty > DISPLAY_LOG_H - 14) continue;
+            rendertext_draw(fb, r->tag[i].col, pax_font_sky_mono, 12, x, ty, r->tag[i].name);
+        }
     }
 
     if (info->test) return;

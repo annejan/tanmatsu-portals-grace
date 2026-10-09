@@ -410,21 +410,40 @@ static void keep_front(portal_t const* p) {
 // A quad, if it faces the eye, clipped to `cs` when there is one.
 // A convex polygon of `n` corners facing `n`ormal: dropped if it faces
 // away from the eye, clipped to `cs`, and drawn.
-// A ghost (ghost.h) is drawn as Chell is, in a glow of its own colour.
-static bool     s_ghostly;
-static player_t s_ghost_pl;
-static bool     s_ghost_on;
+// Ghosts (ghost.h) are drawn as Chell is, each in a glow of its own colour:
+// her shading kept, as a tint of it.
+#define GHOSTS_MAX 4
+static player_t s_ghost_pl[GHOSTS_MAX];
+static uint8_t  s_ghost_tint[GHOSTS_MAX];
+static int      s_ghost_n;
+static int      s_ghostly = -1;  // drawing ghost tint s_ghostly, or -1
+static cam_t    s_view;          // the eye of the last frame drawn, for render_to_screen
 
-static uint32_t ghostly(uint32_t argb) {
+static uint8_t const s_tints[][3] = {{60, 230, 255}, {255, 90, 220}, {255, 220, 60}, {120, 255, 110}};
+
+static uint32_t ghostly(uint32_t argb, int tint) {
     uint32_t const r = (argb >> 16) & 255, g = (argb >> 8) & 255, b = argb & 255;
-    uint32_t const l  = (r * 3 + g * 6 + b) / 10;
-    uint32_t const gg = 60 + l * 3 / 4, bb = 90 + l * 2 / 3;
-    return 0xFF000000u | ((l / 3) << 16) | ((gg > 255 ? 255 : gg) << 8) | (bb > 255 ? 255 : bb);
+    uint32_t const l = (r * 3 + g * 6 + b) / 10;
+    uint8_t const* t = s_tints[tint % 4];
+    uint32_t const k = 90 + l * 165 / 255;  // 0.35 .. 1 of the tint
+    return 0xFF000000u | ((t[0] * k / 255) << 16) | ((t[1] * k / 255) << 8) | (t[2] * k / 255);
 }
 
-void render_set_ghost(player_t const* pl) {
-    s_ghost_on = pl != NULL;
-    if (pl != NULL) s_ghost_pl = *pl;
+void render_set_ghosts(player_t const* pls, uint8_t const* tints, int n) {
+    s_ghost_n = n < GHOSTS_MAX ? n : GHOSTS_MAX;
+    for (int i = 0; i < s_ghost_n; i++) {
+        s_ghost_pl[i]   = pls[i];
+        s_ghost_tint[i] = tints[i];
+    }
+}
+
+bool render_to_screen(vec3_t p, float* sx, float* sy) {
+    vec3_t const d  = v3_sub(p, s_view.pos);
+    float const  cz = v3_dot(d, s_view.b.fwd);
+    if (cz < 0.3f) return false;
+    *sx = RENDER_HALF_W + RENDER_FOCAL_LEN * v3_dot(d, s_view.b.right) / cz;
+    *sy = RENDER_HORIZON_Y - RENDER_FOCAL_LEN * v3_dot(d, s_view.b.up) / cz;
+    return true;
 }
 
 // What glows lights what is round it: below (glow_gather).
@@ -441,8 +460,8 @@ static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, cl
     }
     if (v3_dot(v3_sub(cam->pos, q[0].p), n) <= 0.0f) return;
     // A ghost: its own colour, glowing, lit by nothing.
-    if (s_ghostly) {
-        argb  = ghostly(argb);
+    if (s_ghostly >= 0) {
+        argb  = ghostly(argb, s_ghostly);
         flags = (flags & ~SE_TRI_GLOW_MASK) | SE_TRI_EMISSIVE;
     }
     // Lit by what glows (glow_at): a thing's face, by its middle. The
@@ -1549,11 +1568,12 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
     submit_chell(s_game, cam, cs);
-    // The ghost of the best run, where it is -- not when the eye is in it.
-    if (s_ghost_on && v3_len(v3_sub(cam->pos, player_eye(&s_ghost_pl))) > 0.6f) {
-        s_ghostly = true;
-        submit_chell_at(&s_ghost_pl, cam, cs);
-        s_ghostly = false;
+    // The ghosts of the best runs, where they are -- not one the eye is in.
+    for (int i = 0; i < s_ghost_n; i++) {
+        if (v3_len(v3_sub(cam->pos, player_eye(&s_ghost_pl[i]))) <= 0.6f) continue;
+        s_ghostly = s_ghost_tint[i];
+        submit_chell_at(&s_ghost_pl[i], cam, cs);
+        s_ghostly = -1;
     }
     for (int i = 0; i < 2; i++) {
         if (!portals[i].open) continue;
@@ -1647,6 +1667,7 @@ void render_frame(pax_buf_t* target, game_t const* g) {
     s_stat_passes           = 0;
     s_stat_tris             = 0;
     cam_t const cam         = {player_eye(&g->pl), player_view(&g->pl)};
+    s_view                  = cam;
     glow_gather(g);  // what glows lights what is round it
 
     // Glass and fizzlers blend, and only come out right drawn after

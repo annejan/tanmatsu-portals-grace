@@ -31,6 +31,25 @@ typedef struct {
     float       run;    // this chamber's
 } hud_timer_t;
 
+// A ghost race (ghost.h): this attempt's time, each racer's to beat, and
+// the ghosts' names where they are on the screen.
+#define HUD_RACERS 4
+typedef struct {
+    float now;
+    int   n;
+    struct {
+        char     name[24];
+        float    time;
+        uint32_t col;
+    } line[HUD_RACERS];
+    int n_tags;
+    struct {
+        char     name[24];
+        float    x, y;
+        uint32_t col;
+    } tag[HUD_RACERS];
+} hud_race_t;
+
 typedef struct {
     float              fps;
     int                render_ms;
@@ -38,7 +57,7 @@ typedef struct {
     bool               test;        // a device test's shots: nothing that varies run to run
     bool               recording;   // a run being recorded: REC, under the keys
     hud_timer_t const* timer;       // or NULL
-    hud_timer_t const* race;        // a ghost race (ghost.h): this attempt and the best, or NULL
+    hud_race_t const*  race;        // a ghost race (ghost.h), or NULL
 } hud_info_t;
 
 void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info);

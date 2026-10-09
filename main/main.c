@@ -187,16 +187,43 @@ static ghost_t s_ghost;
 static bool    s_ghost_live;  // this attempt is raced, and recorded for the next
 static char    s_race_msg[HUD_MESSAGE_N];  // how the race went, at the exit
 
-// The race, on the HUD where a recording's timer goes: this attempt's
-// time, and the best to beat.
-static bool race_timer(hud_timer_t* t) {
+// Each racer's colour: yours cyan, the rivals' magenta, yellow and lime --
+// their tints (render.h), and their names on the HUD.
+static uint32_t const s_race_col[] = {0xFF3CE6FFu, 0xFFFF5ADCu, 0xFFFFDC3Cu, 0xFF78FF6Eu};
+
+static int racer_tint(int i) {
+    return s_ghost.mine ? i : i + 1;  // no best of yours: the rivals keep their colours
+}
+
+// The race on the HUD: this attempt's time, everyone's to beat, and each
+// ghost's name over its head (after the frame is drawn: render_to_screen).
+static bool race_info(hud_race_t* r) {
     if (!s_ghost_live || s_mode != MODE_PLAY) return false;
-    static char best[32];
-    if (s_ghost.best_s >= 0.0f)
-        snprintf(best, sizeof(best), "best");
-    else
-        snprintf(best, sizeof(best), "first run: no ghost yet");
-    *t = (hud_timer_t){.name = best, .total = s_ghost.now, .run = s_ghost.best_s};
+    memset(r, 0, sizeof(*r));
+    r->now = s_ghost.now;
+    for (int i = 0; i < ghost_count(&s_ghost) && r->n < HUD_RACERS; i++) {
+        ghost_racer_t const* g = &s_ghost.racer[i];
+        snprintf(r->line[r->n].name, sizeof(r->line[0].name), "%s", s_ghost.mine && i == 0 ? "best" : g->name);
+        r->line[r->n].time = g->best_s;
+        r->line[r->n].col  = s_race_col[racer_tint(i) % 4];
+        r->n++;
+        player_t p;
+        float    x, y;
+        // Its name, if it is in sight: drawn (not one the eye is in, as
+        // render.c leaves out), and not behind a wall.
+        if (!ghost_pose(&s_ghost, i, &p)) continue;
+        vec3_t const eye = player_eye(&s_game.pl), at = player_eye(&p);
+        vec3_t const d   = v3_sub(at, eye);
+        float const  len = v3_len(d);
+        if (len <= 0.6f || level_raycast(&s_game.lv, eye, v3_scale(d, 1.0f / len), len).hit) continue;
+        if (render_to_screen(v3(p.pos.x, p.pos.y + 2.05f, p.pos.z), &x, &y)) {
+            snprintf(r->tag[r->n_tags].name, sizeof(r->tag[0].name), "%s", s_ghost.mine && i == 0 ? "you" : g->name);
+            r->tag[r->n_tags].x   = x;
+            r->tag[r->n_tags].y   = y;
+            r->tag[r->n_tags].col = s_race_col[racer_tint(i) % 4];
+            r->n_tags++;
+        }
+    }
     return true;
 }
 
@@ -1030,14 +1057,21 @@ static void play_frame(float dt) {
         if (s_ghost_live) {
             mkdir("/sd/portals", 0755);
             mkdir(GHOST_DIR, 0755);
-            ghost_result_t const gr = ghost_finish(&s_ghost, GHOST_DIR);
-            if (gr.best && gr.before >= 0.0f)
+            char nick[32] = "";
+            if (nvs_settings_get_owner_nickname(nick, sizeof(nick), "") != ESP_OK) nick[0] = '\0';
+            ghost_result_t const gr = ghost_finish(&s_ghost, GHOST_DIR, nick);
+            if (gr.of > 1 + (gr.before >= 0.0f ? 1 : 0)) {
+                // Rivals raced: your place among them.
+                static char const* const th[] = {"th", "st", "nd", "rd"};
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s%s -- %d%s of %d", (double)gr.time,
+                         gr.best ? ", a new best" : "", gr.place, th[gr.place < 4 ? gr.place : 0], gr.of);
+            } else if (gr.best && gr.before >= 0.0f)
                 snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s -- a new best! (-%.2f)", (double)gr.time,
                          (double)(gr.before - gr.time));
             else if (gr.best)
                 snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s -- your best, for now", (double)gr.time);
             else if (gr.faster)
-                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (no card: ghost not saved)", (double)gr.time);
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (no card: not saved)", (double)gr.time);
             else
                 snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (+%.2f on your best)", (double)gr.time,
                          (double)(gr.time - gr.before));
@@ -1048,7 +1082,7 @@ static void play_frame(float dt) {
             if (s_race_msg[0]) {
                 // The pack's end, and how the last race went.
                 char msg[HUD_MESSAGE_N];
-                snprintf(msg, sizeof(msg), "%.18s: the end. %.42s", pack_get(pk)->name, s_race_msg);
+                snprintf(msg, sizeof(msg), "%.18s: the end. %.32s", pack_get(pk)->name, s_race_msg);
                 hud_message(msg);
             }
         } else {
@@ -1138,10 +1172,14 @@ static void on_render(pax_buf_t* fb, void* user) {
     pax_buf_t* const target = half ? &s_layer.buf : fb;
     scene_set_render_scale(half ? 2 : 1);
 
-    // The ghost being raced, where it is.
-    player_t   gp;
-    bool const ghost = s_ghost_live && s_mode == MODE_PLAY && !title && ghost_pose(&s_ghost, &gp);
-    render_set_ghost(ghost ? &gp : NULL);
+    // The ghosts being raced, where they are.
+    player_t gp[GHOST_RIVALS + 1];
+    uint8_t  gt[GHOST_RIVALS + 1];
+    int      ng = 0;
+    if (s_ghost_live && s_mode == MODE_PLAY && !title)
+        for (int i = 0; i < ghost_count(&s_ghost); i++)
+            if (ghost_pose(&s_ghost, i, &gp[ng])) gt[ng++] = (uint8_t)racer_tint(i);
+    render_set_ghosts(gp, gt, ng);
     int64_t const t0 = esp_timer_get_time();
     if (title) {
         // Through the attract mode's camera, the player's own view kept.
@@ -1170,7 +1208,8 @@ static void on_render(pax_buf_t* fb, void* user) {
     } else if (title) {
         hud_draw_title(fb, &s_game, menu_title_shown());
     } else {
-        hud_timer_t      timer, race;
+        hud_timer_t      timer;
+        hud_race_t       race;
         hud_info_t const info = {
             .fps       = s_fps,
             .render_ms = (int)(s_render_us / 1000),
@@ -1179,7 +1218,7 @@ static void on_render(pax_buf_t* fb, void* user) {
             .test      = s_demo >= 0,
             .recording = s_capturing,
             .timer     = watch_timer(&timer) ? &timer : NULL,
-            .race      = race_timer(&race) ? &race : NULL,
+            .race      = race_info(&race) ? &race : NULL,
         };
         hud_draw(fb, &s_game, &info);
     }
