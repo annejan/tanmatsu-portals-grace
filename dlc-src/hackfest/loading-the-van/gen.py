@@ -2,11 +2,21 @@
 """Hackfest chores: "Loading the van".
 
 A street in front of a hackerspace. A box van stands on it, its back doors
-open, its cargo floor 2 m above the street: too high to climb. The gear (a
-cube) is up in the hackerspace's attic, 3 m up the west wall. A white panel
-on the street wall and one up in the attic fetch it; a faith plate behind
-the van throws it in, onto the cube button by the cab. The button opens the
-gate to the road.
+open. It is packed: crates to the roof by the cab, with one gap left on top
+of them, 3 m above the street -- the cube button. The gear (a cube) comes
+down a chute into the hackerspace's attic, 3 m up the west wall. A white
+panel on the street wall and one up in the attic fetch it; a faith plate
+behind the van throws it in, over the gap and down into it. The button
+opens the gate to the road.
+
+No gear can get stuck in the van out of reach. The gap is the only top in
+it: the crates either side of the gap reach the roof, and behind them the
+van has no floor but the street. A gear that falls short (thrown wrong, let
+go of too early on the plate) drops back to the street, to be picked up
+again. A fizzler hangs in front of the gap, at its height: a gear that
+comes in low -- held up to it or jumped up with from the street below, or
+left on the lip of the gap -- is fizzled, and the chute drops a new one in
+the attic. Only a gear coming down from above lands in the gap.
 
     python3 gen.py > loading-the-van.txt
 """
@@ -44,25 +54,38 @@ box(15, 15, 1, 2, 2, 3, "a")
 box(16, 16, 1, 2, 2, 3, ".")
 box(16, 16, 0, 0, 2, 3, "E")
 
-# The van: chassis x 6..10, z 12..18, cargo floor at 4 (out of a held
-# cube's reach from the street); box walls up to 7, roof at 8; back doors
-# open (south, z 12); the cab north of the box.
-box(6, 10, 1, 3, 12, 17, "#")                      # chassis and wheels
-box(6, 6, 4, 7, 12, 17, "#")                       # side walls
-box(10, 10, 4, 7, 12, 17, "#")
-box(6, 10, 4, 7, 17, 17, "#")                      # the bulkhead to the cab
-box(6, 10, 8, 8, 12, 17, "#")                      # the roof
-box(6, 10, 1, 6, 18, 18, "#")                      # the cab
-put(8, 3, 16, "K")                                 # the cargo button, by the bulkhead
-put(8, 4, 16, "1")
-put(8, 4, 15, "T")                                 # where the plate throws
+# The van: x 6..10, z 12..17, open at the back (south, z 12); the cab north
+# of it. Sides and bulkhead stand on the street; the roof is in the top
+# layer, so nothing rests on it, and is high enough for a gear thrown to
+# the target over the gap. Inside, x 7..9 z 12..14 has no floor but the
+# street: a held gear can be lifted 3 m up from there with a jump, so
+# nothing there may hold one up out of reach.
+box(6, 6, 1, 8, 12, 17, "#")                       # side walls
+box(10, 10, 1, 8, 12, 17, "#")
+box(6, 10, 1, 8, 17, 17, "#")                      # the bulkhead to the cab
+box(6, 10, 9, 9, 12, 17, "#")                      # the roof
+box(6, 10, 1, 9, 18, 18, "#")                      # the cab, up to the roof: no ledge on it to strand the gear
+# The crates, z 15..16: 3 m high under the gap, to the roof either side of
+# it and behind it, so the only top in the van to land on is the gap: the
+# button. (The gap at z 15 rather than by the bulkhead: a gear let go of
+# riding the plate still drops into it a little later in the flight.)
+box(7, 9, 1, 2, 15, 16, "#")
+box(7, 9, 3, 8, 16, 16, "#")
+box(7, 7, 3, 8, 15, 15, "#")
+box(9, 9, 3, 8, 15, 15, "#")
+put(8, 3, 15, "K")                                 # the cargo button, in the gap
+put(8, 4, 15, "1")
+put(8, 5, 15, "T")                                 # the plate throws in over the gap
+put(8, 4, 14, "F")                                 # in front of the gap: fizzles a gear on its lip or lifted in
 
 # The faith plate, behind the van.
 put(8, 0, 6, "J")
 
-# The attic: a loft along the west wall, floor at 4, with the gear in it.
+# The attic: a loft along the west wall, floor at 4. The gear drops into it
+# from a chute in the top layer, back from the lip: no grabbing it from the
+# street.
 box(1, 3, 1, 3, 10, 18, "#")
-put(2, 4, 16, "C")                                 # back from the lip: no grabbing it from the street
+put(2, 9, 16, "V")                                 # the chute: a new gear when one is fizzled
 box(0, 0, 4, 5, 14, 14, "W")                       # the attic's white panel
 box(0, 0, 1, 2, 4, 4, "W")                         # the street's
 
@@ -92,7 +115,7 @@ walk_to 16.5 2.9
 """
 
 out = ["name: Loading the van",
-       "hint: The gear is in the attic. The van's floor is too high. The plate is not.",
+       "hint: The gear is in the attic. The gap in the van is too high. The plate is not.",
        "story: Beep! A friend has room in the van to Hackfest, [Subject-Name-here]. Gear first. Lift with your legs. Or better: with a faith plate.",
        "size: %d %d %d" % (W, H, D),
        "facing: west"]

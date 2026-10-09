@@ -5,7 +5,7 @@ user: you
 host: tanmatsu
 prompt: "you@tanmatsu:~$ "
 start: 13:00
-step: 0:45
+step: 0:35
 countdown: 18:00 Hackfest
 
 Tanmatsu launcher -- Portals edition.   Battery 87%.   Wi-Fi: home.

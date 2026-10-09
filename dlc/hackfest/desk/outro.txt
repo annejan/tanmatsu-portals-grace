@@ -1,4 +1,4 @@
-card: 17:58. Enschede. The doors are still open.
+card: 17:58. The Wi-Fi works, the stage has power, and the doors open in two minutes.
 card: The hall is full of tables, and the tables are full of badges, cables, and people arguing about pull-ups.
 card: At the registration desk they scan your badge. It boots Portals. Of course it does.
 reveal: HACKFEST

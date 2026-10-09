@@ -18,4 +18,6 @@ route: van | A lift | A friend's van, full of gear. One seat left.
 round: loading-the-van
 round: speed-cameras
 join
+round: the-wifi
+round: daisy-chain
 outro: arrival
