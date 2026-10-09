@@ -85,6 +85,13 @@ The menu has:
   The system LEDs are dark meanwhile, and come back when you quit.
   With Frame times on, a recording's times also show the badge's frame
   rate in each chamber and its slowest frame.
+  With Ghost races on, every attempt at a chamber is recorded; beat your
+  best and that run becomes the chamber's ghost, raced next time beside
+  you. Rivals' ghosts go in `/sd/portals/ghosts/rivals/<nick>/`
+  (`make ghosts-fetch`, `make ghosts-push FROM=... NAME=...`).
+  With Lifts between chambers on (the default), a chamber's exit takes
+  you up in a glass lift, and down into the next chamber's start, without
+  a stop; off, a chamber ends with a pause and "Chamber complete".
 - **Controls**.
 
 Settings are kept in NVS.
@@ -249,6 +256,7 @@ the camera basis and the clip planes all go through that one map
 | `main/testkit/` | device tests (from the template) |
 | `tests/` | host tests and host screenshots |
 | `tools/make_textures.py` | the textures in `textures/` |
+| `BACKLOG.md` | known debts and ideas not yet done |
 
 The project comes from
 [tanmatsu-template-grace](https://github.com/nullislandspace/tanmatsu-template-grace),
