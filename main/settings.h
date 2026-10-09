@@ -22,6 +22,8 @@ bool        settings_leds(void);  // the portals on user LEDs A and B
 void        settings_set_leds(bool on);
 int         settings_portal_depth(void);
 void        settings_set_portal_depth(int depth);
+bool        settings_lifts(void);  // a lift from one chamber to the next, no stop (main.c)
+void        settings_set_lifts(bool on);
 bool        settings_ghosts(void);  // race the ghost of each chamber's best run (ghost.h)
 void        settings_set_ghosts(bool on);
 bool        settings_frame_times(void);  // a recording's summary shows the frame rate in each chamber

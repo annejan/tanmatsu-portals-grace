@@ -341,6 +341,7 @@ enum {
     SET_LEDS,
     SET_FRAMES,
     SET_GHOSTS,
+    SET_LIFTS,
     SET_VOLUME,
     SET_SCREEN,
     SET_KEYS,
@@ -435,6 +436,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                 (se_menu_row_t){.label = "Frame times", .kind = SE_MENU_VAL_CHECK, .checked = settings_frame_times()};
             s_set_rows[SET_GHOSTS] =
                 (se_menu_row_t){.label = "Ghost races", .kind = SE_MENU_VAL_CHECK, .checked = settings_ghosts()};
+            s_set_rows[SET_LIFTS] = (se_menu_row_t){
+                .label = "Lifts between chambers", .kind = SE_MENU_VAL_CHECK, .checked = settings_lifts()};
             s_set_rows[SET_VOLUME] =
                 (se_menu_row_t){.label = "Volume", .kind = SE_MENU_VAL_RANGE, .range_pct = se_hw_get_volume()};
             s_set_rows[SET_SCREEN] = (se_menu_row_t){
@@ -657,6 +660,8 @@ menu_cmd_t menu_update(void) {
                 settings_set_leds(!settings_leds());
             } else if (cur == SET_FRAMES && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_frame_times(!settings_frame_times());
+            } else if (cur == SET_LIFTS && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_lifts(!settings_lifts());
             } else if (cur == SET_GHOSTS && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_ghosts(!settings_ghosts());
             } else if (cur == SET_DEPTH && (r == SE_MENU_RESULT_ACTIVATED || (act & A_RIGHT))) {

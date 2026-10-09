@@ -1122,6 +1122,58 @@ static int body_portal(game_t const* g, int i) {
     return -1;
 }
 
+// The lift between chambers (main.c): a glass tube round the player, a
+// glowing ring at its foot and its head.
+static bool  s_lift_on;
+static float s_lift_x, s_lift_y0, s_lift_y1, s_lift_z;
+
+void render_set_lift(bool on, float x, float y0, float y1, float z) {
+    s_lift_on = on;
+    s_lift_x  = x;
+    s_lift_y0 = y0;
+    s_lift_y1 = y1;
+    s_lift_z  = z;
+}
+
+static void submit_lift(cam_t const* cam, clipset_t const* cs) {
+    if (!s_lift_on) return;
+    int const   n = 8;
+    float const r = 0.72f;
+    for (int i = 0; i < n; i++) {
+        float const  a0 = (float)i * 6.2831853f / (float)n, a1 = (float)(i + 1) * 6.2831853f / (float)n;
+        vec3_t const p0 = v3(s_lift_x + r * sinf(a0), 0, s_lift_z + r * cosf(a0));
+        vec3_t const p1 = v3(s_lift_x + r * sinf(a1), 0, s_lift_z + r * cosf(a1));
+        vec3_t const mid = v3_scale(v3_add(p0, p1), 0.5f);
+        // Facing in: the player sees the tube from inside it.
+        vec3_t const nin = v3_norm(v3(s_lift_x - mid.x, 0, s_lift_z - mid.z));
+        float const  h   = s_lift_y1 - s_lift_y0;
+        // The glass, a texture tile a metre.
+        cvert_t const q[4] = {{v3(p0.x, s_lift_y0, p0.z), 0, 0},
+                              {v3(p1.x, s_lift_y0, p1.z), 1, 0},
+                              {v3(p1.x, s_lift_y1, p1.z), 1, h},
+                              {v3(p0.x, s_lift_y1, p0.z), 0, h}};
+        // Without its texture glass would be a wall: the frame alone, then.
+        if (s_mat[MAT_GLASS].tex != NULL)
+            submit_quad(q, nin, cam, cs, &s_mat[MAT_GLASS], s_mat[MAT_GLASS].argb, s_mat[MAT_GLASS].flags);
+        // Its rings: a band of light at its foot and its head, and a white
+        // frame strut at each corner.
+        for (int k = 0; k < 2; k++) {
+            float const   y    = k ? s_lift_y1 - 0.12f : s_lift_y0 + 0.02f;
+            cvert_t const b[4] = {{v3(p0.x, y, p0.z), 0, 0},
+                                  {v3(p1.x, y, p1.z), 0, 0},
+                                  {v3(p1.x, y + 0.10f, p1.z), 0, 0},
+                                  {v3(p0.x, y + 0.10f, p0.z), 0, 0}};
+            submit_quad(b, nin, cam, cs, NULL, 0xFF8CE4FFu, SE_TRI_EMISSIVE | DECAL(1));
+        }
+        vec3_t const  side = v3_scale(v3_norm(v3_sub(p1, p0)), 0.03f);
+        cvert_t const s[4] = {{v3_sub(v3(p0.x, s_lift_y0, p0.z), side), 0, 0},
+                              {v3_add(v3(p0.x, s_lift_y0, p0.z), side), 0, 0},
+                              {v3_add(v3(p0.x, s_lift_y1, p0.z), side), 0, 0},
+                              {v3_sub(v3(p0.x, s_lift_y1, p0.z), side), 0, 0}};
+        submit_quad(s, nin, cam, cs, NULL, 0xFFE8ECF0u, DECAL(1));
+    }
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         if (g->cubes[i].gone) continue;
@@ -1567,6 +1619,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         if (cut & (1 << i)) portal_behind(&portals[i], cam->pos, &s_cut[s_ncut++]);
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
+    submit_lift(cam, cs);
     submit_chell(s_game, cam, cs);
     // The ghosts of the best runs, where they are -- not one the eye is in.
     for (int i = 0; i < s_ghost_n; i++) {
@@ -1672,7 +1725,7 @@ void render_frame(pax_buf_t* target, game_t const* g) {
 
     // Glass and fizzlers blend, and only come out right drawn after
     // everything solid and far to near: the engine's depth-order pass.
-    scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = s_nclear > 0});
+    scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = s_nclear > 0 || s_lift_on});
 
     int fill = 0, cut = 0;
     if (portals[0].open && portals[1].open) {
