@@ -281,11 +281,14 @@ dlc-upload: dlc
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc || true
 	cd badgelink/tools; ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/recordings || true
 	# Each upload tried three times: badgelink times out now and then.
-	cd badgelink/tools; up() { for t in 1 2 3; do ./badgelink.sh $(BADGELINK_CONN) fs upload "$$1" "$$2" && return 0; sleep 1; done; return 1; }; \
+	# A folder is made until it lists: a mkdir that timed out left a pack without its desk.
+	cd badgelink/tools; up() { for t in 1 2 3 4 5; do ./badgelink.sh $(BADGELINK_CONN) fs upload "$$1" "$$2" && return 0; sleep 2; done; return 1; }; \
+	  mk() { for t in 1 2 3 4 5; do ./badgelink.sh $(BADGELINK_CONN) fs mkdir "$$1" >/dev/null 2>&1; \
+	    ./badgelink.sh $(BADGELINK_CONN) fs list "$$1" >/dev/null 2>&1 && return 0; sleep 2; done; return 1; }; \
 	  for s in $(abspath dlc)/*/; do p=$$(basename $$s); d=$(abspath $(BUILD))/dlc/$$p; \
-	  ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p || true; \
+	  mk /sd/portals/dlc/$$p || exit 1; \
 	  for sub in $$(cd $$d && find . -mindepth 1 -type d | sort); do \
-	    ./badgelink.sh $(BADGELINK_CONN) fs mkdir /sd/portals/dlc/$$p/$${sub#./} || true; done; \
+	    mk /sd/portals/dlc/$$p/$${sub#./} || exit 1; done; \
 	  for f in $$(cd $$d && find . -type f -name '*.txt' | sort); do \
 	    up /sd/portals/dlc/$$p/$${f#./} $$d/$${f#./} || exit 1; done; done
 
