@@ -29,7 +29,9 @@ They take what the physics allows:
   portal), and the runner never stops.
 - 5: no cube -- up to the ledge by portal, a jump over the wall.
 - 9: no ferry -- floor to floor by portal.
-- 12: the reflection cube is dropped through portals into the beam.
+- 12: the runner drops into a floor portal holding the cube, which is pulled
+  through after them and let go in the beam; one run in seven steps into
+  the corridor a frame late and loses half a second.
 - 13, 16: jumps over the pit -- 16 under the laser field, no platform.
 - 14: no gel -- floor to ceiling by portal, onto the ledge.
 - 17: through the gauntlet before the crushers get going.
@@ -38,7 +40,7 @@ They take what the physics allows:
 
 ```
 chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a second)
-01-gap                        1.77      0.53
+01-gap                        3.90      0.53
 02-ledge                      2.37      1.30
 03-fling                      2.70      2.43
 04-button                     5.47      1.83
@@ -49,7 +51,7 @@ chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a
 09-the-ferry                  6.33      1.33
 10-two-buttons               10.43      2.00
 11-against-the-clock          9.63      4.37
-12-redirection               16.37      1.80
+12-redirection                6.93      1.87
 13-hard-light                 3.03      2.13
 14-repulsion                  6.87      1.67
 15-catch                      5.90      3.33
@@ -58,5 +60,8 @@ chamber                   solution       TAS   (steps of 0.033333 s: 30 frames a
 18-edgeless                   8.67      1.23
 19-sentry                     4.67      0.90
 20-excursion                  7.17      2.43
-total                       126.05     40.14
+total                       118.74     40.21
 ```
+
+On the badge's uneven frames (200 runs at 20 to 35 frames a second) the
+whole run takes 40.07 s on average.

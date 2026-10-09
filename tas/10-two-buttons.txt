@@ -1,15 +1,15 @@
 shoot blue 2.5 1.0 6.3
 shoot orange 3.75 1.0 2.5
-face 0 0
-walk 0.2
+face -2.2 0
+walk 0.195
 shoot orange 7.75 1.0 2.5
 shoot blue 10.25 1.0 6.3
-face -12.7 0
-walk 0
+face -12.6 0
+walk 0.000
 grab
 use
-face 20 0
-walk 0.231
+face 20.0 0
+walk 0.220
 grab
 use
-walk_to 5.79 15.78
+walk_to 5.85 15.78

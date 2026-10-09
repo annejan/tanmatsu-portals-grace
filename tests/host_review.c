@@ -222,7 +222,7 @@ static void test_builtins(void) {
         {"11-against-the-clock", "review: final\nintended: press, button 1 by hand, button 1 by cube, door a",
          "intended", "intended"},
         {"12-redirection", "review: final\nintended: button 1 by beam, pickup, no button 1 by cube", "intended",
-         "novel"},
+         "intended"},  // the TAS carries the cube through, now
         {"13-hard-light", "review: final\nintended: bridge, no bounce", "intended", "intended"},
         {"14-repulsion",
          "review: flawed\nintended: bounce, paint\n"
