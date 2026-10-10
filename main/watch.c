@@ -226,14 +226,18 @@ void watch_update(float dt) {
     if (lift_on(&s_lift)) {
         // Between runs, in the lift: no run's clock goes meanwhile.
         game_t* const g  = app_game();
-        int const     ev = lift_step(&s_lift, g, dt, false);
+        int const     ev = lift_step(&s_lift, g, dt, false, 0.0f, 0.0f, 1.5f);
+        if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
+        if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
+        if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
+        if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
         if (ev & LIFT_EV_TOP) {
             s_lift.phase = LIFT_NONE;
             next_run();
             // Loaded: down into it (not after the last, nor if it would not load).
             if (s_on && s_hold <= 0.0f) {
-                lift_down(&s_lift, g);
-                sound_play(SND_TELEPORT);
+                lift_down(&s_lift, g, &app_lift_sites()->start);
+                if (lift_on(&s_lift)) sound_play(SND_TELEPORT);
             }
         }
         return;
@@ -282,10 +286,10 @@ void watch_update(float dt) {
         s_times[s_k]  = s_run;
         s_total      += s_run;
         hud_message("Chamber complete");
-        if (settings_lifts()) {
-            // Up and out, into the next, as play goes (main.c).
-            lift_up(&s_lift, g);
-            sound_play(SND_TELEPORT);
+        lift_site_t site;
+        if (settings_lifts() && lift_exit_for(&g->lv, app_lift_sites(), g->pl.pos, &site)) {
+            // Into the lift, up and out, into the next, as play goes (main.c).
+            lift_enter(&s_lift, g, &site, false);
             write_times(s_k + 1);
             return;
         }

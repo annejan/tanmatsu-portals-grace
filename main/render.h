@@ -12,6 +12,7 @@
 
 #include "game.h"
 #include "level.h"
+#include "lift.h"
 #include "pax_gfx.h"
 #include "player.h"
 #include "portal.h"
@@ -32,9 +33,8 @@ void render_set_portal_depth(int depth);  // 1 .. RENDER_PORTAL_DEPTH_MAX
 // Ghosts to draw (ghost.h): Chell's figure where each of `pls` is, glowing
 // in tint `tints[i]` (0 cyan, 1 magenta, 2 yellow, 3 lime); at most 4.
 void render_set_ghosts(player_t const* pls, uint8_t const* tints, int n);
-// The lift between chambers (main.c): a glass tube round (x, z) from
-// height y0 to y1, or none.
-void render_set_lift(bool on, float x, float y0, float y1, float z);
+// The lift stations to draw (lift.h), or none (NULL).
+void render_set_lift(lift_view_t const* v);
 // Where world point `p` is on the screen, as the last frame was seen:
 // false if it is behind the eye.
 bool render_to_screen(vec3_t p, float* sx, float* sy);

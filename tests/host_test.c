@@ -393,42 +393,160 @@ static void test_physics(void) {
           line, want);
 }
 
-// The lift between chambers: up as far as the ceiling lets it, a cube
-// carried along, the top in the dark, down onto the next start, landed
-// exactly there.
-static void test_lift(void) {
+// The lift stations, in every chamber there is -- the built-in ones and
+// the story packs': each has both, as wide as a station may be, clear
+// round the player, its halo over the head; the start round the spawn.
+// Every solution and TAS route leaves and enters them by a door, never
+// through glass that stays; a ride at any frame rate hands the player back
+// exactly as the next chamber loaded them.
+
+static int lift_files(char names[][160], int max) {
+    int n = 0;
+    FILE* ls = popen("ls chambers/*.txt dlc/*/*.txt 2>/dev/null | grep -v '/pack.txt$'", "r");
+    if (ls == NULL) return 0;
+    while (n < max && fgets(names[n], 160, ls) != NULL) {
+        names[n][strcspn(names[n], "\n")] = '\0';
+        n++;
+    }
+    pclose(ls);
+    return n;
+}
+
+static char* lift_slurp(char const* path) {
+    FILE* f = fopen(path, "rb");
+    if (f == NULL) return NULL;
+    static char buf[1 << 20];
+    size_t const n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    return buf;
+}
+
+// Whether the run `steps` in `lv` goes through a station's glass that stays.
+static int lift_crossings(level_t const* lv, lift_sites_t const* st, step_t const* steps, char const* what) {
     static game_t g;
-    game_load(&g, demo_chamber(demo_find("01-gap")));
-    vec3_t const start = g.pl.pos;
-    float const  room  = lift_room(&g.lv, start, LIFT_RISE);
-    CHECK(room > 0.5f && room <= LIFT_RISE, "lift: room above the start (%.2f)", room);
-    // Under a ceiling: the eye kept a hand under it.
-    level_t low = g.lv;
-    int const cx = (int)floorf(start.x), cz = (int)floorf(start.z), cy = (int)floorf(start.y + 0.01f) + 3;
-    level_set(&low, cx, cy, cz, MAT_METAL);
-    float const r2 = lift_room(&low, start, LIFT_RISE);
-    CHECK(start.y + r2 + PL_EYE <= (float)cy - 0.2f, "lift: eye under the ceiling (%.2f + %.2f, ceiling %d)",
-          start.y, r2, cy);
-    lift_t l = {0};
-    CHECK(!lift_on(&l) && lift_lit(&l) == 1.0f, "lift: none at first, all lit");
-    lift_up(&l, &g);
-    int ev = 0, frames = 0;
-    while (!(ev & LIFT_EV_TOP) && frames++ < 200) ev = lift_step(&l, &g, 1.0f / 30.0f, false);
-    CHECK(ev & LIFT_EV_TOP, "lift: reaches the top");
-    CHECK(fabsf(g.pl.pos.y - (start.y + room)) < 1e-3f, "lift: up by its room (%.3f)", g.pl.pos.y - start.y);
-    CHECK(lift_lit(&l) < 0.01f, "lift: dark at the top");
-    CHECK(lift_step(&l, &g, 0.5f, true) == 0, "lift: waits at the top while asked");
-    float x, y0, y1, z;
-    lift_tube(&l, &x, &y0, &y1, &z);
-    CHECK(y0 < start.y && y1 > g.pl.pos.y + PL_EYE, "lift: the tube from the feet to over the eye");
-    game_load(&g, demo_chamber(demo_find("02-ledge")));
-    vec3_t const next = g.pl.pos;
-    lift_down(&l, &g);
-    CHECK(g.pl.pos.y > next.y, "lift: down from above the next start");
-    for (frames = 0, ev = 0; !(ev & LIFT_EV_LANDED) && frames++ < 200;) ev = lift_step(&l, &g, 1.0f / 30.0f, false);
-    CHECK((ev & LIFT_EV_LANDED) && !lift_on(&l), "lift: lands");
-    CHECK(near3(g.pl.pos, next, 1e-4f), "lift: on the next start exactly");
-    CHECK(lift_lit(&l) == 1.0f, "lift: all lit again");
+    game_load_level(&g, lv);
+    demo_player_t p;
+    demo_player_start(&p, steps);
+    lift_site_t const* site[2] = {&st->exit, &st->start};
+    vec3_t             was     = g.pl.pos;
+    int                bad     = 0;
+    for (int k = 0; k < 30 * 30; k++) {
+        int const    ev  = demo_player_step(&p, &g, 1.0f / 30.0f, 0.0f);
+        vec3_t const now = g.pl.pos;
+        for (int s = 0; s < 2; s++) {
+            lift_site_t const* l = site[s];
+            if (!l->on || l->fixed == 0) continue;
+            if (v3_len(v3_sub(now, was)) > 1.0f) continue;  // through a portal: not through the glass
+            float const ax = (was.x - l->x) / l->rx, az = (was.z - l->z) / l->rz;
+            float const bx = (now.x - l->x) / l->rx, bz = (now.z - l->z) / l->rz;
+            bool const  a_in = ax * ax + az * az < 1.0f, b_in = bx * bx + bz * bz < 1.0f;
+            bool const  low  = fminf(was.y, now.y) < l->y + l->cb && fmaxf(was.y, now.y) + 1.75f > l->y;
+            if (a_in == b_in || !low) continue;
+            float a = atan2f((ax + bx) * 0.5f, (az + bz) * 0.5f);
+            if (a < 0) a += 6.2831853f;
+            int const side = (int)(a / (6.2831853f / LIFT_SIDES)) % LIFT_SIDES;
+            if (l->fixed & (1u << side)) {
+                printf("FAIL %s: through the %s station's glass (side %d) at %.2f %.2f %.2f\n", what,
+                       s == 0 ? "exit" : "start", side, now.x, now.y, now.z);
+                bad++;
+            }
+        }
+        was = now;
+        if (ev & (PL_EV_EXIT | PL_EV_DIED)) break;
+    }
+    return bad;
+}
+
+// A whole ride from `exit` in `lv`, at frames of `fps` (0: uneven, 10 to
+// 50): into the next chamber `next`, landing as it loaded. True if so.
+static bool lift_ride(level_t const* lv, lift_sites_t const* st, level_t const* next, lift_sites_t const* nst,
+                      vec3_t at, float fps) {
+    static game_t g;
+    game_load_level(&g, lv);
+    g.pl.pos = at;
+    g.pl.vel = v3(3.0f, 0, -2.0f);
+    lift_site_t site;
+    if (!lift_exit_for(lv, st, at, &site)) return false;
+    lift_t   l = {0};
+    unsigned r = 12345u;
+    lift_enter(&l, &g, &site, false);
+    int  ev = 0, k = 0;
+    bool dark = false, shut = false;
+    for (; !(ev & LIFT_EV_TOP) && k < 2000; k++) {
+        r              = r * 1103515245u + 12345u;
+        float const dt = fps > 0 ? 1.0f / fps : 0.02f + 0.08f * (float)((r >> 8) & 0xFFFF) / 65535.0f;
+        ev             = lift_step(&l, &g, dt, false, 0, 0, 1.0f);
+        if (ev & LIFT_EV_SHUT) shut = true;
+        if (!isfinite(g.pl.pos.x) || !isfinite(g.pl.pos.y) || !isfinite(g.pl.pos.z) || !isfinite(g.pl.yaw)) return false;
+    }
+    dark = lift_lit(&l) < 0.02f;
+    if (!(ev & LIFT_EV_TOP) || !shut || !dark) return false;
+    game_load_level(&g, next);
+    player_t const fresh = g.pl;
+    lift_down(&l, &g, &nst->start);
+    if (!lift_on(&l)) return false;
+    for (ev = 0, k = 0; !(ev & LIFT_EV_LANDED) && k < 2000; k++) {
+        r              = r * 1103515245u + 12345u;
+        float const dt = fps > 0 ? 1.0f / fps : 0.02f + 0.08f * (float)((r >> 8) & 0xFFFF) / 65535.0f;
+        ev             = lift_step(&l, &g, dt, false, 0.3f, 0.2f, 1.0f);  // looking round: not coming down
+    }
+    return (ev & LIFT_EV_LANDED) && !lift_on(&l) && memcmp(&g.pl, &fresh, sizeof(fresh)) == 0 && lift_lit(&l) == 1.0f;
+}
+
+static void test_lift(void) {
+    static char    names[96][160];
+    static level_t lv, first;
+    static step_t  steps[SCRIPT_MAX_STEPS + 1];
+    static lift_sites_t first_st;
+    int const      n = lift_files(names, 96);
+    int            levels = 0, crossings = 0;
+    CHECK(n >= 40, "lift: chamber files found (%d)", n);
+    for (int f = 0; f < n; f++) {
+        char const* text = lift_slurp(names[f]);
+        if (text == NULL) continue;
+        int  ns = 0;
+        char err[96];
+        if (!chamber_parse(text, &lv, steps, &ns, err, sizeof(err))) continue;  // not a chamber (a desk file)
+        levels++;
+        lift_sites_t st;
+        lift_sites(&lv, &st);
+        CHECK(st.exit.on && st.start.on, "lift: %s has both stations", names[f]);
+        lift_site_t const* both[2] = {&st.exit, &st.start};
+        for (int s = 0; s < 2; s++) {
+            lift_site_t const* l = both[s];
+            if (!l->on) continue;
+            CHECK(l->rx >= 0.46f - 1e-4f && l->rx <= 0.9f + 1e-4f && l->rz >= 0.46f - 1e-4f && l->rz <= 0.9f + 1e-4f,
+                  "lift: %s: %s station %.2f x %.2f", names[f], s ? "start" : "exit", l->rx, l->rz);
+            CHECK(l->cb >= 1.85f && l->cb <= 2.2f && l->cb <= l->ceil, "lift: %s: halo at %.2f under %.2f", names[f],
+                  l->cb, l->ceil);
+            CHECK(l->rise >= 2.5f && l->rise + PL_EYE >= l->mouth + 1.0f, "lift: %s: rides into the dark", names[f]);
+        }
+        if (st.start.on)
+            CHECK(hypotf(lv.spawn.x - st.start.x, lv.spawn.z - st.start.z) <= fminf(st.start.rx, st.start.rz) - 0.42f + 1e-3f,
+                  "lift: %s: the start station round the spawn", names[f]);
+        // Its solution, and its TAS route if it has one: by the doors.
+        if (ns > 0) crossings += lift_crossings(&lv, &st, steps, names[f]);
+        char const* base = strrchr(names[f], '/');
+        char        tas[192];
+        snprintf(tas, sizeof(tas), "tas%s", base);
+        char const* route = strncmp(names[f], "chambers/", 9) == 0 ? lift_slurp(tas) : NULL;
+        if (route != NULL && chamber_parse_steps(route, steps, &ns, err, sizeof(err)))
+            crossings += lift_crossings(&lv, &st, steps, tas);
+        // A ride out of it, at badge frame rates and uneven ones, into the first chamber.
+        if (levels == 1) {
+            first    = lv;
+            first_st = st;
+        }
+        if (st.exit.on) {
+            static float const fps[] = {10, 15, 30, 50, 0};
+            for (int k = 0; k < 5; k++)
+                CHECK(lift_ride(&lv, &st, &first, &first_st, v3(st.exit.x + 0.3f, st.exit.y, st.exit.z - 0.2f), fps[k]),
+                      "lift: %s: a ride at %.0f fps lands as the next chamber loads", names[f], fps[k]);
+        }
+    }
+    CHECK(levels >= 40, "lift: chambers read (%d)", levels);
+    CHECK(crossings == 0, "lift: %d runs through glass", crossings);
 }
 
 // Walking into an eye-level portal pair at badge frame rates: one clean

@@ -1122,61 +1122,152 @@ static int body_portal(game_t const* g, int i) {
     return -1;
 }
 
-// The lift between chambers (main.c): a glass tube round the player, a
-// glowing ring at its foot and its head.
-static bool  s_lift_on;
-static float s_lift_x, s_lift_y0, s_lift_y1, s_lift_z;
+static game_t const* s_game;  // the frame being drawn (render_frame)
 
-void render_set_lift(bool on, float x, float y0, float y1, float z) {
-    s_lift_on = on;
-    s_lift_x  = x;
-    s_lift_y0 = y0;
-    s_lift_y1 = y1;
-    s_lift_z  = z;
+// The lift stations (lift.h): drawn from what main.c says of them.
+static lift_view_t s_lift_view;
+
+void render_set_lift(lift_view_t const* v) {
+    if (v == NULL)
+        memset(&s_lift_view, 0, sizeof(s_lift_view));
+    else
+        s_lift_view = *v;
+    s_lift_view.hide_cube = v == NULL ? -1 : v->hide_cube;
 }
 
-static void submit_lift(cam_t const* cam, clipset_t const* cs) {
-    if (!s_lift_on) return;
-    int const   n = 8;
-    float const r = 0.72f;
-    for (int i = 0; i < n; i++) {
-        float const  a0 = (float)i * 6.2831853f / (float)n, a1 = (float)(i + 1) * 6.2831853f / (float)n;
-        vec3_t const p0 = v3(s_lift_x + r * sinf(a0), 0, s_lift_z + r * cosf(a0));
-        vec3_t const p1 = v3(s_lift_x + r * sinf(a1), 0, s_lift_z + r * cosf(a1));
-        vec3_t const mid = v3_scale(v3_add(p0, p1), 0.5f);
-        // Facing in: the player sees the tube from inside it.
-        vec3_t const nin = v3_norm(v3(s_lift_x - mid.x, 0, s_lift_z - mid.z));
-        float const  h   = s_lift_y1 - s_lift_y0;
-        // The glass, a texture tile a metre.
-        cvert_t const q[4] = {{v3(p0.x, s_lift_y0, p0.z), 0, 0},
-                              {v3(p1.x, s_lift_y0, p1.z), 1, 0},
-                              {v3(p1.x, s_lift_y1, p1.z), 1, h},
-                              {v3(p0.x, s_lift_y1, p0.z), 0, h}};
-        // Without its texture glass would be a wall: the frame alone, then.
-        if (s_mat[MAT_GLASS].tex != NULL)
-            submit_quad(q, nin, cam, cs, &s_mat[MAT_GLASS], s_mat[MAT_GLASS].argb, s_mat[MAT_GLASS].flags);
-        // Its rings: a band of light at its foot and its head, and a white
-        // frame strut at each corner.
-        for (int k = 0; k < 2; k++) {
-            float const   y    = k ? s_lift_y1 - 0.12f : s_lift_y0 + 0.02f;
-            cvert_t const b[4] = {{v3(p0.x, y, p0.z), 0, 0},
-                                  {v3(p1.x, y, p1.z), 0, 0},
-                                  {v3(p1.x, y + 0.10f, p1.z), 0, 0},
-                                  {v3(p0.x, y + 0.10f, p0.z), 0, 0}};
-            submit_quad(b, nin, cam, cs, NULL, 0xFF8CE4FFu, SE_TRI_EMISSIVE | DECAL(1));
+#define LIFT_SIDE_A (3.14159265f / 4.0f)
+
+// A point on station `s`'s ellipse, `grow` out from it, at angle `a`.
+static vec3_t lift_at(lift_site_t const* s, float a, float grow, float y) {
+    return v3(s->x + (s->rx + grow) * sinf(a), y, s->z + (s->rz + grow) * cosf(a));
+}
+
+static bool lift_inside(lift_site_t const* s, vec3_t e) {
+    float const dx = (e.x - s->x) / s->rx, dz = (e.z - s->z) / s->rz;
+    return dx * dx + dz * dz < 1.0f;
+}
+
+// Side i of a band round the station, y0 to y1: facing the eye -- in from
+// inside the station, out from outside.
+static void lift_side(lift_site_t const* s, int i, float grow, float y0, float y1, bool in, cam_t const* cam,
+                      clipset_t const* cs, material_info_t const* m, uint32_t argb, uint32_t flags) {
+    float const  a0 = (float)i * LIFT_SIDE_A, a1 = (float)(i + 1) * LIFT_SIDE_A, am = (a0 + a1) * 0.5f;
+    vec3_t const p0 = lift_at(s, a0, grow, y0), p1 = lift_at(s, a1, grow, y0);
+    vec3_t       n  = v3_norm(v3(sinf(am) / (s->rx + grow), 0, cosf(am) / (s->rz + grow)));
+    if (in) n = v3_scale(n, -1.0f);
+    float const   h    = y1 - y0;
+    cvert_t const q[4] = {{p0, 0, 0}, {p1, 1, 0}, {v3(p1.x, y1, p1.z), 1, h}, {v3(p0.x, y1, p0.z), 0, h}};
+    submit_quad(q, n, cam, cs, m, argb, flags);
+}
+
+static void lift_band(lift_site_t const* s, float grow, float y0, float y1, bool in, cam_t const* cam,
+                      clipset_t const* cs, uint32_t argb, uint32_t flags) {
+    for (int i = 0; i < LIFT_SIDES; i++) lift_side(s, i, grow, y0, y1, in, cam, cs, NULL, argb, flags);
+}
+
+// A flat octagon at height y, facing up (or down).
+static void lift_disc(lift_site_t const* s, float grow, float y, bool up, cam_t const* cam, clipset_t const* cs,
+                      uint32_t argb, uint32_t flags) {
+    cvert_t q[LIFT_SIDES];
+    for (int i = 0; i < LIFT_SIDES; i++) {
+        int const k = up ? LIFT_SIDES - 1 - i : i;
+        q[i]        = (cvert_t){lift_at(s, (float)k * LIFT_SIDE_A, grow, y), 0, 0};
+    }
+    submit_poly(q, LIFT_SIDES, v3(0, up ? 1.0f : -1.0f, 0), cam, cs, NULL, argb, flags);
+}
+
+// An open portal on the floor (or ceiling) at height y near station s.
+static bool lift_portal_near(lift_site_t const* s, float y, bool floor) {
+    for (int i = 0; i < 2; i++) {
+        portal_t const* p = &s_game->portals[i];
+        if (!p->open || (floor ? p->n.y < 0.9f : p->n.y > -0.9f) || fabsf(p->center.y - y) > 0.2f) continue;
+        if (hypotf(p->center.x - s->x, p->center.z - s->z) < fmaxf(s->rx, s->rz) + 0.9f) return true;
+    }
+    return false;
+}
+
+static void submit_lift_solid(cam_t const* cam, clipset_t const* cs) {
+    for (int k = 0; k < s_lift_view.n; k++) {
+        lift_station_view_t const* v = &s_lift_view.st[k];
+        lift_site_t const*         s = &v->site;
+        vec3_t const               e = cam->pos;
+        bool const                 in = lift_inside(s, e);
+        float const                fy = s->y, car = fy + v->dy, top = fy + (s->hatch ? s->ceil : s->mouth);
+        // Too far off to matter: past 40 m, or wholly behind the eye.
+        vec3_t const c = v3(s->x, fy + 1.5f, s->z);
+        float const  dc = v3_len(v3_sub(c, e));
+        if (dc > 40.0f || (dc > 3.0f && v3_dot(v3_sub(c, e), cam->b.fwd) < -2.5f)) continue;
+        // The collar on the floor: green for the way out, white for the way in.
+        if (!lift_portal_near(s, fy, true))
+            lift_band(s, 0.02f, fy, fy + 0.08f, in, cam, cs, v->exit ? 0xFF6CF0C8u : 0xFFE4ECFFu,
+                      SE_TRI_EMISSIVE | DECAL(1));
+        // The halo, riding with the car, and its door light under it.
+        lift_band(s, 0.0f, car + s->cb, car + s->cb + 0.15f, in, cam, cs, 0xFFE8ECF0u, 0);
+        lift_band(s, 0.005f, car + s->cb - 0.03f, car + s->cb, in, cam, cs, v->shut_light ? 0xFFFF8A1Cu : 0xFF2C8CFFu,
+                  SE_TRI_EMISSIVE | DECAL(1));
+        // Four rails, floor to hatch, turned to the eye.
+        for (int r = 0; r < 4; r++) {
+            float const  a    = ((float)r * 2.0f + 1.0f) * LIFT_SIDE_A;
+            vec3_t const p    = lift_at(s, a, 0.04f, fy);
+            vec3_t const to   = v3_norm(v3(e.x - p.x, 0, e.z - p.z));
+            vec3_t const side = v3(to.z * 0.025f, 0, -to.x * 0.025f);
+            cvert_t const q[4] = {{v3_sub(p, side), 0, 0},
+                                  {v3_add(p, side), 0, 0},
+                                  {v3_add(v3(p.x, top, p.z), side), 0, 0},
+                                  {v3_sub(v3(p.x, top, p.z), side), 0, 0}};
+            submit_quad(q, to, cam, cs, NULL, 0xFFD8DCE0u, 0);
         }
-        vec3_t const  side = v3_scale(v3_norm(v3_sub(p1, p0)), 0.03f);
-        cvert_t const s[4] = {{v3_sub(v3(p0.x, s_lift_y0, p0.z), side), 0, 0},
-                              {v3_add(v3(p0.x, s_lift_y0, p0.z), side), 0, 0},
-                              {v3_add(v3(p0.x, s_lift_y1, p0.z), side), 0, 0},
-                              {v3_sub(v3(p0.x, s_lift_y1, p0.z), side), 0, 0}};
-        submit_quad(s, nin, cam, cs, NULL, 0xFFE8ECF0u, DECAL(1));
+        if (s->hatch) {
+            if (!lift_portal_near(s, fy + s->ceil, false)) lift_disc(s, 0.06f, fy + s->ceil, false, cam, cs, 0xFF202428u, DECAL(1));
+        } else {
+            lift_band(s, 0.06f, fy + s->mouth, fy + s->mouth + 0.12f, in, cam, cs, 0xFFB8BEC6u, 0);  // the mouth, hung in the air
+        }
+        // The car's floor, once it is off the ground.
+        if (v->dy > 0.02f) lift_disc(s, 0.06f, car, true, cam, cs, 0xFF3A3E44u, 0);
+        // Riding: the shaft, lit, from the mouth up.
+        if (v->shaft && e.y > fy + s->mouth - 1.0f) {
+            float const y0 = fy + s->mouth, y1 = y0 + s->rise + 2.4f;
+            lift_band(s, 0.06f, y0, y1, true, cam, cs, 0xFF181A1Eu, 0);
+            for (int b = 0; b < 3; b++) {
+                float const y = y0 + 0.9f + 1.2f * (float)b;
+                lift_band(s, 0.05f, y, y + 0.04f, true, cam, cs, 0xFFBFE8FFu, SE_TRI_EMISSIVE | DECAL(1));
+            }
+            lift_disc(s, 0.06f, y1, false, cam, cs, 0xFF101214u, 0);
+        }
+    }
+}
+
+// The glass: the panels that stay, and the doors as far down as they are.
+// One layer of a convex station never overlaps itself, so in the order
+// given it needs no sorting: the far station first.
+static void submit_lift_glass(cam_t const* cam, clipset_t const* cs) {
+    material_info_t const* m = &s_mat[MAT_GLASS];
+    if (m->tex == NULL) return;  // without its texture glass would be a wall
+    int order[2] = {0, 1};
+    if (s_lift_view.n == 2) {
+        float const d0 = v3_len(v3_sub(v3(s_lift_view.st[0].site.x, 0, s_lift_view.st[0].site.z), cam->pos));
+        float const d1 = v3_len(v3_sub(v3(s_lift_view.st[1].site.x, 0, s_lift_view.st[1].site.z), cam->pos));
+        if (d1 > d0) order[0] = 1, order[1] = 0;
+    }
+    for (int o = 0; o < s_lift_view.n; o++) {
+        lift_station_view_t const* v  = &s_lift_view.st[order[o]];
+        lift_site_t const*         s  = &v->site;
+        bool const                 in = lift_inside(s, cam->pos);
+        float const                car = s->y + v->dy, top = car + s->cb - 0.03f;
+        for (int i = 0; i < LIFT_SIDES; i++) {
+            float const shut = (s->fixed & (1u << i)) ? 1.0f : v->closed[i];
+            if (shut < 0.01f) continue;
+            float const y0 = top - (top - car) * shut;
+            lift_side(s, i, 0.0f, y0, top, in, cam, cs, m, m->argb, m->flags);
+            if (!(s->fixed & (1u << i)))  // the door's lit edge
+                lift_side(s, i, 0.004f, y0, y0 + 0.02f, in, cam, cs, NULL, 0xFFBFE8FFu, SE_TRI_EMISSIVE);
+        }
     }
 }
 
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
-        if (g->cubes[i].gone) continue;
+        if (g->cubes[i].gone || i == s_lift_view.hide_cube) continue;
         // Part way through a portal: drawn again, carried out of the other
         // one. Drawn once, what had gone past the plane was missing, and
         // through the portal the cut cube showed hollow, flickering as it
@@ -1619,7 +1710,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         if (cut & (1 << i)) portal_behind(&portals[i], cam->pos, &s_cut[s_ncut++]);
     submit_level(cam, cs);
     submit_things(s_game, cam, cs);
-    submit_lift(cam, cs);
+    submit_lift_solid(cam, cs);
     submit_chell(s_game, cam, cs);
     // The ghosts of the best runs, where they are -- not one the eye is in.
     for (int i = 0; i < s_ghost_n; i++) {
@@ -1652,6 +1743,7 @@ static void draw_pass(pax_buf_t* target, cam_t const* cam, clipset_t const* cs, 
         };
         submit_quad(v, q->n, cam, cs, m, m->argb, m->flags);
     }
+    submit_lift_glass(cam, cs);
     scene_render(SE_RENDER_ZBUFFER);
     s_ncut = 0;
     s_stat_passes++;
@@ -1725,7 +1817,7 @@ void render_frame(pax_buf_t* target, game_t const* g) {
 
     // Glass and fizzlers blend, and only come out right drawn after
     // everything solid and far to near: the engine's depth-order pass.
-    scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = s_nclear > 0 || s_lift_on});
+    scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = s_nclear > 0});
 
     int fill = 0, cut = 0;
     if (portals[0].open && portals[1].open) {

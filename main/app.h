@@ -2,6 +2,7 @@
 // main.c, for the parts of the app around the game (watch.c).
 
 #include "game.h"
+#include "lift.h"
 
 game_t* app_game(void);
 // Chamber `index` loaded, fresh; its story told unless it was the last
@@ -12,3 +13,5 @@ void    app_tell_again(void);
 // To the title screen, the chambers playing behind it.
 void    app_to_title(void);
 float   app_fps(void);
+// The lift stations of the chamber in play.
+lift_sites_t const* app_lift_sites(void);

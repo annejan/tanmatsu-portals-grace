@@ -72,9 +72,37 @@ static int64_t s_loaded_us;               // when a chamber was last loaded: 0 o
 
 // The lift between chambers (Settings: Lifts): up out of one, in the dark
 // the next loaded, down into it -- no stop between them.
-static lift_t s_lift;
+static lift_t       s_lift;
+static lift_sites_t s_sites;  // the stations of the chamber in s_game (lift.h)
+static char         s_sites_of[96];  // ... which it is: see sites_now()
 static int    s_lift_next;
-static bool   s_lift_hold;  // at the top until the message is read (a race's verdict, the end)
+static bool   s_lift_hold;  // shut, until the message is read (a race's verdict, the end)
+
+// The stations of the chamber in s_game, worked out again if that is
+// another chamber now (the title's attract mode loads its own).
+static lift_sites_t const* sites_now(void) {
+    char           key[sizeof(s_sites_of)];
+    level_t const* lv = &s_game.lv;
+    snprintf(key, sizeof(key), "%.31s %d %d %d %.2f %.2f %.2f", lv->name, lv->w, lv->h, lv->d, (double)lv->spawn.x,
+             (double)lv->spawn.y, (double)lv->spawn.z);
+    if (strcmp(key, s_sites_of) != 0) {
+        lift_sites(lv, &s_sites);
+        snprintf(s_sites_of, sizeof(s_sites_of), "%s", key);
+    }
+    return &s_sites;
+}
+
+lift_sites_t const* app_lift_sites(void) {
+    return sites_now();
+}
+
+// The lift's sounds.
+static void lift_sounds(int ev) {
+    if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
+    if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
+    if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
+    if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
+}
 
 static int   s_story_end       = -1;      // a story pack done: its index, while its ending is told
 static float s_story_end_t;               // ... for this long so far
@@ -988,6 +1016,27 @@ static void play_frame(float dt) {
         s_pending_chamber = -1;
         s_lift.phase      = LIFT_NONE;
     }
+    if (lift_on(&s_lift)) {
+        // The lift: in, shut, up, and down into the next. Jump, Use or a
+        // shot hurries it.
+        bool const  hurry = in.jump || in.use || in.fire[0] || in.fire[1];
+        int const   ev    = lift_step(&s_lift, &s_game, dt, s_lift_hold && hud_message_up(), in.dyaw, in.dpitch,
+                                      hurry ? 3.0f : 1.0f);
+        lift_sounds(ev);
+        if (ev & LIFT_EV_LANDED) input_resync();  // there: on with it
+        if (ev & LIFT_EV_TOP) {
+            // At the top, in the dark: the next chamber, and down into it.
+            if (!play_from(s_lift_next)) {
+                s_lift.phase = LIFT_NONE;
+                title_saying_why();
+                return;
+            }
+            if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
+            lift_down(&s_lift, &s_game, &sites_now()->start);
+            return;
+        }
+        if (s_story_end < 0) return;  // a pack's end goes on, shut in the lift
+    }
     // A story pack's end: its ending told -- typed out, and said -- then the
     // title screen.
     if (s_story_end >= 0) {
@@ -1007,22 +1056,6 @@ static void play_frame(float dt) {
         menu_set_round(false);
         desk_after_round(&s_desk, &s_desk_result);
         desk_save();
-        return;
-    }
-    if (lift_on(&s_lift)) {
-        // The lift: the player stands still in it, rising, then falling.
-        int const ev = lift_step(&s_lift, &s_game, dt, s_lift_hold && hud_message_up());
-        if (ev & LIFT_EV_LANDED) input_resync();  // there: on with it
-        if (!(ev & LIFT_EV_TOP)) return;
-        // At the top, in the dark: the next chamber, and down into it.
-        if (!play_from(s_lift_next)) {
-            s_lift.phase = LIFT_NONE;
-            title_saying_why();
-            return;
-        }
-        if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
-        lift_down(&s_lift, &s_game);
-        sound_play(SND_TELEPORT);
         return;
     }
     if (s_pending_chamber >= 0 && !hud_message_up()) {
@@ -1114,6 +1147,10 @@ static void play_frame(float dt) {
         }
         if (pk >= 0 && last) {
             story_ending(pk);
+            // Into the lift, shut, while its ending is told.
+            lift_site_t site;
+            if (settings_lifts() && !s_story_on && lift_exit_for(&s_game.lv, sites_now(), s_game.pl.pos, &site))
+                lift_enter(&s_lift, &s_game, &site, true);
             if (s_race_msg[0]) {
                 // The pack's end, and how the last race went.
                 char msg[HUD_MESSAGE_N];
@@ -1131,12 +1168,12 @@ static void play_frame(float dt) {
             int const next = pk >= 0 ? pack_get(pk)->chamber[at + 1] : (s_game.chamber + 1) % inorder;
             // Continue: the next one, even if play stops before it loads.
             settings_set_chamber(chamber_id(next));
-            if (settings_lifts()) {
-                // Up and out, into the next: no stop.
-                lift_up(&s_lift, &s_game);
+            lift_site_t site;
+            if (settings_lifts() && lift_exit_for(&s_game.lv, sites_now(), s_game.pl.pos, &site)) {
+                // Into the lift, and up and out into the next: no stop.
+                lift_enter(&s_lift, &s_game, &site, false);
                 s_lift_next = next;
                 s_lift_hold = s_race_msg[0] || last;
-                sound_play(SND_TELEPORT);
             } else {
                 s_pending_chamber = next;
             }
@@ -1229,20 +1266,22 @@ static void on_render(pax_buf_t* fb, void* user) {
     player_t gp[GHOST_RIVALS + 1];
     uint8_t  gt[GHOST_RIVALS + 1];
     int      ng = 0;
-    if (s_ghost_live && s_mode == MODE_PLAY && !title)
+    if (s_ghost_live && s_mode == MODE_PLAY && !title && !lift_on(&s_lift))
         for (int i = 0; i < ghost_count(&s_ghost); i++)
             if (ghost_pose(&s_ghost, i, &gp[ng])) gt[ng++] = (uint8_t)racer_tint(i);
     render_set_ghosts(gp, gt, ng);
     // The lift's tube, from where the player's feet were to above where
     // they go.
-    lift_t const* const lift = watch_on() ? watch_lift() : &s_lift;
+    // The lift stations, and the one being ridden: in play, in a
+    // play-test and behind the title -- not in a desk story's rounds.
+    lift_t const* const lift    = watch_on() ? watch_lift() : &s_lift;
     bool const          lifting = lift != NULL && lift_on(lift) && s_mode == MODE_PLAY && !title;
-    if (lifting) {
-        float lx, ly0, ly1, lz;
-        lift_tube(lift, &lx, &ly0, &ly1, &lz);
-        render_set_lift(true, lx, ly0, ly1, lz);
+    if (settings_lifts() && !s_story_on && (s_mode == MODE_PLAY || s_mode == MODE_TEST)) {
+        lift_view_t view;
+        lift_view(lifting ? lift : NULL, sites_now(), &view);
+        render_set_lift(&view);
     } else {
-        render_set_lift(false, 0, 0, 0, 0);
+        render_set_lift(NULL);
     }
     int64_t const t0 = esp_timer_get_time();
     if (title) {
