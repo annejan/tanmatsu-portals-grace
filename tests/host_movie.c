@@ -5,6 +5,14 @@
 // films the demos one after the other, as the game goes from chamber to
 // chamber, each at most SECONDS long: it writes $BUILD/shots/movie_N.ppm
 // at 10 frames a second, $BUILD/movie.wav and $BUILD/movie.txt (below).
+//
+// HOST_MOVIE_LIFTS=1: from chamber to chamber by lift, as the game goes
+// with Settings -> Lifts. HOST_MOVIE_BADGE=1 (lifts too): only what the
+// badge itself shows -- no titles; the first chamber arrived at by lift,
+// as after Continue; the film over at the top of the last ride up; and on
+// every picture the game's own HUD (main/hud.c, tests/movie_hud.c) and
+// the lift's fade in RGB565, as main.c's on_render draws them, less the
+// frame rate line.
 // The frames come from host_shot's rasterizer, included below, through a
 // camera of their own (below); the sound is the game's own -- sound.c,
 // speech.c with SAM, the engine's music -- mixed here offline as the
@@ -16,7 +24,9 @@
 #undef main
 
 #include "cine.h"
+#include "hud.h"
 #include "lift.h"
+#include "movie_hud.h"
 #include "sound.h"
 
 #define FPS        10
@@ -126,7 +136,8 @@ static void plan_camera(void) {
 
 // --- The recording ------------------------------------------------------------
 //
-// $BUILD/movie.txt has a line per frame of film -- "C" the opening titles,
+// $BUILD/movie.txt has a line per frame of film -- "C" the opening titles
+// (none with HOST_MOVIE_BADGE),
 // "P\tN\ttyped\tturret\tmessage\ttime\texit" the picture movie_N with the
 // HUD on it, `time` into the run (the exit reached at `exit`, or -1),
 // "E" the closing titles -- and "S\tname\thint\tstory" where a chamber
@@ -149,6 +160,7 @@ typedef struct {
     char const* done;    // what the game says at the exit
     bool        tas;     // HOST_MOVIE_TAS: a tool-assisted run, filmed as it goes
     bool        lifts;   // HOST_MOVIE_LIFTS: from chamber to chamber by lift (lift.h), as the game goes
+    bool        badge;   // HOST_MOVIE_BADGE: what the badge shows, its HUD drawn on the pictures (above)
 } rec_t;
 
 // With lifts: the chamber's stations, drawn all along, and the game as it
@@ -156,6 +168,7 @@ typedef struct {
 static lift_sites_t s_sites;
 static game_t       s_exit;
 static bool         s_exit_have;
+static lift_depart_t s_depart;  // the start's car, going back up once the player is out
 
 // The sound, up to the film's time `t`.
 static void sound_to(rec_t* r, float t) {
@@ -202,10 +215,29 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
         (r->tas || !sound_saying() || now > r->exit_t + 15.0f))
         return;
     r->last = now;
+    // Every step, not only those filmed: the start's car goes at its own
+    // pace, and the exit is reached on a step between two pictures as
+    // often as not.
+    if (r->lifts) {
+        int const dev = lift_depart_step(&s_depart, &s_sites.start, g->pl.pos, TICK);
+        if (dev & LIFT_EV_DOOR) sound_play(SND_DOOR);
+        if (dev & LIFT_EV_RIDE) sound_play(SND_HUM);
+    }
+    if (r->lifts && (ev & PL_EV_EXIT)) {
+        s_exit          = *g;  // the ride begins as the camera saw it
+        s_exit.pl.yaw   = k < s_n ? s_cam[k][0] : g->pl.yaw;
+        s_exit.pl.pitch = k < s_n ? s_cam[k][1] : g->pl.pitch;
+        s_exit_have     = true;
+    }
     sound_events(ev);
     sound_update();
     float const film = r->t0 + now;
     sound_to(r, film);
+    if (r->badge) {
+        // main.c's play frame: the HUD's clocks, and at the exit its word.
+        hud_tick(TICK);
+        if (ev & PL_EV_EXIT) hud_message(r->done);
+    }
 
     char const* said = NULL;
     int const   n    = sound_turret_said(&said);
@@ -220,19 +252,16 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     shot          = *g;
     shot.pl.yaw   = k < s_n ? s_cam[k][0] : g->pl.yaw;
     shot.pl.pitch = k < s_n ? s_cam[k][1] : g->pl.pitch;
-    if (r->lifts && (ev & PL_EV_EXIT)) {
-        s_exit      = shot;  // the ride begins as the camera saw it
-        s_exit_have = true;
-    }
     for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
     if (r->lifts) {
         lift_view_t v;
-        lift_view(NULL, &s_sites, &v);
+        lift_view(NULL, &s_sites, &s_depart, &v);
         render_set_lift(&v);
     }
     render_set_level(&shot.lv, shot.portals);
     render_set_time(now);
     render_frame(NULL, &shot);
+    if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
     char name[32];
     snprintf(name, sizeof(name), "movie_%05d", r->pic);
     save(name);
@@ -252,33 +281,51 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
 // A ride, up out of the chamber in `g` (from its exit) or down into it
 // (onto its start), filmed: the lift's own sounds, the screen dark at the
 // top of the shaft, the HUD saying `msg` with the run's clock at `time`.
-// Up, it waits shut while GLaDOS finishes what she is saying.
-static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float time, float exit_t) {
+// Up, it waits shut while GLaDOS finishes what she is saying -- with
+// HOST_MOVIE_BADGE as main.c's does: shut while the message is up after
+// the `last` chamber, else straight on.
+static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float time, float exit_t, bool last) {
     float t = 0.0f;
     for (int k = 0; k < 4000 && lift_on(l); k++) {
-        bool const talking = sound_saying() && t < 15.0f;
-        int const  ev      = lift_step(l, g, TICK, l->phase == LIFT_HOLD && talking, 0.0f, 0.0f, r->tas ? 1.5f : 1.0f);
+        bool const talking = r->badge ? last && hud_message_up() : sound_saying() && t < 15.0f;
+        if (r->badge) hud_tick(TICK);  // main.c's play frame: before the lift's step
+        if (l->car_exit) {
+            // Up out of the chamber: the start's car still on its way up, as
+            // main.c steps it, before the lift.
+            int const dev = lift_depart_step(&s_depart, &s_sites.start, g->pl.pos, TICK);
+            if (dev & LIFT_EV_DOOR) sound_play(SND_DOOR);
+            if (dev & LIFT_EV_RIDE) sound_play(SND_HUM);
+        }
+        int const ev = lift_step(l, g, TICK, l->phase == LIFT_HOLD && talking, 0.0f, 0.0f, r->tas ? 1.5f : 1.0f);
         if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
         if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
-        if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
-        if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
+        if (ev & LIFT_EV_RIDE) sound_play(SND_HUM);
+        if (ev & LIFT_EV_LAND) {
+            sound_play(SND_LAND);
+            sound_play(SND_DING);
+        }
         t += TICK;
         sound_update();
         float const film = r->t0 + t;
         sound_to(r, film);
         if (film + 1e-4f >= (float)r->frame / FPS) {
             lift_view_t v;
-            lift_view(l, &s_sites, &v);
+            lift_view(l, &s_sites, &s_depart, &v);
             render_set_lift(&v);
             for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
             render_set_level(&g->lv, g->portals);
             render_frame(NULL, g);
-            // Dark at the top of the shaft.
+            // Dark at the top of the shaft: on the badge, hud_fade's, with
+            // the HUD over it.
             uint32_t const lit = (uint32_t)(256.0f * lift_lit(l));
-            for (int p = 0; p < W * H; p++) {
-                uint32_t const c = s_px[p];
-                s_px[p] = 0xFF000000u | (((c >> 16 & 0xFFu) * lit >> 8) << 16) | (((c >> 8 & 0xFFu) * lit >> 8) << 8) |
-                          ((c & 0xFFu) * lit >> 8);
+            if (r->badge) {
+                movie_hud_frame(s_px, lift_lit(l), g);
+            } else {
+                for (int p = 0; p < W * H; p++) {
+                    uint32_t const c = s_px[p];
+                    s_px[p] = 0xFF000000u | (((c >> 16 & 0xFFu) * lit >> 8) << 16) |
+                              (((c >> 8 & 0xFFu) * lit >> 8) << 8) | ((c & 0xFFu) * lit >> 8);
+                }
             }
             char name[32];
             snprintf(name, sizeof(name), "movie_%05d", r->pic);
@@ -331,7 +378,13 @@ int main(int argc, char** argv) {
     r.tas           = tas != NULL && tas[0] == '1';
     char const* lifts = getenv("HOST_MOVIE_LIFTS");
     r.lifts           = lifts != NULL && lifts[0] == '1';
-    titles(&r, "C", OPEN_S);
+    char const* badge = getenv("HOST_MOVIE_BADGE");
+    r.badge           = badge != NULL && badge[0] == '1';
+    r.lifts          |= r.badge;
+    if (r.badge)
+        movie_hud_init();
+    else
+        titles(&r, "C", OPEN_S);
     for (int a = 2; a < argc; a++) {
         int const     i = demo_find(argv[a]);
         static game_t g;
@@ -340,14 +393,23 @@ int main(int argc, char** argv) {
         snprintf(story, sizeof(story), "%s", g.lv.story);
         fprintf(r.txt, "S\t%s\t%s\t%s\n", g.lv.name, g.lv.hint, story);
         lift_sites(&g.lv, &s_sites);
+        lift_depart_reset(&s_depart);
         s_exit_have = false;
-        if (r.lifts && a > 2) {
-            // Down into it, from the last one's lift.
+        if (r.badge) {
+            // main.c's load_chamber and play_chamber, at the top of the
+            // shaft: the story begins, said and typed, and the name is up.
+            sound_say(story[0] ? story : NULL);
+            hud_story_start();
+            hud_message(g.lv.name);
+        }
+        if (r.lifts && (a > 2 || r.badge)) {
+            // Down into it, from the last one's lift -- on the badge the
+            // first too, as Continue arrives (main.c's arrive_by_lift).
             static game_t ride;
             static lift_t l;
             ride = g;
             lift_down(&l, &ride, &s_sites.start);
-            film_ride(&r, &ride, &l, g.lv.name, 0.0f, -1.0f);
+            film_ride(&r, &ride, &l, g.lv.name, 0.0f, -1.0f, false);
         }
         static demo_state_t st;
         // Paced, unless that misses the exit: a solution timed to a moving
@@ -369,7 +431,7 @@ int main(int argc, char** argv) {
         r.last   = 0.0f;
         r.step   = 0;
         r.done   = a + 1 < argc ? "Chamber complete" : "All chambers complete. Cake later.";
-        sound_say(story[0] ? story : NULL);
+        if (!r.badge) sound_say(story[0] ? story : NULL);
         demo_run(i, cap, TICK, &st, film_tick, &r, pace);
         r.t0 += r.last;
         if (r.lifts && s_exit_have) {
@@ -378,11 +440,11 @@ int main(int argc, char** argv) {
             lift_site_t   site;
             if (lift_exit_for(&s_exit.lv, &s_sites, s_exit.pl.pos, &site)) {
                 lift_enter(&l, &s_exit, &site, false);
-                film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t);
+                film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t, a + 1 >= argc);
             }
         }
     }
-    titles(&r, "E", CLOSE_S);
+    if (!r.badge) titles(&r, "E", CLOSE_S);
 
     uint32_t const data = (uint32_t)(r.frames_out * 4), rate = AUDIO_SAMPLE_RATE_HZ;
     uint32_t const h[] = {0x46464952u, 36 + data, 0x45564157u, 0x20746d66u, 16,  0x00020001u,

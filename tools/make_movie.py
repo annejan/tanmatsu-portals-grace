@@ -6,6 +6,11 @@ on from one to the next.
 
     tools/make_movie.py DEMO [DEMO...] [--mp4 OUT.mp4] [--gif OUT.gif] [--chambers DIR] [--work DIR]
 
+--badge films only what the badge itself shows: no title cards and no
+fades of this tool's, the game's own HUD (main/hud.c, drawn by the
+recorder) on every picture, lifts between the chambers and into the
+first, the film over at the top of the last ride up.
+
 A DEMO is a demo name (a chamber file's id, such as 12-redirection); a
 chamber from DIR, as the badge reads them from the SD card, needs its
 solution in the file. Needs Pillow and ffmpeg. `make movie` builds the
@@ -101,11 +106,16 @@ def main():
                     help="from chamber to chamber by lift, as the game goes with Settings -> Lifts (main/lift.h)")
     ap.add_argument("--splash", help="a JSON list [[picture, seconds], ...] shown before the opening card: the "
                     "splash screens as the badge starts (build/host_splash)")
+    ap.add_argument("--badge", action="store_true",
+                    help="only the fades and text the badge shows: its own HUD (main/hud.c, less the frame rate), "
+                    "no title cards, no fades but the lifts' (implies --lifts)")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
     if not a.mp4 and not a.gif:
         ap.error("--mp4 and/or --gif")
+    if a.badge:
+        a.lifts = True
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     recorder = os.path.join(root, "build", "movie", "host_movie")
@@ -119,7 +129,7 @@ def main():
         Image.open(f).convert("RGB").save(os.path.join(tex, os.path.basename(f)[:-4] + ".ppm"))
 
     env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0",
-               HOST_MOVIE_LIFTS="1" if a.lifts else "0")
+               HOST_MOVIE_LIFTS="1" if a.lifts else "0", HOST_MOVIE_BADGE="1" if a.badge else "0")
     if a.tas:
         env["HOST_MOVIE_TICK"] = "0.033333"  # 30 frames a second: the badge's TAS (tools/tas.py)
     if a.chambers:
@@ -169,6 +179,12 @@ def main():
             return got
         fi = 0  # into frames, which has one per P, C or E line
         opened = False
+        if a.badge:
+            # No opening card: the splash screens, then the game.
+            opened = True
+            out += pictures("start")
+            if out:
+                silences.append((0, len(out)))
         for line in lines:
             if line[0] == "C" and not opened:
                 opened = True  # the splash screens, before the opening card
@@ -191,6 +207,11 @@ def main():
                     out += extra
                 out.append(frames[fi])
                 fi += 1
+        if a.badge and not closing_seen:
+            extra = pictures("end")
+            if extra:
+                silences.append((fi, len(extra)))
+            out += extra
         frames = out
 
     # The game's version, on the titles: which game this is a film of.
@@ -229,6 +250,9 @@ def main():
 
     def hud(f):
         """A frame of play, with the HUD on it as hud.c draws it."""
+        if a.badge:  # drawn by hud.c itself: the badge's pixels, each doubled
+            return Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h),
+                                                                                                      Image.NEAREST)
         im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h), Image.LANCZOS)
         d = ImageDraw.Draw(im)
         d.text((8 * SCALE, 6 * SCALE), f["name"], font=f_name, fill=(255, 255, 255))
@@ -278,7 +302,8 @@ def main():
     def picture(f):
         if f["png"] not in pic_cache:
             pic_cache.clear()
-            pic_cache[f["png"]] = Image.open(f["png"]).convert("RGB").resize((w, h), Image.LANCZOS)
+            pic_cache[f["png"]] = Image.open(f["png"]).convert("RGB").resize(
+                (w, h), Image.NEAREST if a.badge else Image.LANCZOS)
         return pic_cache[f["png"]]
 
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
@@ -291,7 +316,7 @@ def main():
     for kind, run in runs(frames):
         for j, f in enumerate(run):
             im = opening if kind == "C" else closing if kind == "E" else picture(f) if kind == "I" else hud(f)
-            ff.stdin.write(fade(im, min(j, len(run) - 1 - j) / fade_n).tobytes())
+            ff.stdin.write((im if a.badge else fade(im, min(j, len(run) - 1 - j) / fade_n)).tobytes())
             n += 1
     ff.stdin.close()
     if ff.wait() != 0:

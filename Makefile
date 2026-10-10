@@ -116,10 +116,14 @@ shots: host_shot
 # chamber files, as on the SD card. make movie DEMO=12-redirection
 DEMO     ?= 12-redirection
 MOVIE    ?= $(BUILD)/$(DEMO).mp4
+# main/hud.c, for --badge (tests/movie_hud.c), is built on its own: it wants
+# the real PAX headers, as host_splash does.
 host_movie: chambers_c
 	mkdir -p $(BUILD)/movie
+	$(HOSTCC) -O2 -Wall -Wextra -c -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+		$(ENGINE_DEFS) tests/movie_hud.c -o $(BUILD)/movie/movie_hud.o
 	$(HOSTCC) -O2 -fcommon -w -Imain -Itests/movie_shims $(HOST_ENGINE) -Itests/shims $(ENGINE_DEFS) \
-		tests/host_movie.c main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
+		tests/host_movie.c $(BUILD)/movie/movie_hud.o main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
 		synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
 		third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
 		-lm -o $(BUILD)/movie/host_movie

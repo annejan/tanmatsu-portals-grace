@@ -194,12 +194,14 @@ void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
     }
 
     if (info->test) return;
-    int  passes, tris;
-    char stat[64];
-    render_stats(&passes, &tris);
-    snprintf(stat, sizeof(stat), "%2.0f fps %3d ms  %d pass %d tri%s%s", (double)info->fps, info->render_ms, passes,
-             tris, info->half ? "  half" : "", info->gyro ? "  gyro" : "");
-    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
+    if (!info->no_stats) {
+        int  passes, tris;
+        char stat[64];
+        render_stats(&passes, &tris);
+        snprintf(stat, sizeof(stat), "%2.0f fps %3d ms  %d pass %d tri%s%s", (double)info->fps, info->render_ms,
+                 passes, tris, info->half ? "  half" : "", info->gyro ? "  gyro" : "");
+        rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, DISPLAY_LOG_H - 18, stat);
+    }
     draw_subtitle(fb, draw_story(fb, g->lv.story));
     draw_message(fb);
 }

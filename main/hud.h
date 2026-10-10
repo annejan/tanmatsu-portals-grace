@@ -58,6 +58,7 @@ typedef struct {
     bool               recording;   // a run being recorded: REC, under the keys
     hud_timer_t const* timer;       // or NULL
     hud_race_t const*  race;        // a ghost race (ghost.h), or NULL
+    bool               no_stats;    // no frame rate line (a film made on a PC: its numbers would be made up)
 } hud_info_t;
 
 void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info);
