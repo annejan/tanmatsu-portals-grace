@@ -76,6 +76,7 @@ static int64_t s_loaded_us;               // when a chamber was last loaded: 0 o
 static lift_t       s_lift;
 static lift_sites_t s_sites;  // the stations of the chamber in s_game (lift.h)
 static uint32_t     s_sites_of;  // ... the load they are of (game_t.loaded)
+static lift_depart_t s_depart;   // the start's car, going back up once the player is out
 static int    s_lift_next;
 static bool   s_lift_hold;  // shut, until the message is read (a race's verdict, the end)
 
@@ -85,6 +86,7 @@ static lift_sites_t const* sites_now(void) {
     if (s_game.loaded != s_sites_of) {
         lift_sites(&s_game.lv, &s_sites);
         s_sites_of = s_game.loaded;
+        lift_depart_reset(&s_depart);  // a chamber loaded: its car back at the start
     }
     return &s_sites;
 }
@@ -97,9 +99,13 @@ lift_sites_t const* app_lift_sites(void) {
 static void lift_sounds(int ev) {
     if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
     if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
-    if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
-    if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
+    if (ev & LIFT_EV_RIDE) sound_play(SND_HUM);
+    if (ev & LIFT_EV_LAND) {
+        sound_play(SND_LAND);
+        sound_play(SND_DING);
+    }
 }
+
 
 static int   s_story_end       = -1;      // a story pack done: its index, while its ending is told
 static float s_story_end_t;               // ... for this long so far
@@ -594,6 +600,7 @@ static void on_init(void* user) {
 
 static void start_playtest(void) {
     s_pending_chamber = -1;
+    s_story_end       = -1;
     s_lift.phase      = LIFT_NONE;
     game_load_level(&s_game, editor_level());
     personalise(s_game.lv.story, sizeof(s_game.lv.story));
@@ -611,7 +618,8 @@ static void start_playtest(void) {
 }
 
 static void back_to_editor(void) {
-    s_mode = MODE_EDIT;
+    s_lift.phase = LIFT_NONE;
+    s_mode       = MODE_EDIT;
     editor_resume();
 }
 
@@ -843,6 +851,15 @@ static void cine_frame(float dt) {
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
 }
 
+// Play begun from the title or the menu (Continue, New game, a chamber, a
+// story pack, a recording): it arrives by lift, down onto the start, as it
+// does between chambers. Not a restart, nor a desk story's round.
+static void arrive_by_lift(void) {
+    if (!settings_lifts() || s_story_on || s_mode != MODE_PLAY || lift_on(&s_lift)) return;
+    s_lift_hold = false;
+    lift_down(&s_lift, &s_game, &sites_now()->start);
+}
+
 // The menu's frame: the game stands still underneath it.
 static void menu_frame(void) {
     bool const       title = menu_on_title();
@@ -853,11 +870,19 @@ static void menu_frame(void) {
             break;
         case MENU_CMD_CHAMBER:
             record_stop();
-            if (!play_chamber(cmd.chamber) && title) title_saying_why();
+            if (!play_chamber(cmd.chamber)) {
+                if (title) title_saying_why();
+            } else {
+                arrive_by_lift();
+            }
             break;
         case MENU_CMD_RECORD:
             record_stop();
-            if (!record_start(cmd.chamber) && title) title_saying_why();
+            if (!record_start(cmd.chamber)) {
+                if (title) title_saying_why();
+            } else {
+                arrive_by_lift();
+            }
             break;
         case MENU_CMD_RECORD_STOP:
             record_stop();
@@ -884,7 +909,11 @@ static void menu_frame(void) {
             snprintf(s_story_back, sizeof(s_story_back), "%s", settings_chamber());
             sound_restart_music();
             s_story_of = -2;
-            if (!play_from(p->chamber[0]) && title) title_saying_why();
+            if (!play_from(p->chamber[0])) {
+                if (title) title_saying_why();
+            } else {
+                arrive_by_lift();
+            }
             break;
         }
         case MENU_CMD_NEW_GAME:
@@ -893,12 +922,18 @@ static void menu_frame(void) {
             // chamber's story told.
             sound_restart_music();
             s_story_of = -2;
-            if (!play_chamber(0) && title) title_saying_why();
+            if (!play_chamber(0)) {
+                if (title) title_saying_why();
+            } else {
+                arrive_by_lift();
+            }
             break;
         case MENU_CMD_EDITOR:
             // By name: saving in the editor re-reads the SD card, and the
             // list's order -- its indices -- may change.
             record_stop();
+            s_story_end  = -1;  // a pack's ending, left for the editor: not told on in a play-test
+            s_lift.phase = LIFT_NONE;
             snprintf(s_play_id, sizeof(s_play_id), "%s", chamber_id(cmd.chamber));
             s_pending_chamber = -1;
             s_edit_title      = title;
@@ -1013,9 +1048,12 @@ static void play_frame(float dt) {
     // only, never in the editor's play-test.
     if (s_mode != MODE_PLAY) {
         s_pending_chamber = -1;
-        s_lift.phase      = LIFT_NONE;
+        if (!(s_mode == MODE_TEST && s_lift.stay)) s_lift.phase = LIFT_NONE;  // a play-test's: shut, until the editor
     }
     if (lift_on(&s_lift)) {
+        // The start's car goes on up while the player rides the exit's.
+        if (s_lift.car_exit && settings_lifts() && !s_story_on)
+            lift_sounds(lift_depart_step(&s_depart, &sites_now()->start, s_game.pl.pos, dt));
         // The lift: in, shut, up, and down into the next. Jump, Use or a
         // shot hurries it.
         bool const  hurry = in.jump || in.use || in.fire[0] || in.fire[1];
@@ -1091,6 +1129,8 @@ static void play_frame(float dt) {
     if (s_ghost_live && s_mode == MODE_PLAY) ghost_frame(&s_ghost, &f);
     sound_events(ev);
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
+    // Out of the start's lift: its car goes back up.
+    if (settings_lifts() && !s_story_on) lift_sounds(lift_depart_step(&s_depart, &sites_now()->start, s_game.pl.pos, dt));
     if (s_mode == MODE_TEST) {
         if (ev & PL_EV_DIED) {
             start_playtest();
@@ -1101,6 +1141,10 @@ static void play_frame(float dt) {
         } else if ((ev & PL_EV_EXIT) && s_test_done <= 0.0f) {
             hud_message("It can be solved. Back to the editor...");
             s_test_done = HUD_MESSAGE_S;
+            // Into the lift, and shut: where the next chamber would come.
+            lift_site_t site;
+            if (settings_lifts() && !s_story_on && lift_exit_for(&s_game.lv, sites_now(), s_game.pl.pos, &site))
+                lift_enter(&s_lift, &s_game, &site, true);
         }
         return;
     }
@@ -1292,10 +1336,10 @@ static void on_render(pax_buf_t* fb, void* user) {
     // The lift stations, and the one being ridden: in play, in a
     // play-test and behind the title -- not in a desk story's rounds.
     lift_t const* const lift    = watch_on() ? watch_lift() : &s_lift;
-    bool const          lifting = lift != NULL && lift_on(lift) && s_mode == MODE_PLAY && !title;
+    bool const          lifting = lift != NULL && lift_on(lift) && (s_mode == MODE_PLAY || s_mode == MODE_TEST) && !title;
     if (settings_lifts() && !s_story_on && (s_mode == MODE_PLAY || s_mode == MODE_TEST)) {
         lift_view_t view;
-        lift_view(lifting ? lift : NULL, sites_now(), &view);
+        lift_view(lifting ? lift : NULL, sites_now(), watch_on() ? NULL : &s_depart, &view);
         render_set_lift(&view);
     } else {
         render_set_lift(NULL);

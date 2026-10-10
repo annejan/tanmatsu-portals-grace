@@ -546,6 +546,32 @@ static void test_lift(void) {
         }
     }
     CHECK(levels >= 40, "lift: chambers read (%d)", levels);
+    // The start's car, going back up: not while the player is in it or
+    // near, then its doors, then up, until the station is empty.
+    {
+        lift_site_t const* s = &first_st.start;
+        lift_depart_t      d;
+        lift_depart_reset(&d);
+        int ev = 0;
+        for (int k = 0; k < 60; k++) ev |= lift_depart_step(&d, s, v3(s->x + 0.1f, s->y, s->z), 1.0f / 30.0f);
+        CHECK(ev == 0 && d.t < 0.0f, "lift: the start car waits while the player is in it");
+        vec3_t const out = v3(s->x + s->rx + 1.0f, s->y, s->z);
+        for (int k = 0; k < 10; k++) ev |= lift_depart_step(&d, s, out, 1.0f / 30.0f);
+        CHECK(ev == 0, "lift: ... and a moment after they step out");
+        for (int k = 0; k < 600; k++) ev |= lift_depart_step(&d, s, out, 1.0f / 30.0f);
+        CHECK((ev & LIFT_EV_DOOR) && (ev & LIFT_EV_RIDE), "lift: then shuts its doors and rises");
+        lift_view_t v;
+        lift_view(NULL, &first_st, &d, &v);
+        CHECK(v.n == 2 && !v.st[0].empty && v.st[1].empty, "lift: and the start station is left empty");
+        lift_depart_reset(&d);
+        lift_view(NULL, &first_st, &d, &v);
+        CHECK(!v.st[1].empty && v.st[1].dy == 0.0f, "lift: back as it was on a load");
+        // Back in while its doors shut: they open again.
+        for (int k = 0; k < 14; k++) lift_depart_step(&d, s, out, 1.0f / 30.0f);
+        CHECK(d.t >= 0.0f && d.closed > 0.0f && d.dy == 0.0f, "lift: its doors shutting");
+        ev = lift_depart_step(&d, s, v3(s->x, s->y, s->z), 1.0f / 30.0f);
+        CHECK((ev & LIFT_EV_DOOR) && d.t < 0.0f && d.closed == 0.0f, "lift: open again for a player back in");
+    }
     CHECK(crossings == 0, "lift: %d runs through glass", crossings);
 }
 

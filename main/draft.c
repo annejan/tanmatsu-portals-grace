@@ -16,6 +16,12 @@ char draft_get(draft_t const* d, int x, int y, int z) {
     return inside(d, x, y, z) ? d->grid[y][z][x] : '#';
 }
 
+// A new stamp for an edited draft: never one an earlier draft had.
+static void touched(draft_t* d) {
+    static uint32_t serial;
+    d->edits = ++serial;
+}
+
 void draft_paint(draft_t* d, int x, int y, int z, char ch) {
     if (!inside(d, x, y, z)) return;
     if (ch == 'S')
@@ -24,6 +30,7 @@ void draft_paint(draft_t* d, int x, int y, int z, char ch) {
                 for (int xx = 0; xx < d->w; xx++)
                     if (d->grid[yy][zz][xx] == 'S') d->grid[yy][zz][xx] = '.';
     d->grid[y][z][x] = ch;
+    touched(d);
 }
 
 void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
@@ -52,6 +59,7 @@ void draft_new(draft_t* d, char const* id, int w, int h, int dep) {
                 d->grid[y][z][x] = c;
             }
     draft_paint(d, w / 2, 1, dep / 2, 'S');
+    touched(d);
 }
 
 // The solution section: from the line that reads "solution" and nothing
@@ -123,6 +131,7 @@ bool draft_from_text(draft_t* d, char const* id, char const* text, char* err, si
         }
         line = end != NULL ? end + 1 : NULL;
     }
+    touched(d);
     return true;
 }
 
@@ -212,4 +221,5 @@ void draft_resize(draft_t* d, int w, int h, int dep) {
     d->w = w;
     d->h = h;
     d->d = dep;
+    touched(d);
 }

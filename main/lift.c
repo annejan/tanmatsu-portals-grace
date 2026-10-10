@@ -362,6 +362,52 @@ float lift_lit(lift_t const* l) {
     return 1.0f - smooth((eye - (l->car.mouth - 0.8f)) / 1.8f);
 }
 
+// --- The start car, going back up ---------------------------------------------
+
+#define DEPART_CLEAR 0.35f  // m outside the station ...
+#define DEPART_AFTER 0.4f   // ... for this long, and it goes
+
+// How far it goes: up into its hatch, or under a high ceiling into the
+// mouth hung in the air.
+static float depart_top(lift_site_t const* s) {
+    return s->hatch ? s->rise : s->mouth + 0.05f;
+}
+
+static bool depart_in(lift_site_t const* s, vec3_t p, float grow) {
+    float const dx = (p.x - s->x) / (s->rx + grow), dz = (p.z - s->z) / (s->rz + grow);
+    return dx * dx + dz * dz <= 1.0f;
+}
+
+void lift_depart_reset(lift_depart_t* d) {
+    *d = (lift_depart_t){0.0f, -1.0f, 0.0f, 0.0f};
+}
+
+int lift_depart_step(lift_depart_t* d, lift_site_t const* s, vec3_t p, float dt) {
+    if (!s->on) return 0;
+    int ev = 0;
+    if (d->t < 0.0f) {
+        d->away = depart_in(s, p, DEPART_CLEAR) ? 0.0f : d->away + dt;
+        if (d->away < DEPART_AFTER) return 0;
+        d->t = 0.0f;
+        return LIFT_EV_DOOR;
+    }
+    if (depart_in(s, p, 0.1f)) {
+        // Back in before it has gone: the doors open again for them; once
+        // it is rising, it waits over their head, not through it.
+        if (d->t < DOOR_S) {
+            lift_depart_reset(d);
+            return LIFT_EV_DOOR;
+        }
+        if (d->dy < 2.0f) return 0;
+    }
+    float const before = d->t;
+    d->t += fminf(dt, DT_MAX);
+    d->closed = fminf(1.0f, d->t / DOOR_S);
+    if (before < DOOR_S && d->t >= DOOR_S) ev |= LIFT_EV_RIDE;
+    d->dy = depart_top(s) * smooth((d->t - DOOR_S) / ride_s(s));
+    return ev;
+}
+
 // --- What to draw -------------------------------------------------------------
 
 static void still(lift_station_view_t* v, lift_site_t const* s, bool exit) {
@@ -370,12 +416,22 @@ static void still(lift_station_view_t* v, lift_site_t const* s, bool exit) {
     v->exit = exit;
 }
 
-void lift_view(lift_t const* l, lift_sites_t const* s, lift_view_t* out) {
+// The start station as `d` leaves it.
+static void start_still(lift_station_view_t* v, lift_site_t const* s, lift_depart_t const* d) {
+    still(v, s, false);
+    if (d == NULL || d->t < 0.0f) return;
+    v->dy         = d->dy;
+    v->shut_light = true;
+    v->empty      = d->dy >= depart_top(s) - 1e-3f;
+    for (int i = 0; i < LIFT_SIDES; i++) v->closed[i] = d->closed;
+}
+
+void lift_view(lift_t const* l, lift_sites_t const* s, lift_depart_t const* d, lift_view_t* out) {
     memset(out, 0, sizeof(*out));
     out->hide_cube = -1;
     if (l == NULL || l->phase == LIFT_NONE) {
         if (s->exit.on) still(&out->st[out->n++], &s->exit, true);
-        if (s->start.on) still(&out->st[out->n++], &s->start, false);
+        if (s->start.on) start_still(&out->st[out->n++], &s->start, d);
         return;
     }
     lift_station_view_t* v = &out->st[out->n++];
@@ -392,6 +448,9 @@ void lift_view(lift_t const* l, lift_sites_t const* s, lift_view_t* out) {
     v->shut_light  = doors > 0 ? shut * 2 > doors : l->phase != LIFT_OPEN;
     out->hide_cube = l->hide_cube;
     // The chamber's other station, as it stands.
-    lift_site_t const* other = l->car_exit ? &s->start : &s->exit;
-    if (other->on) still(&out->st[out->n++], other, !l->car_exit);
+    if (l->car_exit) {
+        if (s->start.on) start_still(&out->st[out->n++], &s->start, d);
+    } else if (s->exit.on) {
+        still(&out->st[out->n++], &s->exit, true);
+    }
 }

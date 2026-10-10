@@ -9,6 +9,8 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "gl_input.h"
+#include "lift.h"
+#include "settings.h"
 #include "pax_fonts.h"
 #include "pax_text.h"
 #include "sound.h"
@@ -715,6 +717,41 @@ void editor_draw(pax_buf_t* fb) {
                                 label);
         }
     }
+    // The lift stations the game will put here (lift.h), on the layer
+    // they stand on: green the way out, white the way in; glass that
+    // stays drawn whole, doors dashed. Worked out again after an edit.
+    static uint32_t     lift_edits;
+    static bool         lift_ok;
+    static lift_sites_t lifts;
+    if (lift_edits != s_d.edits) {
+        char err[64];
+        lift_ok = draft_level(&s_d, &s_level, err, sizeof(err));
+        if (lift_ok) lift_sites(&s_level, &lifts);
+        lift_edits = s_d.edits;
+    }
+    // Only where play will have them: not with Lifts off, nor in a desk
+    // story's debugger (its rounds have none).
+    bool const show_lifts = lift_ok && settings_lifts() && !s_debug;
+    for (int k = 0; show_lifts && k < 2; k++) {
+        lift_site_t const* l = k == 0 ? &lifts.exit : &lifts.start;
+        if (!l->on || (int)floorf(l->y + 0.01f) != s_y) continue;
+        uint32_t const col = k == 0 ? 0xFF6CF0C8u : 0xFFE4ECFFu;
+        for (int i = 0; i < LIFT_SIDES; i++) {
+            bool const glass = l->fixed & (1u << i);
+            for (int j = 0; j < 4; j++) {  // a side in four: doors draw every other
+                if (!glass && (j & 1)) continue;
+                float const a0 = ((float)i + (float)j / 4.0f) * 0.78539816f, a1 = a0 + 0.78539816f / 4.0f;
+                float const wx0 = l->x + l->rx * sinf(a0), wz0 = l->z + l->rz * cosf(a0);
+                float const wx1 = l->x + l->rx * sinf(a1), wz1 = l->z + l->rz * cosf(a1);
+                pax_draw_line(fb, col, (float)x0 + wx0 * (float)cs, (float)y0 + ((float)s_d.d - wz0) * (float)cs,
+                              (float)x0 + wx1 * (float)cs, (float)y0 + ((float)s_d.d - wz1) * (float)cs);
+            }
+        }
+    }
+    if (show_lifts && (lifts.exit.on || lifts.start.on))
+        rendertext_draw(fb, 0xFF8A8F98u, pax_font_sky_mono, 10, (float)x0, (float)(y0 + s_d.d * cs + 3),
+                        "lifts (auto): green out, white in -- solid glass, dashed doors");
+
     // The box being marked, and the cursor.
     if (s_anchor_set) {
         int const ax0 = s_ax < s_x ? s_ax : s_x, ax1 = s_ax < s_x ? s_x : s_ax;

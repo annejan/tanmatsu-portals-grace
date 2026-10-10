@@ -31,6 +31,8 @@ typedef enum {
     SND_TURRET_SPOT,  // a turret sees you
     SND_TURRET_SHOT,  // one burst of a turret's fire
     SND_TOPPLE,       // a turret knocked over
+    SND_DING,         // a lift's doors open: it is there
+    SND_HUM,          // a lift on the move
     SND_COUNT,
 } sound_t;
 

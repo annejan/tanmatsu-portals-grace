@@ -21,6 +21,7 @@ typedef struct {
     char  grid[LV_MAX_H][LV_MAX_D][LV_MAX_W];  // [y][z][x]
     char  review[2048];                        // its review keys (review.h), the lines as they were
     char  solution[16384];                     // the file's solution section, cheese and all, kept as it was
+    uint32_t edits;                            // changed by every edit: what was worked out from it is stale
 } draft_t;
 
 // A box of metal with white walls, a white floor and air inside, the

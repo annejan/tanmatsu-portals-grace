@@ -60,6 +60,8 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_TURRET_SPOT] = {W_SINE, 1600, 1600, 0.15f, 0.002f, 0.30f, 0, {0}},
     [SND_TURRET_SHOT] = {W_NOISE, 3000, 900, 0.05f, 0.001f, 0.35f, 4000, {0}},
     [SND_TOPPLE]      = {W_SAW, 520, 110, 0.35f, 0.005f, 0.30f, 1500, {0}},
+    [SND_DING]        = {W_SINE, 0, 0, 0.32f, 0.003f, 0.20f, 0, {1318.5f, 1046.5f, 0, 0}},
+    [SND_HUM]         = {W_SAW, 52, 74, 1.80f, 0.25f, 0.22f, 380, {0}},
 };
 
 typedef struct {

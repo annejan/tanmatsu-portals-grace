@@ -235,8 +235,11 @@ void watch_update(float dt) {
         int const     ev = lift_step(&s_lift, g, dt, false, 0.0f, 0.0f, 1.5f);
         if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
         if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
-        if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
-        if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
+        if (ev & LIFT_EV_RIDE) sound_play(SND_HUM);
+        if (ev & LIFT_EV_LAND) {
+            sound_play(SND_LAND);
+            sound_play(SND_DING);
+        }
         if (ev & LIFT_EV_TOP) {
             s_lift.phase = LIFT_NONE;
             next_run();
@@ -245,7 +248,6 @@ void watch_update(float dt) {
             // Loaded: down into it (not after the last, nor if it would not load).
             if (s_on && s_hold <= 0.0f) {
                 lift_down(&s_lift, g, &app_lift_sites()->start);
-                if (lift_on(&s_lift)) sound_play(SND_TELEPORT);
             }
         }
         return;

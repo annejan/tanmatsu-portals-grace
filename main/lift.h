@@ -110,6 +110,7 @@ typedef struct {
     bool        shut_light;          // the door light orange (shut), else blue
     bool        shaft;               // riding: the shaft above the mouth
     bool        exit;                // the exit's station (else the start's)
+    bool        empty;               // its car gone up into the hatch: collar, rails and hatch only
 } lift_station_view_t;
 
 typedef struct {
@@ -118,5 +119,21 @@ typedef struct {
     int                 hide_cube;  // a cube not to draw, or -1
 } lift_view_t;
 
-// `l` riding (or not) among the stations `s` of the chamber in play.
-void  lift_view(lift_t const* l, lift_sites_t const* s, lift_view_t* out);
+// The start station's car once the player has walked out of it: its doors
+// shut, and it goes back up into its hatch. Only to look at.
+typedef struct {
+    float away;  // seconds the player has been clear of it
+    float t;     // seconds since it began to go, or < 0 not yet
+    float dy;    // the car above its floor
+    float closed;
+} lift_depart_t;
+
+// Back in place, its doors open: a chamber (re)loaded.
+void  lift_depart_reset(lift_depart_t* d);
+// The next `dt` seconds of it, the player's feet at `p`: LIFT_EV_DOOR as its
+// doors begin to shut, LIFT_EV_RIDE as it begins to rise.
+int   lift_depart_step(lift_depart_t* d, lift_site_t const* start, vec3_t p, float dt);
+
+// `l` riding (or not) among the stations `s` of the chamber in play, the
+// start's car gone as `d` says (NULL: there).
+void  lift_view(lift_t const* l, lift_sites_t const* s, lift_depart_t const* d, lift_view_t* out);

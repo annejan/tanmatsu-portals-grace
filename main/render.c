@@ -1193,6 +1193,8 @@ static void submit_lift_solid(cam_t const* cam, clipset_t const* cs) {
         vec3_t const               e = cam->pos;
         bool const                 in = lift_inside(s, e);
         float const                fy = s->y, car = fy + v->dy, top = fy + (s->hatch ? s->ceil : s->mouth);
+        // A car going up into a mouth hung in the air goes no higher than it.
+        float const cap = !s->hatch && !v->shaft ? fy + s->mouth : 1e9f;
         // Too far off to matter, or wholly behind the eye -- never the one
         // ridden or stood in.
         if (!in && !v->shaft && v->dy <= 0.0f) {
@@ -1204,10 +1206,13 @@ static void submit_lift_solid(cam_t const* cam, clipset_t const* cs) {
         if (!lift_portal_near(s, fy, true))
             lift_band(s, 0.02f, fy, fy + 0.08f, in, cam, cs, v->exit ? 0xFF6CF0C8u : 0xFFE4ECFFu,
                       SE_TRI_EMISSIVE | DECAL(1));
-        // The halo, riding with the car, and its door light under it.
-        lift_band(s, 0.0f, car + s->cb, car + s->cb + 0.15f, in, cam, cs, 0xFFE8ECF0u, 0);
-        lift_band(s, 0.005f, car + s->cb - 0.03f, car + s->cb, in, cam, cs, v->shut_light ? 0xFFFF8A1Cu : 0xFF2C8CFFu,
-                  SE_TRI_EMISSIVE | DECAL(1));
+        // The halo, riding with the car, and its door light under it --
+        // none once the car has gone up into its hatch.
+        if (!v->empty && car + s->cb + 0.15f <= cap) {
+            lift_band(s, 0.0f, car + s->cb, car + s->cb + 0.15f, in, cam, cs, 0xFFE8ECF0u, 0);
+            lift_band(s, 0.005f, car + s->cb - 0.03f, car + s->cb, in, cam, cs,
+                      v->shut_light ? 0xFFFF8A1Cu : 0xFF2C8CFFu, SE_TRI_EMISSIVE | DECAL(1));
+        }
         // Four rails, floor to hatch, turned to the eye.
         for (int r = 0; r < 4; r++) {
             float const  a    = ((float)r * 2.0f + 1.0f) * LIFT_SIDE_A;
@@ -1226,7 +1231,7 @@ static void submit_lift_solid(cam_t const* cam, clipset_t const* cs) {
             lift_band(s, 0.06f, fy + s->mouth, fy + s->mouth + 0.12f, in, cam, cs, 0xFFB8BEC6u, 0);  // the mouth, hung in the air
         }
         // The car's floor, once it is off the ground.
-        if (v->dy > 0.02f) lift_disc(s, 0.06f, car, true, cam, cs, 0xFF3A3E44u, 0);
+        if (v->dy > 0.02f && !v->empty && car < cap - 0.02f) lift_disc(s, 0.06f, car, true, cam, cs, 0xFF3A3E44u, 0);
         // Riding: the shaft, lit, from the mouth up.
         if (v->shaft && e.y > fy + s->mouth - 1.0f) {
             float const y0 = fy + s->mouth, y1 = y0 + s->rise + 2.4f;
@@ -1255,12 +1260,15 @@ static void submit_lift_glass(cam_t const* cam, clipset_t const* cs) {
     for (int o = 0; o < s_lift_view.n; o++) {
         lift_station_view_t const* v  = &s_lift_view.st[order[o]];
         lift_site_t const*         s  = &v->site;
+        if (v->empty) continue;
         bool const                 in = lift_inside(s, cam->pos);
-        float const                car = s->y + v->dy, top = car + s->cb - 0.03f;
+        float const car = s->y + v->dy;
+        float const top = fminf(car + s->cb - 0.03f, !s->hatch && !v->shaft ? s->y + s->mouth : 1e9f);
         for (int i = 0; i < LIFT_SIDES; i++) {
             float const shut = (s->fixed & (1u << i)) ? 1.0f : v->closed[i];
             if (shut < 0.01f) continue;
             float const y0 = top - (top - car) * shut;
+            if (y0 >= top - 0.01f) continue;  // gone up into the mouth
             lift_side(s, i, 0.0f, y0, top, in, cam, cs, m, m->argb, m->flags);
             if (!(s->fixed & (1u << i)))  // the door's lit edge
                 lift_side(s, i, 0.004f, y0, y0 + 0.02f, in, cam, cs, NULL, 0xFFBFE8FFu, SE_TRI_EMISSIVE);
