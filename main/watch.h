@@ -7,6 +7,7 @@
 
 #include <stdbool.h>
 #include "hud.h"
+#include "lift.h"
 
 // Watch recording `id` in `dir`; afterwards back to the title, or else to
 // chamber `back` (its id) -- fresh, and saving nothing, so Continue stays
@@ -15,6 +16,8 @@
 // saying why, if it could not be read.
 bool watch_start(char const* dir, char const* id, char const* pack, bool to_title, char const* back);
 bool watch_on(void);
+// The lift between its chambers (Settings -> Lifts), to draw; NULL if not watching.
+lift_t const* watch_lift(void);
 // Esc: stopped, and back.
 void watch_stop(void);
 // Whether Esc stopped a watch just now: the built-in keyboard sends Esc

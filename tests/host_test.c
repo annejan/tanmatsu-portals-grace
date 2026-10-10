@@ -14,6 +14,7 @@
 #include "game.h"
 #include "ghost.h"
 #include "level.h"
+#include "lift.h"
 #include "pack.h"
 #include "player.h"
 #include "portal.h"
@@ -390,6 +391,44 @@ static void test_physics(void) {
           "portals), bump GAME_PHYSICS in main/game.h -- ghosts made before will not race; if only a built-in "
           "chamber's solution changed, keep it. Either way: PHYSICS_UPDATE=1 make check",
           line, want);
+}
+
+// The lift between chambers: up as far as the ceiling lets it, a cube
+// carried along, the top in the dark, down onto the next start, landed
+// exactly there.
+static void test_lift(void) {
+    static game_t g;
+    game_load(&g, demo_chamber(demo_find("01-gap")));
+    vec3_t const start = g.pl.pos;
+    float const  room  = lift_room(&g.lv, start, LIFT_RISE);
+    CHECK(room > 0.5f && room <= LIFT_RISE, "lift: room above the start (%.2f)", room);
+    // Under a ceiling: the eye kept a hand under it.
+    level_t low = g.lv;
+    int const cx = (int)floorf(start.x), cz = (int)floorf(start.z), cy = (int)floorf(start.y + 0.01f) + 3;
+    level_set(&low, cx, cy, cz, MAT_METAL);
+    float const r2 = lift_room(&low, start, LIFT_RISE);
+    CHECK(start.y + r2 + PL_EYE <= (float)cy - 0.2f, "lift: eye under the ceiling (%.2f + %.2f, ceiling %d)",
+          start.y, r2, cy);
+    lift_t l = {0};
+    CHECK(!lift_on(&l) && lift_lit(&l) == 1.0f, "lift: none at first, all lit");
+    lift_up(&l, &g);
+    int ev = 0, frames = 0;
+    while (!(ev & LIFT_EV_TOP) && frames++ < 200) ev = lift_step(&l, &g, 1.0f / 30.0f, false);
+    CHECK(ev & LIFT_EV_TOP, "lift: reaches the top");
+    CHECK(fabsf(g.pl.pos.y - (start.y + room)) < 1e-3f, "lift: up by its room (%.3f)", g.pl.pos.y - start.y);
+    CHECK(lift_lit(&l) < 0.01f, "lift: dark at the top");
+    CHECK(lift_step(&l, &g, 0.5f, true) == 0, "lift: waits at the top while asked");
+    float x, y0, y1, z;
+    lift_tube(&l, &x, &y0, &y1, &z);
+    CHECK(y0 < start.y && y1 > g.pl.pos.y + PL_EYE, "lift: the tube from the feet to over the eye");
+    game_load(&g, demo_chamber(demo_find("02-ledge")));
+    vec3_t const next = g.pl.pos;
+    lift_down(&l, &g);
+    CHECK(g.pl.pos.y > next.y, "lift: down from above the next start");
+    for (frames = 0, ev = 0; !(ev & LIFT_EV_LANDED) && frames++ < 200;) ev = lift_step(&l, &g, 1.0f / 30.0f, false);
+    CHECK((ev & LIFT_EV_LANDED) && !lift_on(&l), "lift: lands");
+    CHECK(near3(g.pl.pos, next, 1e-4f), "lift: on the next start exactly");
+    CHECK(lift_lit(&l) == 1.0f, "lift: all lit again");
 }
 
 // Walking into an eye-level portal pair at badge frame rates: one clean
@@ -2508,6 +2547,7 @@ int main(void) {
     test_frame_rates();
     test_demos();
     test_physics();
+    test_lift();
     test_basis();
     test_map();
     test_clip();

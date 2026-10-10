@@ -24,6 +24,7 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "lift.h"
 #include "graceloader.h"
 #include "hud.h"
 #include "input.h"
@@ -71,23 +72,10 @@ static int64_t s_loaded_us;               // when a chamber was last loaded: 0 o
 
 // The lift between chambers (Settings: Lifts): up out of one, in the dark
 // the next loaded, down into it -- no stop between them.
-typedef enum { LIFT_NONE, LIFT_UP, LIFT_DOWN } lift_phase_t;
-#define LIFT_S 1.1f  // each way
-static lift_phase_t s_lift;
-static float        s_lift_t;
-static int          s_lift_next;
-static float        s_lift_x, s_lift_z, s_lift_from, s_lift_to;  // the player's feet, from and to
-static bool         s_lift_hold;  // at the top until the message is read (a race's verdict, the end)
+static lift_t s_lift;
+static int    s_lift_next;
+static bool   s_lift_hold;  // at the top until the message is read (a race's verdict, the end)
 
-// How far up from feet at `p` there is room for the eye to rise: to the
-// cell under the ceiling, at most `most`.
-static float lift_room(level_t const* lv, vec3_t p, float most) {
-    int const x = (int)floorf(p.x), z = (int)floorf(p.z);
-    int       c = (int)floorf(p.y + 0.01f) + 1;  // the cells above the one the feet are in
-    while ((float)c - p.y < most + PL_EYE + 1.0f && !level_solid(lv, x, c, z)) c++;
-    float const room = (float)c - p.y - PL_EYE - 0.25f;  // the eye a hand under the ceiling
-    return room < 0.0f ? 0.0f : room > most ? most : room;
-}
 static int   s_story_end       = -1;      // a story pack done: its index, while its ending is told
 static float s_story_end_t;               // ... for this long so far
 static char  s_story_back[CHAMBER_ID_N];  // where Continue was before the story began: back to it after
@@ -288,7 +276,7 @@ static bool load_chamber(int index) {
 // comes back to. False, with a message, if it cannot be read.
 static bool play_chamber(int index) {
     s_pending_chamber = -1;
-    s_lift            = LIFT_NONE;  // the lift's own next sets it going down again
+    s_lift.phase      = LIFT_NONE;  // the lift's own next sets it going down again
     s_story_end       = -1;
     if (s_story_on && index != round_chamber()) story_off();  // play has gone elsewhere
     if (!load_chamber(index)) return false;                   // it said why
@@ -403,7 +391,7 @@ static bool record_start(int index) {
 // The chamber in play, again from its start.
 static void restart_chamber(void) {
     s_pending_chamber = -1;
-    s_lift            = LIFT_NONE;
+    s_lift.phase      = LIFT_NONE;
     s_story_end       = -1;
     if (!load_chamber(s_game.chamber)) {  // gone from the card since
         title_saying_why();
@@ -419,7 +407,7 @@ static void restart_chamber(void) {
 static void to_title(void) {
     record_stop();
     race_stop();
-    s_lift = LIFT_NONE;
+    s_lift.phase = LIFT_NONE;
     story_off();
     s_story_end = -1;
     sound_hush();            // GLaDOS stops mid-sentence ...
@@ -581,7 +569,7 @@ static void on_init(void* user) {
 
 static void start_playtest(void) {
     s_pending_chamber = -1;
-    s_lift            = LIFT_NONE;
+    s_lift.phase      = LIFT_NONE;
     game_load_level(&s_game, editor_level());
     personalise(s_game.lv.story, sizeof(s_game.lv.story));
     hud_story_start();
@@ -664,7 +652,7 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         // The built-in keyboard's second Esc, after the one that stopped a
         // recording, does not open the menu as well.
         // Not in a lift: two seconds, and it is somewhere else by then.
-        if (!watch_just_stopped() && s_lift == LIFT_NONE) menu_open(s_game.chamber);
+        if (!watch_just_stopped() && !lift_on(&s_lift)) menu_open(s_game.chamber);
     } else {
         input_event(ev);
     }
@@ -986,7 +974,7 @@ static void play_frame(float dt) {
         settings_set_gyro(!settings_gyro());
         hud_message(settings_gyro() ? "Gyroscope on" : "Gyroscope off");
     }
-    if (in.restart && s_lift == LIFT_NONE) {  // not in a lift: it is on its way already
+    if (in.restart && !lift_on(&s_lift)) {  // not in a lift: it is on its way already
         if (s_mode == MODE_TEST)
             start_playtest();
         else
@@ -998,7 +986,7 @@ static void play_frame(float dt) {
     // only, never in the editor's play-test.
     if (s_mode != MODE_PLAY) {
         s_pending_chamber = -1;
-        s_lift            = LIFT_NONE;
+        s_lift.phase      = LIFT_NONE;
     }
     // A story pack's end: its ending told -- typed out, and said -- then the
     // title screen.
@@ -1021,41 +1009,19 @@ static void play_frame(float dt) {
         desk_save();
         return;
     }
-    if (s_lift != LIFT_NONE) {
+    if (lift_on(&s_lift)) {
         // The lift: the player stands still in it, rising, then falling.
-        s_lift_t       += dt;
-        float const k   = fminf(1.0f, s_lift_t / LIFT_S);
-        float const e   = k * k * (3.0f - 2.0f * k);
-        float const y0  = s_game.pl.pos.y;
-        s_game.pl.vel   = v3(0, 0, 0);
-        s_game.pl.pos.y = s_lift_from + (s_lift_to - s_lift_from) * e;
-        if (s_lift == LIFT_UP && s_game.held >= 0) {
-            // The cube carried comes up too.
-            body_t* b = &s_game.cubes[s_game.held].body;
-            b->pos.y += s_game.pl.pos.y - y0;
-            b->vel    = v3(0, 0, 0);
-        }
-        if (k < 1.0f || (s_lift == LIFT_UP && s_lift_hold && hud_message_up())) return;
-        if (s_lift == LIFT_DOWN) {
-            s_lift = LIFT_NONE;  // there: on with it
-            s_game.pl.pos.y = s_lift_to;
-            input_resync();
-            return;
-        }
+        int const ev = lift_step(&s_lift, &s_game, dt, s_lift_hold && hud_message_up());
+        if (ev & LIFT_EV_LANDED) input_resync();  // there: on with it
+        if (!(ev & LIFT_EV_TOP)) return;
         // At the top, in the dark: the next chamber, and down into it.
         if (!play_from(s_lift_next)) {
-            s_lift = LIFT_NONE;
+            s_lift.phase = LIFT_NONE;
             title_saying_why();
             return;
         }
         if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
-        s_lift      = LIFT_DOWN;
-        s_lift_t    = 0.0f;
-        s_lift_x    = s_game.pl.pos.x;
-        s_lift_z    = s_game.pl.pos.z;
-        s_lift_to   = s_game.pl.pos.y;
-        s_lift_from = s_lift_to + lift_room(&s_game.lv, s_game.pl.pos, 2.5f);
-        s_game.pl.pos.y = s_lift_from;
+        lift_down(&s_lift, &s_game);
         sound_play(SND_TELEPORT);
         return;
     }
@@ -1167,13 +1133,8 @@ static void play_frame(float dt) {
             settings_set_chamber(chamber_id(next));
             if (settings_lifts()) {
                 // Up and out, into the next: no stop.
-                s_lift      = LIFT_UP;
-                s_lift_t    = 0.0f;
+                lift_up(&s_lift, &s_game);
                 s_lift_next = next;
-                s_lift_x    = s_game.pl.pos.x;
-                s_lift_z    = s_game.pl.pos.z;
-                s_lift_from = s_game.pl.pos.y;
-                s_lift_to   = s_lift_from + lift_room(&s_game.lv, s_game.pl.pos, 2.5f);
                 s_lift_hold = s_race_msg[0] || last;
                 sound_play(SND_TELEPORT);
             } else {
@@ -1274,9 +1235,15 @@ static void on_render(pax_buf_t* fb, void* user) {
     render_set_ghosts(gp, gt, ng);
     // The lift's tube, from where the player's feet were to above where
     // they go.
-    float const lift_lo = fminf(s_lift_from, s_lift_to);
-    render_set_lift(s_lift != LIFT_NONE && s_mode == MODE_PLAY && !title, s_lift_x, lift_lo - 0.02f,
-                    lift_lo + fabsf(s_lift_to - s_lift_from) + PL_EYE + 0.25f, s_lift_z);
+    lift_t const* const lift = watch_on() ? watch_lift() : &s_lift;
+    bool const          lifting = lift != NULL && lift_on(lift) && s_mode == MODE_PLAY && !title;
+    if (lifting) {
+        float lx, ly0, ly1, lz;
+        lift_tube(lift, &lx, &ly0, &ly1, &lz);
+        render_set_lift(true, lx, ly0, ly1, lz);
+    } else {
+        render_set_lift(false, 0, 0, 0, 0);
+    }
     int64_t const t0 = esp_timer_get_time();
     if (title) {
         // Through the attract mode's camera, the player's own view kept.
@@ -1291,12 +1258,9 @@ static void on_render(pax_buf_t* fb, void* user) {
     if (title && attract_lit() < 1.0f) hud_fade(target, attract_lit());
     if (s_mode == MODE_CINE) hud_fade(target, outro_lit());  // the lights low, then out
     if (s_mode == MODE_SPLASH && splash_lit() < 1.0f) hud_fade(target, splash_lit());  // faded in, and out
-    if (s_lift != LIFT_NONE && s_mode == MODE_PLAY && !title) {
-        // The lift: dark at the top of the shaft, up out of one chamber and
-        // down into the next.
-        float const k = fminf(1.0f, s_lift_t / LIFT_S);
-        hud_fade(target, s_lift == LIFT_UP ? 1.0f - k : k);
-    }
+    // The lift: dark at the top of the shaft, up out of one chamber and
+    // down into the next.
+    if (lifting) hud_fade(target, lift_lit(lift));
     if (half) {
         // The CPU's pixels to PSRAM before the PPA's DMA reads them.
         se_ppa_layer_sync(&s_layer);

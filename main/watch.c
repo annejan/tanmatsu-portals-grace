@@ -7,6 +7,7 @@
 #include "demo.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "lift.h"
 #include "input.h"
 #include "menu.h"
 #include "recording.h"
@@ -55,9 +56,15 @@ static float         s_acc;
 // The badge's own frames while each run played (Settings -> Frame times).
 static int           s_frames[RECORDING_MAX];
 static float         s_frame_s[RECORDING_MAX], s_worst[RECORDING_MAX];
+// Between runs, with Settings -> Lifts: up out of one, down into the next.
+static lift_t        s_lift;
 
 bool watch_on(void) {
     return s_on;
+}
+
+lift_t const* watch_lift(void) {
+    return s_on ? &s_lift : NULL;
 }
 
 static void begin(int k) {
@@ -108,8 +115,9 @@ bool watch_start(char const* dir, char const* id, char const* pack, bool to_titl
     // first chamber's story told even if that chamber is the one in play.
     sound_restart_music();
     app_tell_again();
-    s_on    = true;
-    s_total = 0.0f;
+    s_on         = true;
+    s_total      = 0.0f;
+    s_lift.phase = LIFT_NONE;
     for (int i = 0; i < RECORDING_MAX; i++) s_times[i] = -1.0f;
     begin(0);
     // Recorded on another version, the same frames may go otherwise.
@@ -176,7 +184,8 @@ static void summary(void) {
 // Out, stopped or done: to the title, or to the chamber play was in --
 // fresh, so play does not stand on the recording's exit.
 static void leave(void) {
-    s_on = false;
+    s_on         = false;
+    s_lift.phase = LIFT_NONE;
     if (s_title) {
         app_to_title();
     } else {
@@ -198,20 +207,40 @@ bool watch_just_stopped(void) {
     return esp_timer_get_time() - s_left_us < 250000;
 }
 
+// The next run, or, after the last, the times.
+static void next_run(void) {
+    if (s_k + 1 < s_recording.n) {
+        begin(s_k + 1);
+    } else {
+        write_times(s_recording.n);
+        char done[48];
+        snprintf(done, sizeof(done), "Done: %d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
+        leave();
+        hud_message(done);
+        summary();
+    }
+}
+
 void watch_update(float dt) {
     hud_tick(dt);
+    if (lift_on(&s_lift)) {
+        // Between runs, in the lift: no run's clock goes meanwhile.
+        game_t* const g  = app_game();
+        int const     ev = lift_step(&s_lift, g, dt, false);
+        if (ev & LIFT_EV_TOP) {
+            s_lift.phase = LIFT_NONE;
+            next_run();
+            // Loaded: down into it (not after the last, nor if it would not load).
+            if (s_on && s_hold <= 0.0f) {
+                lift_down(&s_lift, g);
+                sound_play(SND_TELEPORT);
+            }
+        }
+        return;
+    }
     if (s_hold > 0.0f) {
         if ((s_hold -= dt) > 0.0f) return;
-        if (s_k + 1 < s_recording.n) {
-            begin(s_k + 1);
-        } else {
-            write_times(s_recording.n);
-            char done[48];
-            snprintf(done, sizeof(done), "Done: %d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
-            leave();
-            hud_message(done);
-            summary();
-        }
+        next_run();
         return;
     }
     // The badge's frames, but not the one that loaded the chamber.
@@ -253,6 +282,13 @@ void watch_update(float dt) {
         s_times[s_k]  = s_run;
         s_total      += s_run;
         hud_message("Chamber complete");
+        if (settings_lifts()) {
+            // Up and out, into the next, as play goes (main.c).
+            lift_up(&s_lift, g);
+            sound_play(SND_TELEPORT);
+            write_times(s_k + 1);
+            return;
+        }
         s_hold = REC_HOLD_S;
     } else if ((ev & PL_EV_DIED) || out || (run->frames == 0 && s_run > REC_GIVE_S)) {
         hud_message("Lost its way");  // the frames came otherwise than the run was made for
@@ -263,10 +299,11 @@ void watch_update(float dt) {
 
 bool watch_timer(hud_timer_t* out) {
     if (!s_on) return false;
-    *out = (hud_timer_t){
-        .name  = s_recording.name,
-        .total = s_total + (s_hold > 0.0f ? 0.0f : s_run),
-        .run   = s_hold > 0.0f && s_times[s_k] >= 0.0f ? s_times[s_k] : s_run,
+    bool const between = s_hold > 0.0f || lift_on(&s_lift);  // the run done, in s_total already
+    *out               = (hud_timer_t){
+                      .name  = s_recording.name,
+                      .total = s_total + (between ? 0.0f : s_run),
+                      .run   = between && s_times[s_k] >= 0.0f ? s_times[s_k] : s_run,
     };
     return true;
 }

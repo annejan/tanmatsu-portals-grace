@@ -29,6 +29,7 @@ set(APP_SOURCES
     main/story.c
     main/desk.c
     main/ghost.c
+    main/lift.c
     main/deskview.c
     main/outro.c
     main/splash.c
