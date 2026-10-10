@@ -55,6 +55,21 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
   novel, a flaw). A faster route can change that verdict: 12's went from
   novel to intended in 2d87f94. Update the table with the route.
 
+## The card under Graceloader
+
+- **FatFs buffers in RAM the SD card cannot reach.** Graceloader adds TCM
+  (SPM) and LP RAM to the heap (`CONFIG_ESP_SYSTEM_ALLOW_RTC_FAST_MEM_AS_HEAP`
+  and the P4's SPM), and FatFs mallocs each open file's sector buffer with
+  plain `malloc`; when it lands there, the card's DMA fails: reads fail,
+  writes fail at `fclose` with EIO. `main/card.c` works round it by holding
+  that RAM while a file opens. The fix belongs in Graceloader (keep those
+  regions out of the default heap, or `CONFIG_FATFS_ALLOC_PREFER_EXTRAM`
+  off and FatFs buffers from `MALLOC_CAP_DMA`): worth reporting to its
+  author. SynthEngine's own file loads (textures, at start) do not go
+  through `card_fopen`.
+- **Older Graceloader (before 2.7.0) does not retry a failed SD write.**
+  Ghosts and Watch's times are written a second time if the first fails.
+
 ## Engine
 
 - **The engine is a fork until upstream merges.** Light (`SE_TRI_GLOW`) is
