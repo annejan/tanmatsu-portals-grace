@@ -16,6 +16,7 @@
 #undef main
 
 #include "cine.h"
+#include "lift.h"
 #include "sound.h"
 
 #define FPS        10
@@ -147,7 +148,14 @@ typedef struct {
     float       exit_t;  // when the player reached the exit, or -1
     char const* done;    // what the game says at the exit
     bool        tas;     // HOST_MOVIE_TAS: a tool-assisted run, filmed as it goes
+    bool        lifts;   // HOST_MOVIE_LIFTS: from chamber to chamber by lift (lift.h), as the game goes
 } rec_t;
+
+// With lifts: the chamber's stations, drawn all along, and the game as it
+// stood the moment it reached the exit -- the ride up starts from there.
+static lift_sites_t s_sites;
+static game_t       s_exit;
+static bool         s_exit_have;
 
 // The sound, up to the film's time `t`.
 static void sound_to(rec_t* r, float t) {
@@ -186,6 +194,8 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
         else
             ev &= ~PL_EV_EXIT;
     }
+    // With lifts, filming stops on the exit: the ride takes it from there.
+    if (r->lifts && r->exit_t >= 0.0f && now > r->exit_t) return;
     // Moving on, but not over GLaDOS: a chamber solved in seconds would cut
     // her line off with the next one's. A TAS moves on, as the game does.
     if (r->exit_t >= 0.0f && now > r->exit_t + (r->tas ? TAS_HOLD : MESSAGE_S) &&
@@ -210,7 +220,16 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     shot          = *g;
     shot.pl.yaw   = k < s_n ? s_cam[k][0] : g->pl.yaw;
     shot.pl.pitch = k < s_n ? s_cam[k][1] : g->pl.pitch;
+    if (r->lifts && (ev & PL_EV_EXIT)) {
+        s_exit      = shot;  // the ride begins as the camera saw it
+        s_exit_have = true;
+    }
     for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
+    if (r->lifts) {
+        lift_view_t v;
+        lift_view(NULL, &s_sites, &v);
+        render_set_lift(&v);
+    }
     render_set_level(&shot.lv, shot.portals);
     render_set_time(now);
     render_frame(NULL, &shot);
@@ -228,6 +247,49 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
             r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "", msg, (double)now, (double)r->exit_t);
     r->pic++;
     r->frame++;
+}
+
+// A ride, up out of the chamber in `g` (from its exit) or down into it
+// (onto its start), filmed: the lift's own sounds, the screen dark at the
+// top of the shaft, the HUD saying `msg` with the run's clock at `time`.
+// Up, it waits shut while GLaDOS finishes what she is saying.
+static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float time, float exit_t) {
+    float t = 0.0f;
+    for (int k = 0; k < 4000 && lift_on(l); k++) {
+        bool const talking = sound_saying() && t < 15.0f;
+        int const  ev      = lift_step(l, g, TICK, l->phase == LIFT_HOLD && talking, 0.0f, 0.0f, r->tas ? 1.5f : 1.0f);
+        if (ev & LIFT_EV_FIZZLE) sound_play(SND_FIZZLE);
+        if (ev & LIFT_EV_DOOR) sound_play(SND_DOOR);
+        if (ev & LIFT_EV_RIDE) sound_play(SND_TELEPORT);
+        if (ev & LIFT_EV_LAND) sound_play(SND_LAND);
+        t += TICK;
+        sound_update();
+        float const film = r->t0 + t;
+        sound_to(r, film);
+        if (film + 1e-4f >= (float)r->frame / FPS) {
+            lift_view_t v;
+            lift_view(l, &s_sites, &v);
+            render_set_lift(&v);
+            for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
+            render_set_level(&g->lv, g->portals);
+            render_frame(NULL, g);
+            // Dark at the top of the shaft.
+            uint32_t const lit = (uint32_t)(256.0f * lift_lit(l));
+            for (int p = 0; p < W * H; p++) {
+                uint32_t const c = s_px[p];
+                s_px[p] = 0xFF000000u | (((c >> 16 & 0xFFu) * lit >> 8) << 16) | (((c >> 8 & 0xFFu) * lit >> 8) << 8) |
+                          ((c & 0xFFu) * lit >> 8);
+            }
+            char name[32];
+            snprintf(name, sizeof(name), "movie_%05d", r->pic);
+            save(name);
+            fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.2f\t%.2f\n", r->pic, msg, (double)time, (double)exit_t);
+            r->pic++;
+            r->frame++;
+        }
+        if (ev & LIFT_EV_TOP) break;  // up: the next chamber takes it from here
+    }
+    r->t0 += t;
 }
 
 int main(int argc, char** argv) {
@@ -267,6 +329,8 @@ int main(int argc, char** argv) {
     if (tick != NULL && atof(tick) > 0.0) s_tick = (float)atof(tick);
     char const* tas = getenv("HOST_MOVIE_TAS");
     r.tas           = tas != NULL && tas[0] == '1';
+    char const* lifts = getenv("HOST_MOVIE_LIFTS");
+    r.lifts           = lifts != NULL && lifts[0] == '1';
     titles(&r, "C", OPEN_S);
     for (int a = 2; a < argc; a++) {
         int const     i = demo_find(argv[a]);
@@ -275,6 +339,16 @@ int main(int argc, char** argv) {
         static char story[sizeof(g.lv.story)];
         snprintf(story, sizeof(story), "%s", g.lv.story);
         fprintf(r.txt, "S\t%s\t%s\t%s\n", g.lv.name, g.lv.hint, story);
+        lift_sites(&g.lv, &s_sites);
+        s_exit_have = false;
+        if (r.lifts && a > 2) {
+            // Down into it, from the last one's lift.
+            static game_t ride;
+            static lift_t l;
+            ride = g;
+            lift_down(&l, &ride, &s_sites.start);
+            film_ride(&r, &ride, &l, g.lv.name, 0.0f, -1.0f);
+        }
         static demo_state_t st;
         // Paced, unless that misses the exit: a solution timed to a moving
         // platform or a crusher keeps the script's own timing.
@@ -298,6 +372,15 @@ int main(int argc, char** argv) {
         sound_say(story[0] ? story : NULL);
         demo_run(i, cap, TICK, &st, film_tick, &r, pace);
         r.t0 += r.last;
+        if (r.lifts && s_exit_have) {
+            // Up and out of it: in, the doors shut, into the shaft.
+            static lift_t l;
+            lift_site_t   site;
+            if (lift_exit_for(&s_exit.lv, &s_sites, s_exit.pl.pos, &site)) {
+                lift_enter(&l, &s_exit, &site, false);
+                film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t);
+            }
+        }
     }
     titles(&r, "E", CLOSE_S);
 

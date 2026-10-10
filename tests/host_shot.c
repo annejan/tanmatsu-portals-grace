@@ -246,8 +246,69 @@ static int dcmp(void const* pa, void const* pb) {
     if (ka != kb) return ka < kb ? -1 : 1;
     return a->idx - b->idx;  // stable, as the radix sort
 }
+// Lines (scene_line), as the engine draws them: projected when submitted,
+// drawn after every triangle of the frame, Bresenham between the rounded
+// end points, testing the depth the triangles left (nudged nearer by the
+// engine's SCENE_LINE_BIAS) but never writing it. render.c draws none;
+// the engine's splash (se_splash.c) writes its subtitle with them.
+#ifndef SE_SCENE_LINE_CAP
+#define SE_SCENE_LINE_CAP 1024
+#endif
+#define HOST_LINE_BIAS 1.02f
+typedef struct {
+    float sx, sy, w;  // screen position, 1/z
+} lpt_t;
+static struct {
+    lpt_t    a, b;
+    uint32_t col;
+} s_ll[SE_SCENE_LINE_CAP];
+static int s_ln;
+
+static void raster_line(lpt_t a, lpt_t b, uint32_t col) {
+    int const x0 = (int)lroundf(a.sx), y0 = (int)lroundf(a.sy);
+    int const x1 = (int)lroundf(b.sx), y1 = (int)lroundf(b.sy);
+    int const dx = abs(x1 - x0), dy = abs(y1 - y0);
+    int const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    int       err   = dx - dy;
+    int const steps = dx > dy ? dx : dy;
+    bool const fl   = env_flag(&s_float_depth, "HOST_SHOT_FLOAT_DEPTH");
+    float const da  = a.w * HOST_LINE_BIAS * (fl ? 1.0f : SCENE_DEPTH_SCALE);
+    float const db  = b.w * HOST_LINE_BIAS * (fl ? 1.0f : SCENE_DEPTH_SCALE);
+    float       d   = da;
+    float const dd  = steps > 0 ? (db - da) / (float)steps : 0.0f;
+    int const   qw = s_quarter > 0 ? W / 2 : W, qh = s_quarter > 0 ? H / 2 : H;
+    for (int lx = x0, ly = y0;;) {
+        if (lx >= 0 && lx < qw && ly >= 0 && ly < qh) {
+            float const di = fl ? d : fmaxf(0.0f, floorf(d));
+            if (di >= s_depth[ly * W + lx]) {
+                s_px[ly * W + lx]    = col;
+                s_owner[ly * W + lx] = (uint8_t)s_pass;
+            }
+        }
+        if (lx == x1 && ly == y1) break;
+        int const e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            lx  += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            ly  += sy;
+        }
+        d += dd;
+    }
+}
+
+static void flush_lines(void) {
+    for (int i = 0; i < s_ln; i++) raster_line(s_ll[i].a, s_ll[i].b, s_ll[i].col);
+    s_ln = 0;
+}
+
 static void flush_deferred(void) {
-    if (s_dn == 0) return;
+    if (s_dn == 0) {
+        flush_lines();
+        return;
+    }
     static dtri_t tmp[65536];
     int           n = 0;
     for (int pass = 0; pass < 2; pass++) {
@@ -263,6 +324,7 @@ static void flush_deferred(void) {
         raster(&tmp[i].v[0], &tmp[i].v[1], &tmp[i].v[2], tmp[i].col, tmp[i].textured);
     }
     s_dn = 0;
+    flush_lines();
 }
 
 static void submit(vec3_t const w[3], float const u[3], float const v[3], uint32_t argb, uint32_t flags, bool seams) {
@@ -322,6 +384,37 @@ void scene_textured_tri(se_tex_vertex_t const tv[3], se_texture_t const* tex, ui
     float const  u[3] = {tv[0].u, tv[1].u, tv[2].u}, v[3] = {tv[0].v, tv[1].v, tv[2].v};
     s_tex = tex;
     submit(w, u, v, tex->mean_argb, flags, true);
+}
+
+// A line: to camera space, the end behind the near plane moved onto it
+// along the line (both behind: none), projected, kept for after the
+// triangles (flush_lines). Past the engine's cap, dropped as it does.
+static lpt_t line_point(vec3_t c) {
+    float const z  = fmaxf(c.z, RENDER_NEAR_CLIP_Z);
+    float const iz = 1.0f / z;
+    lpt_t       p  = {RENDER_HALF_W + RENDER_FOCAL_LEN * c.x * iz, RENDER_HORIZON_Y - RENDER_FOCAL_LEN * c.y * iz, iz};
+    if (s_quarter > 0) p.sx *= 0.5f, p.sy *= 0.5f;
+    return p;
+}
+
+void scene_line(float x0, float y0, float z0, float x1, float y1, float z1, uint32_t argb) {
+    vec3_t const d0 = v3_sub(v3(x0, y0, z0), s_eye), d1 = v3_sub(v3(x1, y1, z1), s_eye);
+    vec3_t       c0 = v3(v3_dot(d0, s_basis.right), v3_dot(d0, s_basis.up), v3_dot(d0, s_basis.fwd));
+    vec3_t       c1 = v3(v3_dot(d1, s_basis.right), v3_dot(d1, s_basis.up), v3_dot(d1, s_basis.fwd));
+    bool const   in0 = c0.z >= RENDER_NEAR_CLIP_Z, in1 = c1.z >= RENDER_NEAR_CLIP_Z;
+    if ((!in0 && !in1) || s_ln >= SE_SCENE_LINE_CAP) return;
+    if (!in0 || !in1) {
+        float const  t = (RENDER_NEAR_CLIP_Z - c0.z) / (c1.z - c0.z);
+        vec3_t const p = v3(c0.x + (c1.x - c0.x) * t, c0.y + (c1.y - c0.y) * t, RENDER_NEAR_CLIP_Z);
+        if (in0)
+            c1 = p;
+        else
+            c0 = p;
+    }
+    s_ll[s_ln].a   = line_point(c0);
+    s_ll[s_ln].b   = line_point(c1);
+    s_ll[s_ln].col = argb;
+    s_ln++;
 }
 
 // --- Shots ----------------------------------------------------------------

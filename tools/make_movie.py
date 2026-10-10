@@ -97,6 +97,10 @@ def main():
     ap.add_argument("--interludes", help="a JSON file: {\"K\": [[png, seconds], ...], \"end\": [...]}, pictures "
                     "shown before the K-th chamber (from 0) and before the closing card, in silence "
                     "(tools/story_film.py: the desk between rounds)")
+    ap.add_argument("--lifts", action="store_true",
+                    help="from chamber to chamber by lift, as the game goes with Settings -> Lifts (main/lift.h)")
+    ap.add_argument("--splash", help="a JSON list [[picture, seconds], ...] shown before the opening card: the "
+                    "splash screens as the badge starts (build/host_splash)")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
@@ -114,7 +118,8 @@ def main():
     for f in glob.glob(os.path.join(root, "textures", "*.png")):
         Image.open(f).convert("RGB").save(os.path.join(tex, os.path.basename(f)[:-4] + ".ppm"))
 
-    env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0")
+    env = dict(os.environ, HOST_SHOT_TEXTURES=tex, BUILD=build, HOST_MOVIE_TAS="1" if a.tas else "0",
+               HOST_MOVIE_LIFTS="1" if a.lifts else "0")
     if a.tas:
         env["HOST_MOVIE_TICK"] = "0.033333"  # 30 frames a second: the badge's TAS (tools/tas.py)
     if a.chambers:
@@ -148,9 +153,14 @@ def main():
 
     # Interludes: pictures between the chambers, the sound stopped for them.
     silences = []  # (at the original frame, for so many frames)
+    inter = {}
     if a.interludes:
         with open(a.interludes) as f:
             inter = json.load(f)
+    if a.splash:
+        with open(a.splash) as f:
+            inter["start"] = json.load(f)
+    if inter:
         out, k, closing_seen = [], 0, False
         def pictures(key):
             got = []
@@ -158,7 +168,14 @@ def main():
                 got += [{"kind": "I", "png": png}] * max(1, int(round(float(secs) * FPS)))
             return got
         fi = 0  # into frames, which has one per P, C or E line
+        opened = False
         for line in lines:
+            if line[0] == "C" and not opened:
+                opened = True  # the splash screens, before the opening card
+                extra = pictures("start")
+                if extra:
+                    silences.append((fi, len(extra)))
+                out += extra
             if line[0] == "S":
                 extra = pictures(str(k))
                 if extra:

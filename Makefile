@@ -127,6 +127,28 @@ host_movie: chambers_c
 movie: host_movie
 	python3 tools/make_movie.py $(DEMO) --mp4 $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))
 
+# The badge's two boot splashes -- SynthEngine3D's, then the game's -- as
+# frames for a film: $(BUILD)/splash/*.png at 10 a second, and
+# splash.json, [[png, seconds], ...] in order, a list for one key of
+# tools/make_movie.py --interludes. The engine's is its own se_splash.c
+# (tests/host_splash.c); `make splash` needs Pillow for the textures and
+# the PNGs. HOST_SPLASH_FULL=1: the corridor at full resolution, not the
+# badge's default quarter.
+.PHONY: host_splash splash
+host_splash: chambers_c
+	mkdir -p $(BUILD)/splash
+	$(HOSTCC) -O2 -Wall -Wextra -Imain $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include $(ENGINE_DEFS) \
+		tests/host_splash.c main/render.c main/splash.c $(HOST_SRCS) \
+		synthengine3D/src/se_splash.c synthengine3D/src/rendertext.c synthengine3D/src/se_version.c \
+		-lm -o $(BUILD)/splash/host_splash
+
+splash: host_splash
+	mkdir -p $(BUILD)/splash/tex
+	rm -f $(BUILD)/splash/*.ppm $(BUILD)/splash/*.png
+	python3 -c "import glob, os; from PIL import Image; [Image.open(f).convert('RGB').save('$(BUILD)/splash/tex/' + os.path.basename(f)[:-4] + '.ppm') for f in glob.glob('textures/*.png')]"
+	BUILD="$(BUILD)" HOST_SHOT_TEXTURES="$(BUILD)/splash/tex" $(BUILD)/splash/host_splash
+	python3 -c "import glob, json, os; from PIL import Image; [(Image.open(f).save(f[:-4] + '.png'), os.remove(f)) for f in glob.glob('$(BUILD)/splash/*.ppm')]; j = '$(BUILD)/splash/splash.json'; l = [[p[:-4] + '.png', s] for p, s in json.load(open(j))]; open(j, 'w').write('[\\n' + ',\\n'.join(json.dumps(e) for e in l) + '\\n]\\n')"
+
 # The tool-assisted runs in tas/: each chamber's fastest known route, played
 # at 50 steps a second, against its solution (tools/tas.py). TASFILM=x.mp4
 # films them, with a timer.
