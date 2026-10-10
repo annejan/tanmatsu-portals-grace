@@ -64,8 +64,10 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
   writes fail at `fclose` with EIO. `main/card.c` works round it by holding
   that RAM while a file opens. The fix belongs in Graceloader (keep those
   regions out of the default heap, or `CONFIG_FATFS_ALLOC_PREFER_EXTRAM`
-  off and FatFs buffers from `MALLOC_CAP_DMA`): worth reporting to its
-  author. SynthEngine's own file loads (textures, at start) do not go
+  off and FatFs buffers from `MALLOC_CAP_DMA`). Fixed there as
+  nullislandspace/tanmatsu-graceloader#1 (a bounce buffer in its SD disk
+  layer; tested on the badge with `card_fopen` switched off). Once that
+  is released, `card_fopen` is only for older Graceloaders. SynthEngine's own file loads (textures, at start) do not go
   through `card_fopen`.
 - **Older Graceloader (before 2.7.0) does not retry a failed SD write.**
   Ghosts and Watch's times are written a second time if the first fails.
