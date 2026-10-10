@@ -35,6 +35,27 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
   exit to play, against 2.2 s); Jump, Use or a shot runs it three times
   as fast.
 
+## Frame time on the badge
+
+Measured 2026-10-10 with Settings -> Frame times on the TAS (the times file
+now breaks each chamber's frames into update and render, and the slowest
+frame's passes and triangles). Left as they are, on purpose:
+
+- **Rendering is the frame.** 25-40 ms a frame; about 24 ms even for one
+  pass of 80 triangles, so the floor is the engine's per-pixel work, not
+  the scene. Each portal pass adds 5-15 ms. Faster would mean the engine's
+  rasterizer (an upstream change, like SE_TRI_GLOW).
+- **GLaDOS's lines cost a frame each.** speak() renders a whole sentence
+  with SAM inside one update: 15-35 ms on the badge (0.3-0.55 ms on a PC),
+  the 13-52 ms update spikes. Could be rendered while the chamber loads
+  (hidden in the lift's dark), or on the other core; not felt much.
+- **Blended fizzlers are 07-the-grill's cost.** 45 % of its frames are
+  blended pixels (100 % walking through), 35 ms renders against 28; glass
+  elsewhere is 0-5 %. Cut-out fizzler streaks would be cheaper but look
+  different; glass must stay blended to be told from an opening.
+- **The portal mesh is not a cost.** A shot re-meshes only its slices:
+  microseconds.
+
 ## The TAS
 
 - **The harness is not in the repo.** The routes were found with a
