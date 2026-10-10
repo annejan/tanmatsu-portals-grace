@@ -5,51 +5,35 @@ within each part.
 
 ## Lifts between chambers
 
-What there is (0.12.1): at a chamber's exit the player rises in a glass
-tube as the screen fades, the next chamber loads in the dark, and they come
-down onto its start (`main/main.c` `s_lift`, `main/render.c`
-`submit_lift`). Settings → Lifts between chambers.
+What there is: every chamber has a lift station at its start and its
+exit, worked out from the level as it loads (`main/lift.c`
+`lift_sites`); the exit's lift takes the player up, through a shaft, and
+down into the next chamber's start (`lift_step`, drawn by `render.c`
+`submit_lift_solid`, `submit_lift_glass`). Watch rides it too.
 
-- **Lifts as places.** The tube appears where the player stands on the
-  exit; it is not part of the chamber. Portal's lifts are rooms you walk
-  into: a shaft at the start and at the exit, doors that close behind you,
-  the ride seen through the glass. That needs a chamber glyph for a lift,
-  room above the exit and below the start in every chamber, and the
-  editor to place them.
-- **No lift in Watch a recording.** Watch (`main/watch.c`) still pauses
-  on "Chamber complete" (`REC_HOLD_S`) between chambers. The lift could
-  play in that pause; the run's timer leaves the pause out already, so
-  times would not change.
-- **None in story packs' last chamber or desk-story rounds**, by design:
-  the story's ending or the desk comes next.
-- **A carried cube rides up outside the glass**: it is held 1.3 m ahead,
-  the tube is 0.72 m across.
-- **The pause menu does not open during the lift** (2.2 s). Anything
-  that sends play elsewhere stops the lift, so it could open; it is
-  blocked to keep the lift's state simple.
-
-## The first frame after a chamber loads
-
-The frame after a chamber loads comes with the loading in its length.
-`game_step()` takes no step longer than 0.1 s, so the game's clock jumps up
-to 0.1 s before the player can move.
-
-- **Watch** counts that frame from when the chamber was there (b090fad).
-  Before that fix the TAS lost its way in 04-button on the badge.
-- **Normal play** does not yet. Players hardly see it, but a recording or
-  a ghost captures that long first step, so every run starts 0.1 s in.
-  The fix belongs in one place: `app_load_chamber()` notes the time, and
-  the main loop shortens the next frame to the time since.
-
-## Ghost races
-
-- **Every release retires every ghost.** A ghost's signature is the
-  release and a hash of the chamber (`main/ghost.c` `level_sig`,
-  `ghost_begin`), so 0.12.1, whose physics is 0.12.0's, races none of
-  0.12.0's ghosts or rivals. A physics version would be better: bumped
-  only when `game.c`, `player.c`, `physics.c` or `portal.c` change how a
-  run plays. The TAS times are a fingerprint of the physics and could
-  check that version in `make check`: if they change, the version must.
+- **Arriving from Continue or Chamber select**: play starts on the
+  spawn, the start station open around it; it could come down the shaft
+  first, as between chambers.
+- **The start car stays**: once the player has walked out it could rise
+  into its hatch.
+- **The editor's play-test** ends at the exit with its own message; it
+  could shut and ride, then go back to the editor. The editor could show
+  both stations (and which glass stays) where it would put them.
+- **A header key to place them by hand**, `lift: exit X Z | exit none |
+  start none | none`, for chambers the automatic rule does badly, and a
+  station that comes to the player when the exit is far wider than a
+  station (change-at-amersfoort's 15 x 3 exit: the station stands in its
+  middle, a run ends at its door 6.8 m off, and a car is fitted there
+  instead -- the drawn station is not the one ridden).
+  Older builds reject unknown keys, so a chamber using it would need
+  `chamber: needs-update` or older builds to skip unknown keys first.
+- **Sounds of its own**: a ding as the doors open, a hum in the shaft.
+- **None in desk-story rounds**, by design: the desk comes next.
+- **The pause menu does not open while riding** (about 4 s): anything
+  that sends play elsewhere stops the ride, so it could.
+- **The ride takes longer than the old fade** (about 4 to 5.5 s from the
+  exit to play, against 2.2 s); Jump, Use or a shot runs it three times
+  as fast.
 
 ## The TAS
 
@@ -58,8 +42,8 @@ to 0.1 s before the player can move.
   on unseen ones, exact 1/30 and 1/35 s steps, random search). It lives in
   a session's scratch space; it belongs in `tools/`.
 - **`host_tas -jitter` models only 20 to 35 frames a second.** The badge
-  also has long frames: the first after a load (above) and frames where a
-  portal shot re-meshes the level. Options for a long first frame and for
+  also has long frames where a portal shot re-meshes the level. (The first
+  frame after a load used to be one; it is timed from the load now.) Options for a long first frame and for
   occasional long frames would have caught the 04-button failure on the PC.
 - **`make tas` prints a table at a steady 30 frames a second.** The
   badge's frames are uneven, and the number that predicts the badge is

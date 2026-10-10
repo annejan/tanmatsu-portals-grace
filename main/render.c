@@ -1193,10 +1193,13 @@ static void submit_lift_solid(cam_t const* cam, clipset_t const* cs) {
         vec3_t const               e = cam->pos;
         bool const                 in = lift_inside(s, e);
         float const                fy = s->y, car = fy + v->dy, top = fy + (s->hatch ? s->ceil : s->mouth);
-        // Too far off to matter: past 40 m, or wholly behind the eye.
-        vec3_t const c = v3(s->x, fy + 1.5f, s->z);
-        float const  dc = v3_len(v3_sub(c, e));
-        if (dc > 40.0f || (dc > 3.0f && v3_dot(v3_sub(c, e), cam->b.fwd) < -2.5f)) continue;
+        // Too far off to matter, or wholly behind the eye -- never the one
+        // ridden or stood in.
+        if (!in && !v->shaft && v->dy <= 0.0f) {
+            vec3_t const ce = v3_sub(v3(s->x, (fy + top) * 0.5f, s->z), e);
+            float const  r  = fmaxf(fmaxf(s->rx, s->rz), (top - fy) * 0.5f) + 0.1f;
+            if (v3_len(ce) > 40.0f + r || v3_dot(ce, cam->b.fwd) < -r) continue;
+        }
         // The collar on the floor: green for the way out, white for the way in.
         if (!lift_portal_near(s, fy, true))
             lift_band(s, 0.02f, fy, fy + 0.08f, in, cam, cs, v->exit ? 0xFF6CF0C8u : 0xFFE4ECFFu,

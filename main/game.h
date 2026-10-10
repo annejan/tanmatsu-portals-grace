@@ -144,6 +144,7 @@ typedef struct {
     float      shot_t;   // seconds the player has been under a turret's fire
     float      burst_t;  // the turrets' fire: its clock
     track_t    track;    // what this run has done (review.h)
+    uint32_t   loaded;   // which load this is, for what is worked out once a load (lift.h); never played
 } game_t;
 
 typedef struct {

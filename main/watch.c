@@ -234,6 +234,8 @@ void watch_update(float dt) {
         if (ev & LIFT_EV_TOP) {
             s_lift.phase = LIFT_NONE;
             next_run();
+            // It would not load: wait on the car's floor, not up the shaft.
+            if (s_on && s_hold > 0.0f) g->pl.pos = v3(s_lift.car.x, s_lift.car.y, s_lift.car.z);
             // Loaded: down into it (not after the last, nor if it would not load).
             if (s_on && s_hold <= 0.0f) {
                 lift_down(&s_lift, g, &app_lift_sites()->start);

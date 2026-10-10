@@ -74,20 +74,16 @@ static int64_t s_loaded_us;               // when a chamber was last loaded: 0 o
 // the next loaded, down into it -- no stop between them.
 static lift_t       s_lift;
 static lift_sites_t s_sites;  // the stations of the chamber in s_game (lift.h)
-static char         s_sites_of[96];  // ... which it is: see sites_now()
+static uint32_t     s_sites_of;  // ... the load they are of (game_t.loaded)
 static int    s_lift_next;
 static bool   s_lift_hold;  // shut, until the message is read (a race's verdict, the end)
 
-// The stations of the chamber in s_game, worked out again if that is
-// another chamber now (the title's attract mode loads its own).
+// The stations of the chamber in s_game, worked out once each time one is
+// loaded -- by play, a play-test, Watch or the title's attract mode.
 static lift_sites_t const* sites_now(void) {
-    char           key[sizeof(s_sites_of)];
-    level_t const* lv = &s_game.lv;
-    snprintf(key, sizeof(key), "%.31s %d %d %d %.2f %.2f %.2f", lv->name, lv->w, lv->h, lv->d, (double)lv->spawn.x,
-             (double)lv->spawn.y, (double)lv->spawn.z);
-    if (strcmp(key, s_sites_of) != 0) {
-        lift_sites(lv, &s_sites);
-        snprintf(s_sites_of, sizeof(s_sites_of), "%s", key);
+    if (s_game.loaded != s_sites_of) {
+        lift_sites(&s_game.lv, &s_sites);
+        s_sites_of = s_game.loaded;
     }
     return &s_sites;
 }
@@ -680,7 +676,9 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         // The built-in keyboard's second Esc, after the one that stopped a
         // recording, does not open the menu as well.
         // Not in a lift: two seconds, and it is somewhere else by then.
-        if (!watch_just_stopped() && !lift_on(&s_lift)) menu_open(s_game.chamber);
+        // Not while riding (a few seconds, and somewhere else by then) --
+        // but in a pack's last lift, shut while its ending is told, yes.
+        if (!watch_just_stopped() && (!lift_on(&s_lift) || s_lift.stay)) menu_open(s_game.chamber);
     } else {
         input_event(ev);
     }
@@ -1002,7 +1000,7 @@ static void play_frame(float dt) {
         settings_set_gyro(!settings_gyro());
         hud_message(settings_gyro() ? "Gyroscope on" : "Gyroscope off");
     }
-    if (in.restart && !lift_on(&s_lift)) {  // not in a lift: it is on its way already
+    if (in.restart && (!lift_on(&s_lift) || s_lift.stay)) {  // not riding: it is on its way already
         if (s_mode == MODE_TEST)
             start_playtest();
         else
@@ -1033,6 +1031,7 @@ static void play_frame(float dt) {
             }
             if (s_capturing) recording_capture_chamber(&s_cap, chamber_id(s_game.chamber));
             lift_down(&s_lift, &s_game, &sites_now()->start);
+            if (!lift_on(&s_lift)) input_resync();  // no start station: there at once, the hurrying key let go
             return;
         }
         if (s_story_end < 0) return;  // a pack's end goes on, shut in the lift

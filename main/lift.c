@@ -34,8 +34,15 @@ static bool open_at(level_t const* lv, float x, float y, float z) {
 }
 
 // Whether an ellipse rx, rz round (x, z) on floor y is clear at the feet
-// and at the head: its edge (a little out) and its inside.
+// and at the head, its edge (a little out) and its inside, and stands on
+// floor all round: not over a drop, goo or a platform's dock.
 static bool fits(level_t const* lv, float x, float y, float z, float rx, float rz) {
+    int const fy = (int)floorf(y - 0.05f);
+    for (int i = 0; i < 16; i++) {
+        float const a = (float)i * PI / 8.0f;
+        int const   cx = (int)floorf(x + (rx + 0.03f) * sinf(a)), cz = (int)floorf(z + (rz + 0.03f) * cosf(a));
+        if (!level_solid(lv, cx, fy, cz) || level_get(lv, cx, fy, cz) == MAT_GOO) return false;
+    }
     float const hy[2] = {y + 0.05f, y + 1.7f};
     for (int h = 0; h < 2; h++) {
         if (!open_at(lv, x, hy[h], z)) return false;

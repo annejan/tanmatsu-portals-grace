@@ -76,8 +76,10 @@ bool game_load(game_t* g, int chamber) {
 }
 
 void game_load_level(game_t* g, level_t const* lv) {
+    static uint32_t loads;
     memset(g, 0, sizeof(*g));
-    g->lv = *lv;
+    g->loaded = ++loads;
+    g->lv     = *lv;
     player_spawn(&g->pl, &g->lv);
     g->chamber  = -1;
     g->n_cubes  = g->lv.n_cubes;

@@ -89,9 +89,11 @@ The menu has:
   best and that run becomes the chamber's ghost, raced next time beside
   you. Rivals' ghosts go in `/sd/portals/ghosts/rivals/<nick>/`
   (`make ghosts-fetch`, `make ghosts-push FROM=... NAME=...`).
-  With Lifts between chambers on (the default), a chamber's exit takes
-  you up in a glass lift, and down into the next chamber's start, without
-  a stop; off, a chamber ends with a pause and "Chamber complete".
+  With Lifts between chambers on (the default), every chamber has a lift
+  at its start and its exit: step in, the doors shut behind you, and it
+  takes you up through the chamber and down into the next one's start
+  (Jump, Use or a shot hurries it). Off, a chamber ends with a pause and
+  "Chamber complete".
 - **Controls**.
 
 Settings are kept in NVS.
