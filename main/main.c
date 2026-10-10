@@ -67,6 +67,7 @@ static bool           s_half_ok;
 static se_ppa_layer_t s_layer;
 
 static int   s_pending_chamber = -1;      // load this once the message is read
+static int64_t s_loaded_us;               // when a chamber was last loaded: 0 once its first frame is played
 
 // The lift between chambers (Settings: Lifts): up out of one, in the dark
 // the next loaded, down into it -- no stop between them.
@@ -279,6 +280,7 @@ static bool load_chamber(int index) {
     // against its best, if there is one.
     s_ghost_live = ghosts_wanted();
     if (s_ghost_live) ghost_begin(&s_ghost, GHOST_DIR, chamber_id(index), &s_game.lv, GAME_PHYSICS);
+    s_loaded_us = esp_timer_get_time();
     return true;
 }
 
@@ -586,6 +588,7 @@ static void start_playtest(void) {
     s_story_of = -1;
     sound_say(s_game.lv.story[0] ? s_game.lv.story : NULL);
     render_set_level(&s_game.lv, s_game.portals);
+    s_loaded_us = esp_timer_get_time();
     s_mode      = MODE_TEST;
     s_test_back = false;
     s_test_done = 0.0f;
@@ -1186,6 +1189,15 @@ static void play_frame(float dt) {
 
 static void on_update(float dt, void* user) {
     (void)user;
+    if (s_loaded_us != 0) {
+        // The first frame in a chamber: from when it was there, not from
+        // the frame before, which loaded it. That frame's length would be
+        // the game's first step -- up to 0.1 s gone before the player can
+        // move, in a recording, a ghost and a TAS (watch.c) too.
+        float const since = (float)(esp_timer_get_time() - s_loaded_us) * 1e-6f;
+        s_loaded_us       = 0;
+        if (since > 0.0f && since < dt) dt = since;
+    }
     if (dt > 0.0f) s_fps += (1.0f / dt - s_fps) * 0.1f;
     // The portals on LEDs A and B, while playing and if wanted.
     if (settings_leds() && s_mode != MODE_EDIT && s_mode != MODE_DESK && s_mode != MODE_CINE && !menu_on_title())

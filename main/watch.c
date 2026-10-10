@@ -41,7 +41,6 @@ static bool          s_on;
 static bool          s_title;               // back to the title after
 static char          s_back[CHAMBER_ID_N];  // else to this chamber
 static int64_t       s_left_us;             // when Esc stopped it
-static int64_t       s_loaded_us;           // when the chamber was loaded: 0 once its first frame is played
 static recording_t   s_recording;
 static char          s_id[CHAMBER_ID_N];
 static char          s_pack[32];  // a story pack's replay: its pack, for its chambers' short names
@@ -88,7 +87,6 @@ static void begin(int k) {
     }
     hud_message(app_game()->lv.name);
     demo_player_start(&s_player, s_recording.runs[k].steps);
-    s_loaded_us = esp_timer_get_time();
 }
 
 bool watch_start(char const* dir, char const* id, char const* pack, bool to_title, char const* back) {
@@ -202,14 +200,6 @@ bool watch_just_stopped(void) {
 
 void watch_update(float dt) {
     hud_tick(dt);
-    if (s_loaded_us != 0 && s_hold <= 0.0f) {
-        // The first frame in a chamber: from when it was there, not from
-        // the frame before, which loaded it -- a run would start with a
-        // leap as long as the loading took.
-        float const since = (float)(esp_timer_get_time() - s_loaded_us) * 1e-6f;
-        s_loaded_us       = 0;
-        if (since > 0.0f && since < dt) dt = since;
-    }
     if (s_hold > 0.0f) {
         if ((s_hold -= dt) > 0.0f) return;
         if (s_k + 1 < s_recording.n) {
