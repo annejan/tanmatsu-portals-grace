@@ -56,6 +56,11 @@ static float         s_acc;
 // The badge's own frames while each run played (Settings -> Frame times).
 static int           s_frames[RECORDING_MAX];
 static float         s_frame_s[RECORDING_MAX], s_worst[RECORDING_MAX];
+// ... and what they cost: each run's update and render time in all, and
+// the slowest frame's, its passes and triangles (Settings -> Frame times).
+static float         s_upd_s[RECORDING_MAX], s_rend_s[RECORDING_MAX];
+static int           s_worst_upd[RECORDING_MAX], s_worst_rend[RECORDING_MAX], s_worst_pass[RECORDING_MAX],
+    s_worst_tris[RECORDING_MAX];
 // Between runs, with Settings -> Lifts: up out of one, down into the next.
 static lift_t        s_lift;
 
@@ -75,6 +80,8 @@ static void begin(int k) {
     s_acc        = 0.0f;
     s_frames[k]  = 0;
     s_frame_s[k] = s_worst[k] = 0.0f;
+    s_upd_s[k] = s_rend_s[k] = 0.0f;
+    s_worst_upd[k] = s_worst_rend[k] = s_worst_pass[k] = s_worst_tris[k] = 0;
     int c                     = chamber_find(s_recording.runs[k].id);
     if (c < 0 && s_pack[0]) {  // a pack's replay, naming its chamber by the file alone
         char full[96];
@@ -144,8 +151,15 @@ static void write_times(int done) {
         else
             ADD("%s\tFAIL", s_recording.runs[k].id);
         // With Settings -> Frame times: the badge's frame rate in it, and its slowest frame.
-        if (settings_frame_times() && s_frames[k] > 0)
-            ADD("\t%.1f fps\t%.0f ms", (double)((float)s_frames[k] / s_frame_s[k]), (double)(s_worst[k] * 1000.0f));
+        if (settings_frame_times() && s_frames[k] > 0) {
+            // ... and on average what a frame's update and render took,
+            // and what the slowest one's did.
+            float const fr = (float)s_frames[k];
+            ADD("\t%.1f fps\t%.0f ms\tupd %.1f\trender %.1f\tworst upd %d render %d pass %d tri %d",
+                (double)(fr / s_frame_s[k]), (double)(s_worst[k] * 1000.0f), (double)(s_upd_s[k] * 1000.0f / fr),
+                (double)(s_rend_s[k] * 1000.0f / fr), s_worst_upd[k] / 1000, s_worst_rend[k] / 1000, s_worst_pass[k],
+                s_worst_tris[k]);
+        }
         ADD("\n");
     }
     ADD("total\t%.2f\t%.1f fps\n", (double)s_total, (double)app_fps());
@@ -259,9 +273,20 @@ void watch_update(float dt) {
     }
     // The badge's frames, but not the one that loaded the chamber.
     if (s_run > 0.0f || s_fi > 0) {
+        // This frame's time is the last one's work: its update and render.
+        int upd, rend, passes, tris;
+        app_frame_cost(&upd, &rend, &passes, &tris);
         s_frames[s_k]++;
         s_frame_s[s_k] += dt;
-        if (dt > s_worst[s_k]) s_worst[s_k] = dt;
+        s_upd_s[s_k]   += (float)upd * 1e-6f;
+        s_rend_s[s_k]  += (float)rend * 1e-6f;
+        if (dt > s_worst[s_k]) {
+            s_worst[s_k]      = dt;
+            s_worst_upd[s_k]  = upd;
+            s_worst_rend[s_k] = rend;
+            s_worst_pass[s_k] = passes;
+            s_worst_tris[s_k] = tris;
+        }
     }
     game_t* const                g   = app_game();
     recording_run_t const* const run = &s_recording.runs[s_k];

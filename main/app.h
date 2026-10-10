@@ -13,5 +13,9 @@ void    app_tell_again(void);
 // To the title screen, the chambers playing behind it.
 void    app_to_title(void);
 float   app_fps(void);
+// The last frame's costs: its update (the game, a re-mesh) and its render
+// (the 3D and the fades), in microseconds, and the render's passes and
+// triangles (Settings -> Frame times, watch.c).
+void    app_frame_cost(int* update_us, int* render_us, int* passes, int* tris);
 // The lift stations of the chamber in play.
 lift_sites_t const* app_lift_sites(void);

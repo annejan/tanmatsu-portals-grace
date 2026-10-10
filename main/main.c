@@ -134,6 +134,13 @@ static float      s_period_t, s_period_ms;
 static int     s_demo = -1;
 static double  s_demo_t0;
 static int64_t s_render_us;
+static int64_t s_update_us;  // the last on_update's own time
+
+void app_frame_cost(int* update_us, int* render_us, int* passes, int* tris) {
+    *update_us = (int)s_update_us;
+    *render_us = (int)s_render_us;
+    render_stats(passes, tris);
+}
 
 // Which chamber's story was told last: a restart does not tell it again.
 static int s_story_of = -2;
@@ -1246,8 +1253,16 @@ static void play_frame(float dt) {
     }
 }
 
+static void update_frame(float dt);
+
 static void on_update(float dt, void* user) {
     (void)user;
+    int64_t const t0 = esp_timer_get_time();
+    update_frame(dt);
+    s_update_us = esp_timer_get_time() - t0;
+}
+
+static void update_frame(float dt) {
     if (s_loaded_us != 0) {
         // The first frame in a chamber: from when it was there, not from
         // the frame before, which loaded it. That frame's length would be
