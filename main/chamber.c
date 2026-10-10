@@ -1,4 +1,5 @@
 #include "chamber.h"
+#include "card.h"
 #include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
@@ -915,7 +916,7 @@ int chamber_find(char const* id) {
 
 // A file on the card, read whole (malloc'd), or NULL.
 static char* read_text(char const* path) {
-    FILE* f = fopen(path, "rb");
+    FILE* f = card_fopen(path, "rb");
     if (f == NULL) return NULL;
     fseek(f, 0, SEEK_END);
     long const size = ftell(f);
@@ -971,7 +972,7 @@ void chamber_name(int i, char* out, size_t n) {
     char        head[1024];
     char const* t = NULL;
     if (i >= 0 && i < s_n && s_list[i].path != NULL) {
-        FILE* const f = fopen(s_list[i].path, "rb");
+        FILE* const f = card_fopen(s_list[i].path, "rb");
         if (f == NULL) return;
         size_t const got = fread(head, 1, sizeof(head) - 1, f);
         fclose(f);
@@ -1177,7 +1178,7 @@ int chamber_load_file(char const* path, char const* id) {
         return -1;
     }
     // Only that it is there, and not too big: it is read when played.
-    FILE* const f = fopen(path, "rb");
+    FILE* const f = card_fopen(path, "rb");
     if (f == NULL) return -1;
     fseek(f, 0, SEEK_END);
     long const size = ftell(f);

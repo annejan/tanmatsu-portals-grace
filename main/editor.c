@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "card.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -292,7 +293,7 @@ static bool save(void) {
         say("Not saved: %s is already there", path);
         return false;
     }
-    FILE* f = fopen(path, "wb");
+    FILE* f = card_fopen(path, "wb");
     if (f == NULL) {
         say("Cannot write %s", path);
         return false;

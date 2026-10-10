@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "card.h"
 #include "app.h"
 #include "attract.h"
 #include "bsp/device.h"
@@ -378,7 +379,7 @@ static void record_stop(void) {
     int  k = 1;
     for (; k < 100; k++) {  // the first run-NN not taken
         snprintf(path, sizeof(path), "%s/run-%02d.txt", RECORDING_DIR, k);
-        FILE* f = fopen(path, "r");
+        FILE* f = card_fopen(path, "r");
         if (f == NULL) break;
         fclose(f);
     }
@@ -527,7 +528,7 @@ static void demo_frame(void) {
 // chamber size limits (level.h) can grow into. The P4's console is out of
 // reach without the C6's tty; badgelink fetches this.
 static void write_memory(void) {
-    FILE* f = fopen("/sd/portals/memory.txt", "w");
+    FILE* f = card_fopen("/sd/portals/memory.txt", "w");
     if (f == NULL) return;
     fprintf(f, "build\t%s %s\n", APP_VERSION, APP_GIT_HASH);
     fprintf(f, "chamber max\t%d x %d x %d cells, level_t %u bytes, game_t %u bytes\n", LV_MAX_W, LV_MAX_H, LV_MAX_D,
@@ -697,7 +698,7 @@ static void desk_save(void) {
     mkdir("/sd/portals", 0755);
     mkdir(SAVE_DIR, 0755);
     save_path(path, sizeof(path));
-    FILE* f = fopen(path, "w");
+    FILE* f = card_fopen(path, "w");
     if (f == NULL) {
         ESP_LOGW(TAG, "cannot save %s", path);
         return;
@@ -726,7 +727,7 @@ static bool desk_enter(int pk) {
     uint32_t read  = 0;
     bool     saved = false;
     save_path(path, sizeof(path));
-    FILE* f = fopen(path, "r");
+    FILE* f = card_fopen(path, "r");
     if (f != NULL) {
         char         text[512];
         size_t const n = fread(text, 1, sizeof(text) - 1, f);

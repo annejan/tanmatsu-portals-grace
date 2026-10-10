@@ -1,4 +1,5 @@
 #include "desk.h"
+#include "card.h"
 #include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -10,7 +11,7 @@
 
 // A file into the arena, whole; NULL if it is not there or does not fit.
 static char* slurp(desk_data_t* d, char const* path) {
-    FILE* f = fopen(path, "rb");
+    FILE* f = card_fopen(path, "rb");
     if (f == NULL) return NULL;
     size_t const room = sizeof(d->arena) - d->used;
     size_t const got  = room > 0 ? fread(d->arena + d->used, 1, room - 1, f) : 0;

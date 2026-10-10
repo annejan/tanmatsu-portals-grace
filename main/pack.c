@@ -1,4 +1,5 @@
 #include "pack.h"
+#include "card.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -132,7 +133,7 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
     snprintf(folder, sizeof(folder), "%.150s/%.31s", dir, id);
     // pack.txt, if there is one.
     snprintf(path, sizeof(path), "%s/pack.txt", folder);
-    FILE* f = fopen(path, "rb");
+    FILE* f = card_fopen(path, "rb");
     if (f != NULL) {
         static char  text[4096];
         size_t const got = fread(text, 1, sizeof(text) - 1, f);

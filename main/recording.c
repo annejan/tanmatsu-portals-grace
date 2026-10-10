@@ -1,4 +1,5 @@
 #include "recording.h"
+#include "card.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -200,7 +201,7 @@ bool recording_parse(char const* text, recording_t* r, char* err, size_t err_n) 
 }
 
 static char* read_file(char const* path) {
-    FILE* f = fopen(path, "rb");
+    FILE* f = card_fopen(path, "rb");
     if (f == NULL) return NULL;
     fseek(f, 0, SEEK_END);
     long const size = ftell(f);
@@ -239,7 +240,7 @@ int recording_list(char const* dir, char ids[][CHAMBER_ID_N], char names[][RECOR
         // Only its first lines: a recorded run can be megabytes long.
         char path[192];
         snprintf(path, sizeof(path), "%s/%s", dir, found[i]);
-        FILE* const f = fopen(path, "rb");
+        FILE* const f = card_fopen(path, "rb");
         if (f == NULL) continue;
         char         head[1024];
         size_t const got = fread(head, 1, sizeof(head) - 1, f);
@@ -313,6 +314,8 @@ int recording_errno(void) {
     return CARD_ERRNO;
 }
 
+
+
 // One go at the file: the RECORDING_FAILED_* it stopped at, 0 if on the card.
 static int write_once(recording_capture_t const* c, char const* path, char const* name, char const* version) {
     // f_open mallocs a 512-byte name buffer, then this file's 512-byte sector
@@ -324,7 +327,7 @@ static int write_once(recording_capture_t const* c, char const* path, char const
     free(probe);
     free(name_buf);
     CARD_ERRNO = 0;
-    FILE* f    = fopen(path, "w");
+    FILE* f    = card_fopen(path, "w");
     if (f == NULL) {
         recording_write_errno = CARD_ERRNO;
         return RECORDING_FAILED_OPEN;
@@ -351,7 +354,7 @@ static int write_once(recording_capture_t const* c, char const* path, char const
 
 static int text_once(char const* path, char const* text) {
     CARD_ERRNO = 0;
-    FILE* f    = fopen(path, "w");
+    FILE* f    = card_fopen(path, "w");
     if (f == NULL) {
         recording_write_errno = CARD_ERRNO;
         return RECORDING_FAILED_OPEN;
