@@ -167,7 +167,7 @@ void ghost_frame(ghost_t* g, recording_frame_t const* f) {
 
 ghost_result_t ghost_finish(ghost_t* g, char const* dir, char const* nick) {
     float const    mine = g->mine ? g->racer[0].best_s : -1.0f;
-    ghost_result_t r    = {g->now, mine, mine < 0.0f || g->now < mine, false, 1, 1 + g->n};
+    ghost_result_t r    = {g->now, mine, mine < 0.0f || g->now < mine, false, 1, 1 + g->n, g->lost, 0};
     for (int i = 0; i < g->n; i++)
         if (g->racer[i].best_s < g->now) r.place++;
     if (!g->capturing) return r;
@@ -179,6 +179,7 @@ ghost_result_t ghost_finish(ghost_t* g, char const* dir, char const* nick) {
         snprintf(name, sizeof(name), "%.24s, %.2f s", nick != NULL && nick[0] ? nick : "you", (double)g->now);
         r.best = recording_capture_write(&g->cap, path, name, g->sig);
         if (r.best) g->stale = true;  // the new best, raced next time
+        else r.err = recording_write_failed;
     }
     recording_capture_free(&g->cap);
     g->capturing = false;

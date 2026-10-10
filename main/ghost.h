@@ -46,6 +46,8 @@ typedef struct {
     bool  best;    // ... and saved as your ghost
     int   place;   // among the racers and you, from 1
     int   of;      // how many raced, you included
+    bool  lost;    // faster, not saved: its capture ran out of memory ...
+    int   err;     // ... or the card said no: RECORDING_FAILED_*, 0 if not asked
 } ghost_result_t;
 
 // An attempt at chamber `id` begins in level `lv` (as it starts), on

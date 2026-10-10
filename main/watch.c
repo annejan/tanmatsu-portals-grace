@@ -133,25 +133,31 @@ bool watch_start(char const* dir, char const* id, char const* pack, bool to_titl
 static void write_times(int done) {
     char path[160];
     snprintf(path, sizeof(path), "/sd/portals/%s-times.txt", s_id);
-    FILE* f = fopen(path, "w");
-    if (f == NULL) {
-        ESP_LOGW(TAG, "cannot write %s", path);
-        return;
-    }
-    fprintf(f, "# %s\n", s_recording.name);
+    // The whole file first, then onto the card in one go (twice tried).
+    static char text[RECORDING_MAX * 96 + 256];
+    size_t      n = 0;
+#define ADD(...) (n += (size_t)snprintf(text + n, n < sizeof(text) ? sizeof(text) - n : 0, __VA_ARGS__))
+    ADD("# %s\n", s_recording.name);
     for (int k = 0; k < done; k++) {
         if (s_times[k] >= 0.0f)
-            fprintf(f, "%s\t%.2f", s_recording.runs[k].id, (double)s_times[k]);
+            ADD("%s\t%.2f", s_recording.runs[k].id, (double)s_times[k]);
         else
-            fprintf(f, "%s\tFAIL", s_recording.runs[k].id);
+            ADD("%s\tFAIL", s_recording.runs[k].id);
         // With Settings -> Frame times: the badge's frame rate in it, and its slowest frame.
         if (settings_frame_times() && s_frames[k] > 0)
-            fprintf(f, "\t%.1f fps\t%.0f ms", (double)((float)s_frames[k] / s_frame_s[k]),
-                    (double)(s_worst[k] * 1000.0f));
-        fprintf(f, "\n");
+            ADD("\t%.1f fps\t%.0f ms", (double)((float)s_frames[k] / s_frame_s[k]), (double)(s_worst[k] * 1000.0f));
+        ADD("\n");
     }
-    fprintf(f, "total\t%.2f\t%.1f fps\n", (double)s_total, (double)app_fps());
-    fclose(f);
+    ADD("total\t%.2f\t%.1f fps\n", (double)s_total, (double)app_fps());
+#undef ADD
+    if (!recording_write_text(path, text)) {
+        static char const* const step[] = {"?", "nothing", "open", "write", "close"};
+        char                     msg[HUD_MESSAGE_N];
+        snprintf(msg, sizeof(msg), "Times not saved: %s e%d", step[recording_write_failed >= 0 && recording_write_failed <= 4 ? recording_write_failed : 0],
+                 recording_write_errno);
+        hud_message(msg);
+        ESP_LOGW(TAG, "%s: %s", path, msg);
+    }
 }
 
 // The times, on screen: each chamber's and the total, and with Settings ->

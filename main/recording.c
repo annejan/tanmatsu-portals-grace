@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 // One line of `*p` into out[n], cut short if long; false at the end.
 static bool line_of(char const** p, char* out, size_t n) {
@@ -294,23 +295,101 @@ void recording_capture_done(recording_capture_t* c) {
     c->r.n++;
 }
 
-bool recording_capture_write(recording_capture_t const* c, char const* path, char const* name, char const* version) {
-    if (c->r.n == 0) return false;
-    FILE* f = fopen(path, "w");
-    if (f == NULL) return false;
-    bool ok = fprintf(f, "name: %s\nversion: %s\n", name, version) > 0;
+#ifdef ESP_PLATFORM
+// `errno` is a TLS variable an app under Graceloader cannot bind (it needs
+// __tls_get_addr); the libc's __errno() is exported and is the same thing.
+extern int* __errno(void);
+#define CARD_ERRNO (*__errno())
+#else
+#include <errno.h>
+#define CARD_ERRNO errno
+#endif
+
+int       recording_write_failed;
+int       recording_write_errno;
+uintptr_t recording_write_probe;
+
+int recording_errno(void) {
+    return CARD_ERRNO;
+}
+
+// One go at the file: the RECORDING_FAILED_* it stopped at, 0 if on the card.
+static int write_once(recording_capture_t const* c, char const* path, char const* name, char const* version) {
+    // f_open mallocs a 512-byte name buffer, then this file's 512-byte sector
+    // buffer, which the card DMAs from: where a second 512 lands now is
+    // where that one will. Outside DMA-capable RAM, the card cannot take it.
+    void* volatile const name_buf = malloc(512);  // volatile: kept, not optimised out
+    void* const probe     = malloc(512);
+    recording_write_probe = (uintptr_t)probe;
+    free(probe);
+    free(name_buf);
+    CARD_ERRNO = 0;
+    FILE* f    = fopen(path, "w");
+    if (f == NULL) {
+        recording_write_errno = CARD_ERRNO;
+        return RECORDING_FAILED_OPEN;
+    }
+    // fprintf() fills a stdio buffer; a card error shows as a negative return
+    // when it spills, so `< 0`, not "== 0", is the test.
+    bool ok = fprintf(f, "name: %s\nversion: %s\n", name, version) >= 0;
     for (int k = 0; k < c->r.n && ok; k++) {
         recording_run_t const* const run = &c->r.runs[k];
-        ok                               = fprintf(f, "\nchamber: %s\nframes: %d\n", run->id, run->frames) > 0;
+        ok = fprintf(f, "\nchamber: %s\nframes: %d\n", run->id, run->frames) >= 0;
         for (int i = 0; i < run->frames && ok; i++) {
             recording_frame_t const* const q = &c->r.frame[run->frame0 + i];
-            ok = ok && fprintf(f, "%lu %d %d %ld %ld %d\n", (unsigned long)q->dt_us, q->fwd, q->strafe,
-                               (long)q->dyaw_urad, (long)q->dpitch_urad, q->keys);
+            ok = fprintf(f, "%lu %d %d %ld %ld %d\n", (unsigned long)q->dt_us, q->fwd, q->strafe,
+                         (long)q->dyaw_urad, (long)q->dpitch_urad, q->keys) >= 0;
         }
     }
-    ok = fclose(f) == 0 && ok;
-    if (!ok) chamber_remove_file(path);  // not half a run on the card
-    return ok;
+    int const write_errno = CARD_ERRNO;
+    CARD_ERRNO            = 0;
+    bool const closed     = fclose(f) == 0;  // the last sector reaches the card here
+    if (ok && closed) return 0;
+    recording_write_errno = ok ? CARD_ERRNO : write_errno;
+    return ok ? RECORDING_FAILED_CLOSE : RECORDING_FAILED_WRITE;
+}
+
+static int text_once(char const* path, char const* text) {
+    CARD_ERRNO = 0;
+    FILE* f    = fopen(path, "w");
+    if (f == NULL) {
+        recording_write_errno = CARD_ERRNO;
+        return RECORDING_FAILED_OPEN;
+    }
+    size_t const n           = strlen(text);
+    bool const   ok          = fwrite(text, 1, n, f) == n;
+    int const    write_errno = CARD_ERRNO;
+    CARD_ERRNO               = 0;
+    bool const closed        = fclose(f) == 0;
+    if (ok && closed) return 0;
+    recording_write_errno = ok ? CARD_ERRNO : write_errno;
+    return ok ? RECORDING_FAILED_CLOSE : RECORDING_FAILED_WRITE;
+}
+
+bool recording_write_text(char const* path, char const* text) {
+    recording_write_errno = 0;
+    for (int tries = 0; tries < 2; tries++) {
+        if (tries > 0) usleep(200 * 1000);
+        recording_write_failed = text_once(path, text);
+        if (recording_write_failed == 0) return true;
+    }
+    return false;
+}
+
+bool recording_capture_write(recording_capture_t const* c, char const* path, char const* name, char const* version) {
+    recording_write_failed = RECORDING_FAILED_EMPTY;
+    recording_write_errno  = 0;
+    if (c->r.n == 0) return false;
+    // Twice: after one failed card write FatFs refuses that file until it is
+    // opened again, and a transaction the card missed usually goes through
+    // a moment later.
+    for (int tries = 0; tries < 2; tries++) {
+        if (tries > 0) usleep(200 * 1000);
+        recording_write_failed = write_once(c, path, name, version);
+        if (recording_write_failed == 0) return true;
+        chamber_remove_file(path);  // not half a run on the card
+    }
+    return false;
 }
 
 void recording_capture_free(recording_capture_t* c) {

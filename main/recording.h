@@ -108,3 +108,15 @@ void recording_capture_free(recording_capture_t* c);
 int  recording_list(char const* dir, char ids[][CHAMBER_ID_N], char names[][RECORDING_NAME_N]);
 // Read and parse `dir`/`id`.txt.
 bool recording_load(char const* dir, char const* id, recording_t* r, char* err, size_t err_n);
+// Where the last recording_capture_write() that failed stopped
+// (RECORDING_FAILED_*, 0 if it worked), the errno there, and where a 512-byte
+// malloc landed just before its fopen (FatFs's sector buffer goes the same way).
+enum { RECORDING_FAILED_EMPTY = 1, RECORDING_FAILED_OPEN, RECORDING_FAILED_WRITE, RECORDING_FAILED_CLOSE };
+extern int       recording_write_failed;
+extern int       recording_write_errno;
+extern uintptr_t recording_write_probe;
+// errno, read the way an app under Graceloader can.
+int recording_errno(void);
+// `text` as file `path`, tried twice as a recording is; false (and
+// recording_write_failed / _errno say why) if the card would not take it.
+bool recording_write_text(char const* path, char const* text);

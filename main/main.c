@@ -1137,8 +1137,25 @@ static void play_frame(float dt) {
                          (double)(gr.before - gr.time));
             else if (gr.best)
                 snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s -- your best, for now", (double)gr.time);
-            else if (gr.faster)
-                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (no card: not saved)", (double)gr.time);
+            else if (gr.faster && gr.lost)
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (no memory: not saved)", (double)gr.time);
+            else if (gr.faster) {
+                // Not saved, twice tried: where it stopped, the card's errno
+                // (5 EIO, 12 ENOMEM, 23 ENFILE, 28 ENOSPC), and where FatFs's
+                // sector buffer went (LP or TCM: the card cannot DMA from it).
+                static char const* const step[] = {"?", "nothing", "open", "write", "close"};
+                int const                st      = gr.err >= 0 && gr.err <= 4 ? gr.err : 0;
+                uintptr_t const          a       = recording_write_probe;
+                char const* const ram = a >= 0x4ff00000u && a < 0x4ffc0000u   ? "L2"
+                                        : a >= 0x48000000u && a < 0x4c000000u ? "PS"
+                                        : a >= 0x50108000u && a < 0x50110000u ? "LP"
+                                        : a >= 0x30100000u && a < 0x30102000u ? "TCM"
+                                                                              : "?";
+                snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s not saved: %s e%d %s d%uK", (double)gr.time, step[st],
+                         recording_write_errno, ram,
+                         (unsigned)(heap_caps_get_largest_free_block(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) / 1024));
+                ESP_LOGW(TAG, "ghost not saved: %s", s_race_msg);
+            }
             else
                 snprintf(s_race_msg, sizeof(s_race_msg), "%.2f s (+%.2f on your best)", (double)gr.time,
                          (double)(gr.time - gr.before));
