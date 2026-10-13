@@ -30,6 +30,10 @@
 //       the outro (main/outro.c, MODE_CINE): the walk, lights low, the
 //       pack's ending said and typed; the fade; then the desk's cards
 //
+// HOST_MOVIE_MUSIC: the tune, a pack's `music:` (sound.h; tools/dlc.py and
+// story_film.py pass the pack's), played to the mood as main.c plays it.
+// HOST_MOVIE_STEM=music: the music alone in movie.wav.
+//
 // HOST_MOVIE_NICK: the badge owner's nickname for "[Subject-Name-here]",
 // as main.c's personalise; unset, the joke stands as written.
 // The frames come from host_shot's rasterizer, included below, through a
@@ -73,11 +77,16 @@ static music_source_t* s_music;
 static bool            s_music_on = true, s_group_on[SE_AUDIO_SFX_GROUP_COUNT] = {true, true, true, true};
 static int             s_music_vol = 100;
 
+// The badge's mixer fills the engine's sine table as it starts: without it
+// audio_dsp_sin() is 0, and every sine -- the music's arp and kick, the
+// effects' -- silent.
 esp_err_t audio_mixer_init(void) {
-    return ESP_OK;
+    return audio_dsp_init();
 }
 void audio_mixer_set_music(music_source_t* src) {
-    s_music = src;
+    music_source_t* const prev = s_music;
+    s_music                    = src;
+    if (prev != NULL && prev->shutdown != NULL) prev->shutdown(prev);  // as the badge's mixer
 }
 bool audio_mixer_register_voice(sfx_voice_t* v) {
     for (int i = 0; i < SLOTS; i++)
@@ -112,13 +121,18 @@ static void mix(int16_t* out, size_t frames) {
         s_music->render(s_music, one, frames);
         for (size_t j = 0; j < 2 * frames; j++) acc[j] += (int32_t)(one[j] * AUDIO_MUSIC_GAIN * s_music_vol / 100);
     }
+    // HOST_MOVIE_STEM=music: the music alone, the effects and voices
+    // played but not heard -- to hold the music up against another build's.
+    static int music_only = -1;
+    if (music_only < 0) music_only = getenv("HOST_MOVIE_STEM") != NULL && strcmp(getenv("HOST_MOVIE_STEM"), "music") == 0;
     for (int i = 0; i < SLOTS; i++) {
         sfx_voice_t* v = s_voices[i];
         if (v == NULL) continue;
         if (!v->finished && (v->group >= SE_AUDIO_SFX_GROUP_COUNT || s_group_on[v->group])) {
             memset(one, 0, sizeof(one));
             v->render(v, one, frames);
-            for (size_t j = 0; j < 2 * frames; j++) acc[j] += (int32_t)(one[j] * AUDIO_SFX_GAIN);
+            if (!music_only)
+                for (size_t j = 0; j < 2 * frames; j++) acc[j] += (int32_t)(one[j] * AUDIO_SFX_GAIN);
         }
         if (v->finished) {
             if (v->shutdown) v->shutdown(v);
@@ -214,6 +228,7 @@ static void sound_to(rec_t* r, float t) {
 static void titles(rec_t* r, char const* line, float seconds) {
     for (float t = 0.0f; t < seconds - 1e-4f; t += TICK) {
         sound_update();
+        sound_music_mood(SOUND_MOOD_DESK);
         sound_to(r, r->t0 + t + TICK);
         while ((float)r->frame / FPS < r->t0 + t + TICK - 1e-4f) {
             fprintf(r->txt, "%s\n", line);
@@ -259,6 +274,9 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     }
     sound_events(ev);
     sound_update();
+    // main.c's music_mood: play, and calm once the exit is reached -- a
+    // verdict, "Chamber complete".
+    sound_music_mood(r->exit_t >= 0.0f ? SOUND_MOOD_DESK : SOUND_MOOD_PLAY);
     float const film = r->t0 + now;
     sound_to(r, film);
     if (r->badge) {
@@ -344,6 +362,7 @@ static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float tim
         }
         t += TICK;
         sound_update();
+        sound_music_mood(l->phase == LIFT_UP || l->phase == LIFT_DOWN ? SOUND_MOOD_RIDE : SOUND_MOOD_PLAY);
         float const film = r->t0 + t;
         sound_to(r, film);
         if (film + 1e-4f >= (float)r->frame / FPS) {
@@ -387,6 +406,7 @@ static void film_verdict(rec_t* r) {
     float t = 0.0f;
     for (int k = 0; k < 60 * 50; k++) {
         sound_update();
+        sound_music_mood(SOUND_MOOD_DESK);
         hud_tick(TICK);
         if (!hud_message_up() && !sound_saying()) break;
         t += TICK;
@@ -432,6 +452,9 @@ static void film_outro(rec_t* r, int chamber, desk_data_t const* d, char const* 
         int ev = 0;
         if (!outro_update(&g, TICK, &ev)) break;
         sound_events(ev);
+        sound_music_mood(!outro_world()    ? SOUND_MOOD_DESK
+                         : outro_walking() ? SOUND_MOOD_WALK
+                                           : SOUND_MOOD_DARK);
         if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&g.lv, g.portals);
         t += TICK;
         float const film = r->t0 + t;
@@ -562,8 +585,16 @@ int main(int argc, char** argv) {
     uint8_t hdr[44] = {0};
     fwrite(hdr, 1, sizeof(hdr), r.wav);  // filled in at the end
 
+    if (audio_mixer_init() != ESP_OK) {
+        fprintf(stderr, "audio_dsp_init failed\n");
+        return 1;
+    }
     sound_init();
     sound_set_music(true);
+    // HOST_MOVIE_MUSIC: a story pack's tune (pack.h `music:`), from its
+    // first bar, as a story begun from the menu; unset, the game's own.
+    sound_restart_music();
+    sound_music_tune(getenv("HOST_MOVIE_MUSIC"));
     sound_set_effects(true);
     sound_set_voice(true);
 

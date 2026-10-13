@@ -28,6 +28,15 @@
 // A build that knows rounds plays them and passes over the "chamber:" lines;
 // an older one knows only those, and plays a room that says to update.
 //
+// A pack may name its music (sound.h), a tune and how to play it:
+//
+//   music: office             or hackfest, overtime, calm (the game's own)
+//   music: overtime key=D bpm=80 seed=7
+//
+// Without it, the game's own tune -- but for the packs made with the game,
+// which know theirs when a card's copy is older than the line. Every build
+// before reads past a key it does not know: an older one plays its music.
+//
 // Rounds may branch: from a `route:` line on, rounds belong to that route,
 // until the next `route:` or a `join` line; the player picks one route
 // (the desk's ROUTE) and plays only its rounds, then the shared ones after.
@@ -72,6 +81,7 @@ typedef struct {
     pack_route_t routes[PACK_ROUTES];
     int          n_routes;
     char         choose[80];  // the question the routes answer
+    char         music[48];   // its tune (sound_music_tune), "" for the game's own
 } pack_t;
 
 // Read every pack in `dir`, adding their chambers to the chamber list

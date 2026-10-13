@@ -50,6 +50,7 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
     p->outro[0]          = '\0';
     p->n_routes          = 0;
     p->choose[0]         = '\0';
+    p->music[0]          = '\0';
     memset(p->route_of, 0, sizeof(p->route_of));
     char        line[256];
     char const* at = text;
@@ -101,6 +102,8 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
             route = p->n_routes;
         } else if (strcmp(s, "join") == 0)
             route = 0;
+        else if (strncmp(s, "music:", 6) == 0)
+            snprintf(p->music, sizeof(p->music), "%s", trim(s + 6));
         else if (strncmp(s, "outro:", 6) == 0)
             snprintf(p->outro, sizeof(p->outro), "%s", trim(s + 6));
         else if (strncmp(s, "frame:", 6) == 0) {
@@ -119,6 +122,14 @@ bool pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_
     }
     return *n_files > 0;
 }
+
+// The packs made with the game, and their tunes: for a card's copy older
+// than its `music:` line.
+static char const* const s_own_music[][2] = {
+    {"human-in-the-loop", "office"},
+    {"hackfest", "hackfest"},
+    {"after-hours", "overtime"},
+};
 
 // The pack in folder `dir`/`id`: its pack.txt, and its chambers added.
 static bool load_one(char const* dir, char const* id, pack_t* p) {
@@ -141,6 +152,9 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
         text[got] = '\0';
         pack_parse(text, p, files, &n);
     }
+    if (p->music[0] == '\0')
+        for (size_t i = 0; i < sizeof(s_own_music) / sizeof(s_own_music[0]); i++)
+            if (strcmp(id, s_own_music[i][0]) == 0) snprintf(p->music, sizeof(p->music), "%s", s_own_music[i][1]);
     // Without "chamber:" lines: every chamber file there, by name.
     if (n == 0) {
         char const* names[PACK_CHAMBERS + 1];

@@ -117,6 +117,10 @@ bool outro_world(void) {
     return s_phase == O_WALK || s_phase == O_FADE;
 }
 
+bool outro_walking(void) {
+    return s_phase == O_WALK;
+}
+
 float outro_lit(void) {
     if (s_phase == O_WALK) return WALK_LIT;
     if (s_phase == O_FADE) return WALK_LIT * fmaxf(0.0f, 1.0f - s_t / FADE_S);

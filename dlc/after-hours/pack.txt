@@ -2,6 +2,7 @@ name: After hours
 author: annejan
 about: The tests are over. The testing is not.
 ending: That concludes your overtime, [Subject-Name-here]. It was not paid. Neither, technically, were you.
+music: overtime
 chamber: overtime
 chamber: momentum
 chamber: spire

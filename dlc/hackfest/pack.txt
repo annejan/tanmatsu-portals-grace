@@ -2,6 +2,7 @@ name: Off to Hackfest
 author: annejan
 about: Hackfest is on Saturday, from noon, at Sickhouse in Enschede. A few things first. Geeky things.
 ending: Welcome to Hackfest, [Subject-Name-here]. Badge on, laptop open, Club-Mate in hand. You made it.
+music: hackfest
 frame: desk
 round: pull-request
 round: reflow

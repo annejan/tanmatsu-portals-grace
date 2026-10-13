@@ -1284,9 +1284,38 @@ static void play_frame(float dt) {
 // the splashes, Settings -> Music in play. Set only when that changes.
 static int s_music_on = -1;
 
+// Which tune, and how it is played (sound.h): a story pack's own (pack.h
+// `music:`) in it -- its desk, rounds and outro, its chambers, a recording
+// of them -- and the game's own everywhere else: the title, the built-in
+// chambers, the editor. Calm at a desk and between chambers, more in
+// play; muffled under the menu and in a moving lift; low with the
+// outro's lights. The game's own tune takes no notice of the mood.
+static void music_mood(bool menu) {
+    int pk = -1;
+    if (!menu && s_story_on)
+        pk = s_story.pack;
+    else if (!menu && (s_mode == MODE_PLAY || watch_on()))
+        pk = pack_of(s_game.chamber, NULL);
+    pack_t const* const p = pack_get(pk);
+    sound_music_tune(p != NULL ? p->music : NULL);
+    sound_mood_t mood = SOUND_MOOD_PLAY;
+    if (s_mode == MODE_CINE)
+        mood = !outro_world() ? SOUND_MOOD_DESK : outro_walking() ? SOUND_MOOD_WALK : SOUND_MOOD_DARK;
+    else if (menu || (s_mode != MODE_PLAY && s_mode != MODE_TEST))
+        mood = SOUND_MOOD_DESK;  // the desk, the editor (a story's debugger)
+    else if (menu_active() && !watch_on())
+        mood = SOUND_MOOD_PAUSE;
+    else if (!watch_on() && lift_on(&s_lift) && (s_lift.phase == LIFT_UP || s_lift.phase == LIFT_DOWN))
+        mood = SOUND_MOOD_RIDE;
+    else if (!watch_on() && (s_desk_return || s_pending_chamber >= 0 || s_story_end >= 0))
+        mood = SOUND_MOOD_DESK;  // a verdict, "Chamber complete", a pack's end
+    sound_music_mood(mood);
+}
+
 static void music_where(void) {
     bool const menu = s_mode == MODE_LOADER || s_mode == MODE_SPLASH || (menu_on_title() && !watch_on());
     int const  want = (menu ? settings_menu_music() : settings_music()) ? 1 : 0;
+    music_mood(menu);  // first: a new tune fades in over the last only if that was heard
     if (want != s_music_on) sound_set_music(want != 0);
     s_music_on = want;
 }

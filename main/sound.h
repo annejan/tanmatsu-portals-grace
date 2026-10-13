@@ -2,6 +2,13 @@
 // Sound: short synthesised effects for what happens in a chamber, and
 // calm procedural music. No samples on the SD card -- every effect is a
 // few numbers (sound.c). Engine-side: runs on SynthEngine3D's mixer.
+//
+// The music is the game's own tune ("calm") but where a story pack names
+// one of its own (pack.h `music:`): "office", "hackfest", "overtime",
+// with bpm=, key= and seed= to vary it. Those play to the mood -- calmer
+// at a desk, more in a chamber, tense when a turret sees you, muffled in
+// a lift or under the menu, low with the outro's lights, under GLaDOS a
+// little quieter. The game's own plays as it always has, mood or none.
 
 #include <stdbool.h>
 
@@ -44,6 +51,21 @@ void sound_events(int ev);
 void sound_set_music(bool on);
 // The music from its first bar again, as when the game starts.
 void sound_restart_music(void);
+// The tune: a pack's `music:` value, NULL or "" for the game's own. A new
+// one fades in over the last (or, just restarted or not heard, starts);
+// the same goes on. Cheap to call every frame.
+void sound_music_tune(char const* spec);
+typedef enum {
+    SOUND_MOOD_DESK,   // a desk, the title, between chambers, a verdict
+    SOUND_MOOD_PLAY,   // a chamber in play
+    SOUND_MOOD_PAUSE,  // the menu over play
+    SOUND_MOOD_RIDE,   // a lift, moving
+    SOUND_MOOD_WALK,   // an outro's walk, the lights low
+    SOUND_MOOD_DARK,   // ... and its fade to black
+} sound_mood_t;
+// How the tune is played; every frame. Deaths and turrets are told by
+// sound_events, GLaDOS by sound_update.
+void sound_music_mood(sound_mood_t mood);
 void sound_set_effects(bool on);
 void sound_set_voice(bool on);
 

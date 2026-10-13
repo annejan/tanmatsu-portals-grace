@@ -1913,6 +1913,11 @@ static void test_packs(void) {
           "pack chambers after those played in order");
     CHECK(pack_load(dir) == 2 && pack_get(0)->chamber[0] == p->chamber[0], "read again: the same, not added twice");
     CHECK(pack_get(0)->outro_chamber < 0, "no outro: -1");
+    // No music: line -- the game's own tune, but for a pack made with the
+    // game, a card's copy older than its line (pack.c): its own.
+    CHECK(strcmp(pack_get(0)->music, "overtime") == 0 && pack_get(1)->music[0] == '\0',
+          "no music: line: after-hours its own (%s), another the game's (%s)", pack_get(0)->music,
+          pack_get(1)->music);
 
     // A desk story: its rounds, not its "chamber:" lines (an older build's
     // room), and its outro.
@@ -1925,6 +1930,11 @@ static void test_packs(void) {
               d.desk && n == 2 && strcmp(files[0], "hold") == 0 && strcmp(files[1], "pressure") == 0 &&
               strcmp(d.outro, "walkout") == 0,
           "a desk story: its rounds (%d), its outro %s", n, d.outro);
+    // Its music: the line as written, for sound.c to read.
+    CHECK(pack_parse("name: M\nmusic:  hackfest bpm=96 key=D \nchamber: one\n", &d, files, &n) && n == 1 &&
+              strcmp(d.music, "hackfest bpm=96 key=D") == 0,
+          "music: read (%s)", d.music);
+    CHECK(pack_parse("name: M\nchamber: one\n", &d, files, &n) && d.music[0] == '\0', "no music: none");
     // A frame this build does not know: the chamber lines, as before.
     CHECK(pack_parse("frame: holodeck\nround: hold\noutro: walkout\nchamber: needs-update\n", &d, files, &n) &&
               !d.desk && n == 1 && strcmp(files[0], "needs-update") == 0 && d.outro[0] == '\0',

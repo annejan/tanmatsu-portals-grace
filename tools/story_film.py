@@ -221,7 +221,7 @@ def badge_film(a, folder, info, day, work, chambers, pics, played):
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + ids + [
         "--badge", "--story", story_path, "--splash", splash, "--chambers", chambers,
         "--work", os.path.join(work, "movie"), "--mp4", os.path.abspath(a.mp4),
-        "--interludes", os.path.join(work, "interludes.json")], check=True, env=env)
+        "--interludes", os.path.join(work, "interludes.json"), "--music", info.get("music", "")], check=True, env=env)
     shutil.rmtree(os.path.join(work, "movie", "shots"), ignore_errors=True)
 
 
@@ -303,7 +303,7 @@ def main():
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + ids + [
         "--chambers", chambers, "--work", os.path.join(work, "movie"), "--mp4", os.path.abspath(a.mp4),
         "--title", info.get("name", pid), "--about", info.get("about", ""),
-        "--interludes", os.path.join(work, "interludes.json"),
+        "--interludes", os.path.join(work, "interludes.json"), "--music", info.get("music", ""),
         "--ending", "A fan story in honour of Valve's Portal. Aperture Science, GLaDOS, Chell and Doug Rattmann "
                     "are Valve's."], check=True)
     shutil.rmtree(os.path.join(work, "movie", "shots"), ignore_errors=True)

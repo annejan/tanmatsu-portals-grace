@@ -20,6 +20,7 @@ name: After hours
 author: annejan
 about: The tests are over. The testing is not.
 ending: That concludes your overtime, [Subject-Name-here].
+music: overtime
 chamber: overtime
 chamber: momentum
 ```
@@ -27,7 +28,40 @@ chamber: momentum
 `chamber:` lines give the order (each a file in the folder, without
 `.txt`); without them the files go by name. `ending` is what GLaDOS says
 when the last chamber is done; `[Subject-Name-here]` is the badge owner's
-nickname, as in a chamber's `story:`.
+nickname, as in a chamber's `story:`. `music` is its tune (below).
+
+## Its music
+
+A pack may name its own music, a line in `pack.txt`:
+
+```
+music: overtime
+music: office key=D bpm=64 seed=7
+```
+
+The tune first, then any of `bpm=` (40 to 180), `key=` (the tonic: `C`,
+`C#`, `Db` ... `B`) and `seed=` (other music from the same tune). Each is
+the game's own generator (`main/sound.c`) with chords, tempo and sounds of
+its own:
+
+| Tune | | For |
+|---|---|---|
+| `calm` | The game's own: minor, 76-88 BPM, a sine arp over a warm pad, a kick on the one. The default. | the built-in chambers |
+| `office` | A minor at 60 BPM, a wall clock ticking it (tick, tock), a dark slow pad with a Phrygian half step, a muted square blinking now and then like a cursor; in a chamber a heartbeat comes in and the clock goes. | Human in the loop |
+| `hackfest` | Major, 90-97 BPM, a square arp hopping octaves, a triangle bass in eighths, offbeat hats; a kick and snare once a chore is under way; the arrival, the party. | Off to Hackfest |
+| `overtime` | Minor synthwave chords at 80-86 BPM, a filtered saw bass in eighths, a detuned saw arp, a four-to-the-floor kick, a soft clap and hats as play gets going. | After hours |
+
+A pack's tune plays to the mood: calmer at a desk and between chambers,
+more in play, tense for a few seconds when a turret sees you, gone dull a
+moment when you die, muffled in a moving lift and under the menu, quieter
+while GLaDOS talks, low with the outro's lights. The game's own tune does
+none of it, and plays as it always has. A new tune fades in over the last
+in three seconds.
+
+Without a `music:` line a pack has the game's own tune (the three packs
+here know theirs even from a card's copy older than the line). A build
+that does not know the line reads past it, as it does any key it does not
+know: it plays the game's own tune.
 
 ## A story told from a desk
 

@@ -45,7 +45,7 @@ def pack_info(folder):
                     rounds.append(value.strip())
                 elif key == "route":
                     info.setdefault("routes", []).append(value.split("|")[0].strip().upper())
-                elif key in ("name", "author", "about", "ending", "frame", "outro"):
+                elif key in ("name", "author", "about", "ending", "frame", "outro", "music"):
                     info[key] = value.strip()
     if info.get("frame") == "desk" and rounds:
         return info, rounds
@@ -320,7 +320,8 @@ def films(wanted):
         info, order = pack_info(folder)
         cmd = [sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + order + [
             "--chambers", folder, "--mp4", os.path.join(OUT, pid + ".mp4"), "--work",
-            os.path.join(OUT, "work-" + pid), "--title", info["name"], "--about", info.get("about", "")]
+            os.path.join(OUT, "work-" + pid), "--title", info["name"], "--about", info.get("about", ""),
+            "--music", info.get("music", "")]
         if info.get("ending"):
             cmd += ["--ending", info["ending"].replace("[Subject-Name-here]", "test subject")]
         subprocess.run(cmd, check=True)

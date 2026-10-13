@@ -19,5 +19,7 @@ void  outro_skip(void);
 // Whether the world is to be drawn (the walk and the fade), and how lit.
 bool  outro_world(void);
 float outro_lit(void);
+// Still walking (else fading out, or the cards).
+bool  outro_walking(void);
 // The cards, over a black screen, once the walk is done.
 void  outro_draw(pax_buf_t* fb);

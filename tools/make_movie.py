@@ -114,6 +114,8 @@ def main():
                     "no title cards, no fades but the lifts' (implies --lifts)")
     ap.add_argument("--story", help="with --badge: a desk story's rounds and outro, a line for each demo "
                     "(tests/host_movie.c, HOST_MOVIE_STORY; tools/story_film.py --badge writes it): no lifts")
+    ap.add_argument("--music", help="the tune, a story pack's `music:` line (main/pack.h, main/sound.h); "
+                    "default the game's own")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
@@ -143,6 +145,7 @@ def main():
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
     if a.story:
         env["HOST_MOVIE_STORY"] = os.path.abspath(a.story)
+    env["HOST_MOVIE_MUSIC"] = a.music or ""
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
 
     with open(os.path.join(build, "movie.txt")) as f:
