@@ -9,16 +9,11 @@ What there is: every chamber has a lift station at its start and its
 exit, worked out from the level as it loads (`main/lift.c`
 `lift_sites`); the exit's lift takes the player up, through a shaft, and
 down into the next chamber's start (`lift_step`, drawn by `render.c`
-`submit_lift_solid`, `submit_lift_glass`). Watch rides it too.
+`submit_lift_solid`, `submit_lift_glass`). Watch rides it too. Since
+0.12.4: play begun from the menu arrives by lift, the start car goes back
+up once the player is out, the play-test rides it, the editor shows both
+stations, and it dings and hums.
 
-- **Arriving from Continue or Chamber select**: play starts on the
-  spawn, the start station open around it; it could come down the shaft
-  first, as between chambers.
-- **The start car stays**: once the player has walked out it could rise
-  into its hatch.
-- **The editor's play-test** ends at the exit with its own message; it
-  could shut and ride, then go back to the editor. The editor could show
-  both stations (and which glass stays) where it would put them.
 - **A header key to place them by hand**, `lift: exit X Z | exit none |
   start none | none`, for chambers the automatic rule does badly, and a
   station that comes to the player when the exit is far wider than a
@@ -27,7 +22,6 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
   instead -- the drawn station is not the one ridden).
   Older builds reject unknown keys, so a chamber using it would need
   `chamber: needs-update` or older builds to skip unknown keys first.
-- **Sounds of its own**: a ding as the doors open, a hum in the shaft.
 - **None in desk-story rounds**, by design: the desk comes next.
 - **The pause menu does not open while riding** (about 4 s): anything
   that sends play elsewhere stops the ride, so it could.
@@ -87,18 +81,16 @@ frame's passes and triangles). Left as they are, on purpose:
 
 ## The card under Graceloader
 
-- **FatFs buffers in RAM the SD card cannot reach.** Graceloader adds TCM
-  (SPM) and LP RAM to the heap (`CONFIG_ESP_SYSTEM_ALLOW_RTC_FAST_MEM_AS_HEAP`
-  and the P4's SPM), and FatFs mallocs each open file's sector buffer with
-  plain `malloc`; when it lands there, the card's DMA fails: reads fail,
-  writes fail at `fclose` with EIO. `main/card.c` works round it by holding
-  that RAM while a file opens. The fix belongs in Graceloader (keep those
-  regions out of the default heap, or `CONFIG_FATFS_ALLOC_PREFER_EXTRAM`
-  off and FatFs buffers from `MALLOC_CAP_DMA`). Fixed there as
-  nullislandspace/tanmatsu-graceloader#1 (a bounce buffer in its SD disk
-  layer; tested on the badge with `card_fopen` switched off). Once that
-  is released, `card_fopen` is only for older Graceloaders. SynthEngine's own file loads (textures, at start) do not go
-  through `card_fopen`.
+- **FatFs buffers in RAM the SD card cannot reach** (fixed in Graceloader
+  2.8.0). Graceloader put TCM (SPM) and LP RAM in the heap, and FatFs
+  mallocs each open file's sector buffer with plain `malloc`; when it landed
+  there, the card's DMA failed: reads failed, writes failed at `fclose`
+  with EIO. Graceloader 2.8.0 (in the app store since 2026-10-13) bounces
+  such buffers in its SD disk layer and turns the LP RAM heap off -- its
+  own fix (35b59e5), which supersedes the one offered as
+  nullislandspace/tanmatsu-graceloader#1. `main/card.c`'s `card_fopen`
+  (it holds that RAM while a file opens) is now only for Graceloaders
+  before 2.8.0; it can go once those are gone.
 - **Older Graceloader (before 2.7.0) does not retry a failed SD write.**
   Ghosts and Watch's times are written a second time if the first fails.
 
