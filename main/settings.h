@@ -12,7 +12,9 @@ bool        settings_gyro(void);
 void        settings_set_gyro(bool on);
 bool        settings_half_res(void);
 void        settings_set_half_res(bool on);
-bool        settings_music(void);
+bool        settings_music(void);  // music in play
+bool        settings_menu_music(void);  // ... and on the title screen and the splashes (main.c)
+void        settings_set_menu_music(bool on);
 void        settings_set_music(bool on);
 bool        settings_effects(void);
 void        settings_set_effects(bool on);

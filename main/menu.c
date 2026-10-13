@@ -336,6 +336,7 @@ enum {
     SET_HALF,
     SET_DEPTH,
     SET_MUSIC,
+    SET_MENU_MUSIC,
     SET_SFX,
     SET_VOICE,
     SET_LEDS,
@@ -426,6 +427,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                 (se_menu_row_t){.label = "Portal depth", .kind = SE_MENU_VAL_TEXT, .value = s_depth_text};
             s_set_rows[SET_MUSIC] =
                 (se_menu_row_t){.label = "Music", .kind = SE_MENU_VAL_CHECK, .checked = settings_music()};
+            s_set_rows[SET_MENU_MUSIC] = (se_menu_row_t){
+                .label = "Menu music", .kind = SE_MENU_VAL_CHECK, .checked = settings_menu_music()};
             s_set_rows[SET_SFX] =
                 (se_menu_row_t){.label = "Sound effects", .kind = SE_MENU_VAL_CHECK, .checked = settings_effects()};
             s_set_rows[SET_VOICE] =
@@ -648,8 +651,9 @@ menu_cmd_t menu_update(void) {
             } else if (cur == SET_HALF && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_half_res(!settings_half_res());
             } else if (cur == SET_MUSIC && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
-                settings_set_music(!settings_music());
-                sound_set_music(settings_music());
+                settings_set_music(!settings_music());  // main.c plays it, or not, where it belongs
+            } else if (cur == SET_MENU_MUSIC && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_menu_music(!settings_menu_music());
             } else if (cur == SET_SFX && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_effects(!settings_effects());
                 sound_set_effects(settings_effects());

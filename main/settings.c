@@ -17,6 +17,7 @@ static bool s_voice = true;
 static bool s_ftime = false;
 static bool s_ghost = true;
 static bool s_lifts = true;
+static bool s_mmusic = true;
 static char s_chamber[CHAMBER_ID_N];
 
 static uint8_t get(nvs_handle_t h, char const* key, uint8_t fallback) {
@@ -48,6 +49,7 @@ void settings_load(void) {
         s_ftime  = get(h, "ftime", s_ftime) != 0;
         s_ghost  = get(h, "ghost", s_ghost) != 0;
         s_lifts  = get(h, "lifts", s_lifts) != 0;
+        s_mmusic = get(h, "mmusic", s_mmusic) != 0;
         size_t n = sizeof(s_chamber);
         if (nvs_get_str(h, "chamber", s_chamber, &n) != ESP_OK) s_chamber[0] = '\0';
         nvs_close(h);
@@ -67,6 +69,15 @@ void settings_set_gyro(bool on) {
 
 bool settings_music(void) {
     return s_music;
+}
+
+bool settings_menu_music(void) {
+    return s_mmusic;
+}
+
+void settings_set_menu_music(bool on) {
+    s_mmusic = on;
+    put("mmusic", on);
 }
 
 void settings_set_music(bool on) {

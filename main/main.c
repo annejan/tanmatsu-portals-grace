@@ -26,6 +26,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "lift.h"
+#include "loadsplash.h"
 #include "graceloader.h"
 #include "hud.h"
 #include "input.h"
@@ -118,7 +119,8 @@ typedef enum {
     MODE_TEST,
     MODE_DESK,  // a desk story's desk (desk.h)
     MODE_CINE,   // its outro (outro.h)
-    MODE_SPLASH  // the game's own splash, after the engine's (splash.h)
+    MODE_LOADER,  // Graceloader's splash, after the engine's (loadsplash.h)
+    MODE_SPLASH   // the game's own splash, after that (splash.h)
 } app_mode_t;
 static app_mode_t s_mode;
 static char       s_play_id[64];  // the chamber play goes back to after the editor
@@ -591,18 +593,35 @@ static void on_init(void* user) {
     // ours, drawn by the game (splash.h), and the title screen after it.
     se_splash();
     sound_init();
-    sound_set_music(settings_music());
     sound_set_effects(settings_effects());
     sound_set_voice(settings_voice());
     attract_seed((uint32_t)esp_timer_get_time());
+    // Graceloader's, what the game runs under: its numbers from the app's own
+    // app.so and Graceloader's metadata (loadsplash.h). Then the game's.
+    {
+        char const* const base = graceloader_get_install_basepath();
+        char              so[200], app[48];
+        snprintf(so, sizeof(so), "%s/app.so", base);
+        char const* const slug = strrchr(base, '/');
+        snprintf(app, sizeof(app), "%.38s/app.so", slug != NULL ? slug + 1 : base);
+        loadsplash_info_t info;
+        loadsplash_read(so, "/int/apps/at.cavac.graceloader/metadata.json", app, &info);
+        loadsplash_start(&info);
+        s_mode = MODE_LOADER;
+    }
+    devtest_start(&TEST);
+    write_memory();
+}
+
+// The game's own splash, after Graceloader's; the title screen after it.
+static void game_splash(void) {
     if (splash_start(&s_game)) {
         s_mode = MODE_SPLASH;
         render_set_level(&s_game.lv, s_game.portals);
     } else {
+        s_mode = MODE_PLAY;
         to_title();
     }
-    devtest_start(&TEST);
-    write_memory();
 }
 
 static void start_playtest(void) {
@@ -660,6 +679,13 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
     if (s_mode == MODE_DESK) {
         desk_action_t const a = deskview_event(&s_desk, ev);
         if (a != DESK_NONE) s_desk_act = a;
+        return;
+    }
+    if (s_mode == MODE_LOADER) {
+        // Any key: on.
+        if ((ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state) ||
+            ev->type == INPUT_EVENT_TYPE_KEYBOARD)
+            loadsplash_skip();
         return;
     }
     if (s_mode == MODE_SPLASH) {
@@ -1254,12 +1280,24 @@ static void play_frame(float dt) {
     }
 }
 
+// Music, where it belongs: Settings -> Menu music on the title screen and
+// the splashes, Settings -> Music in play. Set only when that changes.
+static int s_music_on = -1;
+
+static void music_where(void) {
+    bool const menu = s_mode == MODE_LOADER || s_mode == MODE_SPLASH || (menu_on_title() && !watch_on());
+    int const  want = (menu ? settings_menu_music() : settings_music()) ? 1 : 0;
+    if (want != s_music_on) sound_set_music(want != 0);
+    s_music_on = want;
+}
+
 static void update_frame(float dt);
 
 static void on_update(float dt, void* user) {
     (void)user;
     int64_t const t0 = esp_timer_get_time();
     update_frame(dt);
+    music_where();
     s_update_us = esp_timer_get_time() - t0;
 }
 
@@ -1295,6 +1333,8 @@ static void update_frame(float dt) {
         desk_frame(dt);
     } else if (s_mode == MODE_CINE) {
         cine_frame(dt);
+    } else if (s_mode == MODE_LOADER) {
+        if (!loadsplash_update(dt)) game_splash();
     } else if (s_mode == MODE_SPLASH) {
         if (!splash_update(&s_game, dt)) {
             s_mode = MODE_PLAY;
@@ -1328,6 +1368,10 @@ static void on_render(pax_buf_t* fb, void* user) {
     }
     if (s_mode == MODE_DESK) {
         deskview_draw(fb, &s_desk);
+        return;
+    }
+    if (s_mode == MODE_LOADER) {
+        loadsplash_draw(fb);
         return;
     }
     if (s_mode == MODE_CINE && !outro_world()) {

@@ -30,6 +30,7 @@ set(APP_SOURCES
     main/desk.c
     main/ghost.c
     main/lift.c
+    main/loadsplash.c
     main/card.c
     main/deskview.c
     main/outro.c

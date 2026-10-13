@@ -33,6 +33,7 @@
 #include "se_splash.h"
 #include "se_text.h"  // the real PAX headers come in with it: struct pax_buf
 #include "sound.h"
+#include "loadsplash.h"
 #include "splash.h"
 
 #define FPS 10
@@ -97,6 +98,14 @@ void pax_simple_rect(pax_buf_t* buf, pax_col_t color, float x, float y, float wi
     uint16_t const p = pack565(color);
     for (int yy = y0; yy < y1; yy++)
         for (int xx = x0; xx < x1; xx++) s_fb565[fb_index(xx, yy)] = p;
+}
+
+// An outline: four one-pixel sides, as loadsplash.c's memory map uses.
+void pax_outline_rect(pax_buf_t* buf, pax_col_t color, float x, float y, float width, float height) {
+    pax_simple_rect(buf, color, x, y, width + 1.0f, 1.0f);
+    pax_simple_rect(buf, color, x, y + height, width + 1.0f, 1.0f);
+    pax_simple_rect(buf, color, x, y, 1.0f, height + 1.0f);
+    pax_simple_rect(buf, color, x + width, y, 1.0f, height + 1.0f);
 }
 
 // hud.c's hud_fade, the same arithmetic: each 565 channel times lit, in
@@ -167,6 +176,24 @@ void se_frame_present(void) {
     s_clock_us += 1000000 / FPS;
 }
 
+// --- Graceloader's splash: main.c's MODE_LOADER, a frame at a time -----
+//
+// Its numbers from build/app.so, as the badge reads its own; Graceloader's
+// version from GRACELOADER_META (its metadata.json), if given -- on the
+// badge, /int/apps/at.cavac.graceloader/metadata.json.
+
+static int loader(void) {
+    loadsplash_info_t info;
+    loadsplash_read("build/app.so", getenv("GRACELOADER_META"), "com.annejan.portals/app.so", &info);
+    loadsplash_start(&info);
+    int n = 0;
+    while (loadsplash_update(1.0f / FPS)) {
+        loadsplash_draw(&s_fb);
+        frame_out("loader", n++);
+    }
+    return n;
+}
+
 // --- The game's splash: main.c's MODE_SPLASH, a frame at a time --------
 
 static int portals(void) {
@@ -219,11 +246,12 @@ int main(void) {
     s_quarter = 0;  // the engine draws its splash at full resolution
     se_splash();
     int const engine = s_engine_n;
+    int const load   = loader();
     int const game   = portals();
     fprintf(s_json, "\n]\n");
     fclose(s_json);
     if (game < 0) return 1;
-    printf("engine splash %d frames (%.1f s), Portals splash %d frames (%.1f s): %s\n", engine,
-           (double)engine / FPS, game, (double)game / FPS, json);
+    printf("engine splash %d frames (%.1f s), Graceloader's %d (%.1f s), Portals' %d (%.1f s): %s\n", engine,
+           (double)engine / FPS, load, (double)load / FPS, game, (double)game / FPS, json);
     return 0;
 }

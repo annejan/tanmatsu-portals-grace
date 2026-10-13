@@ -142,7 +142,7 @@ movie: host_movie
 host_splash: chambers_c
 	mkdir -p $(BUILD)/splash
 	$(HOSTCC) -O2 -Wall -Wextra -Imain $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include $(ENGINE_DEFS) \
-		tests/host_splash.c main/render.c main/splash.c $(HOST_SRCS) \
+		tests/host_splash.c main/render.c main/splash.c main/loadsplash.c $(HOST_SRCS) \
 		synthengine3D/src/se_splash.c synthengine3D/src/rendertext.c synthengine3D/src/se_version.c \
 		-lm -o $(BUILD)/splash/host_splash
 
