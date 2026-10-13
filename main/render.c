@@ -1125,7 +1125,7 @@ static int body_portal(game_t const* g, int i) {
 static game_t const* s_game;  // the frame being drawn (render_frame)
 
 // The lift stations (lift.h): drawn from what main.c says of them.
-static lift_view_t s_lift_view;
+static lift_view_t s_lift_view = {.hide_cube = -1};  // none, until main.c says otherwise: no cube hidden
 
 void render_set_lift(lift_view_t const* v) {
     if (v == NULL)
