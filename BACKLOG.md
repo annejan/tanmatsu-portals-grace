@@ -14,6 +14,10 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
 up once the player is out, the play-test rides it, the editor shows both
 stations, and it dings and hums.
 
+- **A long exit's station goes by the way in**: the block of exit cells
+  nearest where walkable floor or a door meets the exit. An exit open on
+  every side (change-at-amersfoort's 15 x 3 platform) still gets its
+  middle; for such a chamber:
 - **A header key to place them by hand**, `lift: exit X Z | exit none |
   start none | none`, for chambers the automatic rule does badly, and a
   station that comes to the player when the exit is far wider than a

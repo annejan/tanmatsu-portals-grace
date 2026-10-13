@@ -143,10 +143,28 @@ static bool exit_site(level_t const* lv, lift_site_t* out) {
         }
     }
     if (nbest == 0) return false;
+    // Where the player steps onto the exit: its cells beside open floor or
+    // a door, not more exit. On a long exit the station goes there -- not
+    // in its middle, metres from where every run ends.
+    static cell_t in[EXIT_CELLS];
+    int           nin = 0;
+    for (int k = 0; k < nbest; k++) {
+        static int const d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+        for (int q = 0; q < 4; q++) {
+            int const x = best[k].x + d4[q][0], z = best[k].z + d4[q][1], y = best[k].y;
+            if (in_group(best, nbest, x, y, z)) continue;
+            // Floor to walk on there (not a drop, not goo), and room to stand.
+            bool const floor = level_solid(lv, x, y, z) && level_get(lv, x, y, z) != MAT_GOO;
+            if (floor && open_at(lv, (float)x + 0.5f, (float)y + 1.05f, (float)z + 0.5f)) {
+                in[nin++] = best[k];
+                break;
+            }
+        }
+    }
     static int const   blocks[][2] = {{2, 2}, {2, 1}, {1, 2}, {1, 1}};
     static float const s[]         = {1.44f, 1.3f, 1.15f, 1.0f, 0.92f, 0.0f};  // 0: the narrowest
     lift_site_t        site        = {0};
-    float              b_area = 0, b_far = 0;
+    float              b_area = 0, b_far = 0, b_in = 0;
     int                b_walls = 0;
     for (int b = 0; b < 4; b++) {
         int const w = blocks[b][0], d = blocks[b][1];
@@ -170,20 +188,29 @@ static bool exit_site(level_t const* lv, lift_site_t* out) {
                     }
                 }
             if (rx <= 0.0f) continue;
-            float far = 0;
+            float far = 0, near_in = nin > 0 ? 1e9f : 0.0f;
             for (int k = 0; k < nbest; k++)
                 far = fmaxf(far, hypotf((float)best[k].x + 0.5f - cx, (float)best[k].z + 0.5f - cz));
+            for (int k = 0; k < nin; k++)
+                near_in = fminf(near_in, hypotf((float)in[k].x + 0.5f - cx, (float)in[k].z + 0.5f - cz));
             int walls = 0;
             for (int dx = -1; dx <= w; dx++)
                 for (int dz = -1; dz <= d; dz++)
                     if ((dx < 0 || dx >= w || dz < 0 || dz >= d) && level_solid(lv, x0 + dx, y + 1, z0 + dz)) walls++;
             float const area = (float)(w * d);
-            bool const  better = !site.on || area > b_area ||
-                                (area == b_area && (far < b_far - 1e-3f || (fabsf(far - b_far) <= 1e-3f && walls > b_walls)));
+            // The biggest block; then the nearest the way in (a long exit);
+            // then the most central, then the most walled in.
+            bool const  better =
+                !site.on || area > b_area ||
+                (area == b_area &&
+                 (near_in < b_in - 0.5f ||
+                  (fabsf(near_in - b_in) <= 0.5f &&
+                   (far < b_far - 1e-3f || (fabsf(far - b_far) <= 1e-3f && walls > b_walls)))));
             if (!better) continue;
             site    = (lift_site_t){.on = true, .x = cx, .y = fy, .z = cz, .rx = rx, .rz = rz};
             b_area  = area;
             b_far   = far;
+            b_in    = near_in;
             b_walls = walls;
         }
         if (site.on) break;  // the biggest block that fits: no smaller one
