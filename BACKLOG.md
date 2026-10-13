@@ -35,6 +35,15 @@ down into the next chamber's start (`lift_step`, drawn by `render.c`
   exit to play, against 2.2 s); Jump, Use or a shot runs it three times
   as fast.
 
+## Splash screens
+
+- **A Graceloader splash**, between SynthEngine 3D's and Portals' own: the
+  loader the game runs under (nullislandspace/tanmatsu-graceloader). It has
+  no logo or look of its own yet -- one would have to be made first, ideally
+  with its author. Then: drawn as the engine's splash is (se_splash.c, real
+  3D strokes) or as Portals' is (main/splash.c), and rendered for the films
+  by tests/host_splash.c with the other two.
+
 ## Frame time on the badge
 
 Measured 2026-10-10 with Settings -> Frame times on the TAS (the times file
