@@ -134,6 +134,22 @@ static pax_col_t dim(uint32_t argb, float k) {
     return 0xFF000000u | r << 16 | g << 8 | b;
 }
 
+// Text as a terminal shows it: a character to a cell, each centred in its
+// own (the font is proportional; deskview.c draws the desks the same way).
+static void mono(pax_buf_t* fb, pax_col_t col, float size, float x, float y, char const* text) {
+    float const cell = size * 0.62f;
+    for (int i = 0; text[i]; i++) {
+        if (text[i] == ' ') continue;
+        char const  s[2] = {text[i], 0};
+        float const adv  = rendertext_size(pax_font_sky_mono, size, s).x;
+        rendertext_draw(fb, col, pax_font_sky_mono, size, x + cell * (float)i + (cell - adv) * 0.5f, y, s);
+    }
+}
+
+static float mono_width(float size, char const* text) {
+    return size * 0.62f * (float)strlen(text);
+}
+
 // "6.4 MB", "220 KB"
 static void size_text(char* out, size_t n, uint32_t bytes) {
     if (bytes >= 1024u * 1024u)
@@ -174,7 +190,7 @@ void loadsplash_draw(pax_buf_t* fb) {
         if (shown > len) shown = len;
         char part[64];
         snprintf(part, sizeof(part), "%.*s", shown, lines[i]);
-        rendertext_draw(fb, dim(i == 0 ? GOLD : AMBER, lit), pax_font_sky_mono, 18, x0, y0 + (float)i * step, part);
+        mono(fb, dim(i == 0 ? GOLD : AMBER, lit), 18, x0, y0 + (float)i * step, part);
     }
 
     // The memory map: the app as it lies in memory, code, data and the
@@ -203,16 +219,12 @@ void loadsplash_draw(pax_buf_t* fb) {
         char const* const name = "Graceloader";
         float const       size = 64.0f;
         float const       ny   = my + 62.0f;
-        pax_vec2f const   s    = rendertext_size(pax_font_sky_mono, size, name);
-        float const       nx   = ((float)DISPLAY_LOG_W - s.x) * 0.5f;
+        float const       nx   = ((float)DISPLAY_LOG_W - mono_width(size, name)) * 0.5f;
         for (int dy = 0; dy < 3; dy++)
-            for (int dx = 0; dx < 3; dx++)
-                rendertext_draw(fb, dim(GOLD, k * lit), pax_font_sky_mono, size, nx + (float)dx, ny + (float)dy, name);
+            for (int dx = 0; dx < 3; dx++) mono(fb, dim(GOLD, k * lit), size, nx + (float)dx, ny + (float)dy, name);
         float const     sub = clamp01((s_t - NAME_AT_S - 0.35f) / 0.4f) * lit;
         char const*     tag = "app loader for Tanmatsu";
-        pax_vec2f const ts  = rendertext_size(pax_font_sky_mono, 18, tag);
         if (sub > 0.0f)
-            rendertext_draw(fb, dim(AMBER, sub), pax_font_sky_mono, 18, ((float)DISPLAY_LOG_W - ts.x) * 0.5f,
-                            ny + s.y + 16.0f, tag);
+            mono(fb, dim(AMBER, sub), 18, ((float)DISPLAY_LOG_W - mono_width(18, tag)) * 0.5f, ny + size + 16.0f, tag);
     }
 }
