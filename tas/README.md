@@ -9,7 +9,10 @@ each frame one step of its own length. A route must reach the exit at 20,
 (`build/host_tas -jitter SEED`), and is scored on the uneven ones; on
 frames it has never seen, a whole run finishes 99 times in 100.
 
-On the PC, `make tas` plays each against the chamber's own solution, and `make tas TASFILM=tas.mp4` films them one after the
+On the PC, `make tas` plays each against the chamber's own solution, at
+30 frames a second and on 200 runs of uneven frames: their mean (the
+"uneven" column) is what predicts the badge's time, and a route that
+misses on some says so. `make tas TASFILM=tas.mp4` films them one after the
 other, with a timer. On the badge, `make tas-upload` puts them on the card
 as one recording, `/sd/portals/recordings/tas.txt` (`main/recording.h`),
 and Esc -> Watch a recording plays it back, timed by the game's own clock;
@@ -20,6 +23,12 @@ The routes were found by trimming the solutions, by random search (a step
 dropped, nudged, a jump put in, kept only if the run still reaches the
 exit, sooner), and then by a specialist per chamber looking for skips the
 search cannot find, each checked by another on frames neither had seen.
+`tools/tas_search.py` is that search and that check: `eval` scores a route
+(the fixed rates, exact 1/30 and 1/35 s steps included, and uneven frames
+by seed), `search` improves one, `robust` runs every route on unseen
+frames. Its `--first S` and `--hitch P S` (host_tas `-first`, `-hitch`)
+add the badge's long frames -- a slow first frame, a sentence of GLaDOS's
+being spoken -- to see how fragile a route is.
 They take what the physics allows:
 
 - 1, 8, 18: a floor portal under the start; fall, and fly out where it

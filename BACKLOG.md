@@ -61,20 +61,15 @@ frame's passes and triangles). Left as they are, on purpose:
 
 ## The TAS
 
-- **The harness is not in the repo.** The routes were found with a
-  search and evaluation script (eval on training frame runs, validation
-  on unseen ones, exact 1/30 and 1/35 s steps, random search). It lives in
-  a session's scratch space; it belongs in `tools/`.
-- **`host_tas -jitter` models only 20 to 35 frames a second.** The badge
-  also has long frames where a portal shot re-meshes the level. (The first
-  frame after a load used to be one; it is timed from the load now.) Options for a long first frame and for
-  occasional long frames would have caught the 04-button failure on the PC.
-- **`make tas` prints a table at a steady 30 frames a second.** The
-  badge's frames are uneven, and the number that predicts the badge is
-  the mean over many uneven runs: 40.07 s against the badge's 40.05 s,
-  where the table says 40.21. 12-redirection is bimodal (1.36 s, or about
-  1.85 s one run in seven), so a fixed rate misjudges it most. Print both.
-- **11-against-the-clock misses about one uneven run in 200.**
+`tools/tas_search.py` finds and checks routes (eval, search, robust),
+`host_tas -first` / `-hitch` add the badge's long frames, and `make tas`
+prints the mean of 200 uneven runs beside the fixed-rate table: that
+mean is what predicts the badge (40.07 s against its 40.05 s).
+
+- **11-against-the-clock misses about one uneven run in 600** (seed 1148
+  of 1000-1199; none of 2000-2399). A search trained on that seed found
+  routes 0.02-0.04 s faster that miss 4-7 of 400 unseen runs: tuned to the
+  41 runs they were trained on. Train on more seeds before trusting one.
 - **`tests/host_review.c` pins how each TAS route is judged** (intended,
   novel, a flaw). A faster route can change that verdict: 12's went from
   novel to intended in 2d87f94. Update the table with the route.

@@ -3,8 +3,12 @@
 route, as a solution script (chambers/README.md) for the chamber of the
 same name. Each is played at 30 frames a second -- the middle of the
 badge's 20 to 35 -- against the chamber's own solution, and the times are
-printed; with --film, the runs are filmed one
-after the other, with a timer (tools/make_movie.py).
+printed, and again on 200 runs of uneven frames, 20 to 35 a second, as
+the badge's come: their mean is what predicts the badge's time (a route
+can be quicker or slower at a fixed rate than on the badge), and a route
+that misses on some is counted. With --film, the runs are filmed one
+after the other, with a timer (tools/make_movie.py). tools/tas_search.py
+finds and checks routes.
 
     tools/tas.py [--film OUT.mp4]
 
@@ -20,6 +24,7 @@ import sys
 
 
 STEP = "0.033333"  # s: a step at 30 frames a second, the middle of the badge's 20-35
+UNEVEN = 200       # runs of uneven frames for each route
 
 
 def main():
@@ -70,19 +75,32 @@ def main():
     sols = subprocess.run([tool, "-dt", STEP] + ids, env=env, capture_output=True, text=True).stdout
     t_tas = dict(line.split("\t") for line in runs.splitlines())
     t_sol = dict(line.split("\t") for line in sols.splitlines())
+    # And on uneven frames, as the badge's come: 200 runs, each a seed.
+    uneven = {c: [] for c in ids}
+    for seed in range(1000, 1000 + UNEVEN):
+        out = subprocess.run([tool, "-jitter", str(seed)] + ["tas-" + c for c in ids], env=env, capture_output=True,
+                             text=True).stdout
+        for line in out.splitlines():
+            name, v = line.split("\t")
+            uneven[name[4:]].append(None if v.startswith("FAIL") else float(v))
 
-    print("%-24s %9s %9s   (steps of %s s: 30 frames a second)" % ("chamber", "solution", "TAS", STEP))
-    total_sol = total_tas = 0.0
+    print("%-24s %9s %9s %9s   (steps of %s s: 30 frames a second; uneven: the mean of %d runs at 20-35)"
+          % ("chamber", "solution", "TAS", "uneven", STEP, UNEVEN))
+    total_sol = total_tas = total_uneven = 0.0
     failed = []
     for c in ids:
         s, t = t_sol.get(c, "?"), t_tas.get("tas-" + c, "?")
-        print("%-24s %9s %9s" % (c, s, t))
+        ok = [x for x in uneven[c] if x is not None]
+        misses = len(uneven[c]) - len(ok)
+        mean = sum(ok) / len(ok) if ok else float("nan")
+        total_uneven += mean
+        print("%-24s %9s %9s %9.2f%s" % (c, s, t, mean, "   misses %d of %d" % (misses, UNEVEN) if misses else ""))
         try:
             total_sol += float(s)
             total_tas += float(t)
         except ValueError:
             failed.append(c)
-    print("%-24s %9.2f %9.2f" % ("total", total_sol, total_tas))
+    print("%-24s %9.2f %9.2f %9.2f" % ("total", total_sol, total_tas, total_uneven))
     if failed:
         sys.exit("failed: " + " ".join(failed))
 
