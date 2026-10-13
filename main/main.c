@@ -1025,6 +1025,7 @@ static void round_exit(void) {
     ESP_LOGI(TAG, "round %d: %s (%s); score %d", s_story.round, res.headline, terms, s_story.score);
     hud_message(res.headline);
     snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s", res.line);
+    personalise(s_game.lv.story, sizeof(s_game.lv.story));  // her line about it, to the owner by name too
     hud_story_start();
     sound_say(s_game.lv.story);
     // Back to the desk once she is done; the next file's chamber tells its

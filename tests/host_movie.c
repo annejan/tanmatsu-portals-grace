@@ -625,6 +625,7 @@ int main(int argc, char** argv) {
             // broken draft, start_playtest once it is repaired.
             r.round    = true;
             r.headline = si->headline;
+            personalise(si->line, sizeof(si->line));  // as round_exit does
             r.line     = si->line;
             if (si->fresh || si->broken) {
                 hud_story_start();
