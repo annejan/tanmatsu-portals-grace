@@ -9,7 +9,10 @@ on from one to the next.
 --badge films only what the badge itself shows: no title cards and no
 fades of this tool's, the game's own HUD (main/hud.c, drawn by the
 recorder) on every picture, lifts between the chambers and into the
-first, the film over at the top of the last ride up.
+first, the film over at the top of the last ride up. With --story (a
+desk story's rounds and outro, tools/story_film.py --badge) no lifts: as
+main.c plays a desk story's rounds, each with its message and verdict,
+and the outro as main/outro.c plays it.
 
 A DEMO is a demo name (a chamber file's id, such as 12-redirection); a
 chamber from DIR, as the badge reads them from the SD card, needs its
@@ -109,12 +112,16 @@ def main():
     ap.add_argument("--badge", action="store_true",
                     help="only the fades and text the badge shows: its own HUD (main/hud.c, less the frame rate), "
                     "no title cards, no fades but the lifts' (implies --lifts)")
+    ap.add_argument("--story", help="with --badge: a desk story's rounds and outro, a line for each demo "
+                    "(tests/host_movie.c, HOST_MOVIE_STORY; tools/story_film.py --badge writes it): no lifts")
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
     if not a.mp4 and not a.gif:
         ap.error("--mp4 and/or --gif")
-    if a.badge:
+    if a.story and not a.badge:
+        ap.error("--story wants --badge")
+    if a.badge and not a.story:
         a.lifts = True
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -134,6 +141,8 @@ def main():
         env["HOST_MOVIE_TICK"] = "0.033333"  # 30 frames a second: the badge's TAS (tools/tas.py)
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
+    if a.story:
+        env["HOST_MOVIE_STORY"] = os.path.abspath(a.story)
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
 
     with open(os.path.join(build, "movie.txt")) as f:

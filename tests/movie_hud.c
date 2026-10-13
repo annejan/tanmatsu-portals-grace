@@ -9,6 +9,10 @@
 // it, hud_fade'd by `lit` (main.c's on_render: the 3D image faded before
 // the HUD goes on), hud_draw over it, and back out as 8-bit channels.
 // The keys' help is main/input.c's own names for its default bindings.
+//
+// A desk story's outro (main/outro.c) is drawn here too, for
+// tools/story_film.py --badge: its walk is a frame as above, faded by
+// outro_lit; its cards are outro_draw's, on black.
 
 #include "se_bindings.h"
 #include "se_config.h"
@@ -16,6 +20,7 @@
 
 #include "../main/hud.c"
 #include "../main/input.c"
+#include "../main/outro.c"
 #include "../synthengine3D/src/rendertext.c"
 
 #include "movie_hud.h"
@@ -74,6 +79,13 @@ void pax_outline_rect(pax_buf_t* buf, pax_col_t color, float x, float y, float w
     for (int yy = y0; yy <= y1; yy++) plot(x0, yy, p), plot(x1, yy, p);
 }
 
+// The whole frame one colour: outro_draw's black, under its cards.
+void pax_background(pax_buf_t* buf, pax_col_t color) {
+    (void)buf;
+    uint16_t const p = pack565(color);
+    for (int i = 0; i < FB_PIXELS; i++) s_fb565[i] = p;
+}
+
 // REC's dot: a film is not a recording; drawn in case.
 void pax_simple_circle(pax_buf_t* buf, pax_col_t color, float x, float y, float r) {
     (void)buf;
@@ -125,6 +137,16 @@ void movie_hud_init(void) {
     input_init();  // the bindings as they ship
 }
 
+// The framebuffer back out, as 8-bit channels.
+static void fb_out(uint32_t* px) {
+    for (int y = 0; y < DISPLAY_LOG_H; y++)
+        for (int x = 0; x < DISPLAY_LOG_W; x++) {
+            uint32_t const p = s_fb565[fb_index(x, y)];
+            uint32_t const r = p >> 11, gg = (p >> 5) & 63, b = p & 31;
+            px[y * DISPLAY_LOG_W + x] = 0xFF000000u | (r << 3 | r >> 2) << 16 | (gg << 2 | gg >> 4) << 8 | (b << 3 | b >> 2);
+        }
+}
+
 void movie_hud_frame(uint32_t* px, float lit, game_t const* g) {
     for (int y = 0; y < DISPLAY_LOG_H; y++)
         for (int x = 0; x < DISPLAY_LOG_W; x++) s_fb565[fb_index(x, y)] = pack565(px[y * DISPLAY_LOG_W + x]);
@@ -132,10 +154,10 @@ void movie_hud_frame(uint32_t* px, float lit, game_t const* g) {
     // main.c's play HUD, less what a PC would make up: no frame rate.
     hud_info_t const info = {.no_stats = true};
     hud_draw(&s_fb, g, &info);
-    for (int y = 0; y < DISPLAY_LOG_H; y++)
-        for (int x = 0; x < DISPLAY_LOG_W; x++) {
-            uint32_t const p = s_fb565[fb_index(x, y)];
-            uint32_t const r = p >> 11, gg = (p >> 5) & 63, b = p & 31;
-            px[y * DISPLAY_LOG_W + x] = 0xFF000000u | (r << 3 | r >> 2) << 16 | (gg << 2 | gg >> 4) << 8 | (b << 3 | b >> 2);
-        }
+    fb_out(px);
+}
+
+void movie_outro_cards(uint32_t* px) {
+    outro_draw(&s_fb);  // main.c's on_render, the walk over: the cards on black
+    fb_out(px);
 }

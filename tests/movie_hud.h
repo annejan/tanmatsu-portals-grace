@@ -1,5 +1,6 @@
 #pragma once
-// The badge's own HUD on host_movie's frames (tests/movie_hud.c).
+// The badge's own HUD on host_movie's frames (tests/movie_hud.c), and a
+// desk story's outro (main/outro.c) drawn as the badge draws it.
 
 #include <stdint.h>
 #include "game.h"
@@ -9,3 +10,6 @@ void movie_hud_init(void);
 // picture; out as the badge shows it -- in RGB565, faded by `lit` (1: not
 // at all), main/hud.c's HUD drawn over it.
 void movie_hud_frame(uint32_t* px, float lit, game_t const* g);
+// The outro's cards (outro.h, its walk over) into `px`, as outro_draw
+// draws them on the badge.
+void movie_outro_cards(uint32_t* px);

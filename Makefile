@@ -187,10 +187,24 @@ ghosts-push:
 	python3 tools/ghosts.py push $(FROM) $(NAME)
 
 # A desk story's day as a film: make story-film PACK=human-in-the-loop
+# [ROUTE=train] [BADGE=1]. BADGE=1 films only what the badge shows
+# (tools/story_film.py --badge): the splash screens, the desk as
+# main/deskview.c draws it (tests/host_desk.c), the game's own HUD and
+# outro; $(BUILD)/dlc/$(PACK)-story-badge.mp4.
 PACK ?= human-in-the-loop
-story-film: host_review host_movie
+story-film: host_review host_movie $(if $(BADGE),host_desk splash)
 	mkdir -p $(BUILD)/dlc
-	python3 tools/story_film.py dlc/$(PACK) --mp4 $(BUILD)/dlc/$(PACK)-story.mp4
+	python3 tools/story_film.py dlc/$(PACK) $(if $(ROUTE),--route $(ROUTE)) $(if $(BADGE),--badge) \
+		--mp4 $(BUILD)/dlc/$(PACK)-story$(if $(BADGE),-badge).mp4
+
+# A desk's screens as the badge draws them -- main/deskview.c on an RGB565
+# framebuffer laid out as the badge's -- for story-film BADGE=1. On the
+# real PAX headers, as host_splash.
+.PHONY: host_desk
+host_desk:
+	mkdir -p $(BUILD)/desk
+	$(HOSTCC) -O2 -Wall -Wextra -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+		$(ENGINE_DEFS) tests/host_desk.c -lm -o $(BUILD)/desk/host_desk
 
 # Each card folder as a zip, to unzip into /sd/portals/dlc/: for a release.
 dlc-zip: dlc

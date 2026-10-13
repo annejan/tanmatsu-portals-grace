@@ -10,6 +10,14 @@ tests/host_review.c plays the day (`host_review story PACK OUTDIR`) and
 writes it out; tools/make_movie.py films the rounds, the desk's screens
 spliced in between. Needs Pillow and ffmpeg; `make story-film` builds the
 tools first.
+
+--badge films only what the badge shows, at 1600 x 960 (its 800 x 480,
+each pixel doubled): the splash screens (`make splash`), the desk as
+main/deskview.c draws it (tests/host_desk.c, from host_review's screens),
+each round as main.c plays a desk story's -- no lifts, its message, the
+story line and the verdict by main/hud.c -- cut to and from the desk, and
+the outro as main/outro.c plays it. No title cards, no fades of the
+film's own, no text drawn here. `make story-film PACK=hackfest BADGE=1`.
 """
 
 import argparse
@@ -150,16 +158,90 @@ def cards(desk_dir, out_dir):
     return pics
 
 
+def badge_film(a, folder, info, day, work, chambers, pics, played):
+    """The day as the badge shows it: its splash, its desk, its rounds and
+    its outro, each drawn by the game's own code."""
+    splash = os.path.join(ROOT, "build", "splash", "splash.json")
+    if not os.path.exists(splash):
+        sys.exit("%s: none -- `make splash` first" % splash)
+    with open(os.path.join(folder, "desk", "day.txt")) as f:
+        style = "badge" if any(l.strip() == "style: badge" for l in f) else "dos"
+
+    # The rounds' drafts as played, as they are; what main.c says of each.
+    ids, story, last = [], [], None
+    for n, (rnd, file_id, draft, route, headline, line) in enumerate(played, 1):
+        cid = "r%02d" % n
+        shutil.copy(os.path.join(day, cid + ".txt"), os.path.join(chambers, cid + ".txt"))
+        with open(os.path.join(folder, file_id + ".txt")) as f:
+            broken = header(f.read(), "review") == "broken"
+        # A new file's story is told; the same file's next draft goes on
+        # with the story line where it was (main.c's s_story_of).
+        fresh = file_id != last
+        last = file_id
+        story.append("R\t%s\t%s\t%d\t%d\t%d\t%s\t%s" % (rnd, draft, fresh, broken, style == "badge", headline, line))
+        ids.append(cid)
+    if info.get("outro"):
+        shutil.copy(os.path.join(folder, info["outro"] + ".txt"), os.path.join(chambers, "outro.txt"))
+        story.append("O\t%s" % folder)
+        ids.append("outro")
+    story_path = os.path.join(work, "story.tsv")
+    with open(story_path, "w") as f:
+        f.write("\n".join(story) + "\n")
+
+    # The desk's screens, as deskview.c draws them: each with its cursor
+    # up and, where it has one, down -- it blinks by the clock, half a
+    # second each way, typing or not.
+    subprocess.run([os.path.join(ROOT, "build", "desk", "host_desk"), style, os.path.join(day, "screens"), pics],
+                   check=True, stdout=subprocess.DEVNULL)
+    for name in os.listdir(pics):
+        if name.endswith(".ppm"):
+            Image.open(os.path.join(pics, name)).save(os.path.join(pics, name[:-4] + ".png"))
+            os.remove(os.path.join(pics, name))
+    inter, clock = {}, 0.0
+    for name in sorted(os.listdir(os.path.join(day, "screens"))):
+        with open(os.path.join(day, "screens", name)) as f:
+            secs = float(f.readline().split()[0])
+        on = os.path.join(pics, name[:-4] + ".png")
+        off = os.path.join(pics, name[:-4] + "-off.png")
+        shots = inter.setdefault(str(int(name.split("-")[0])), [])
+        for _ in range(max(1, int(round(secs * FPS)))):  # as make_movie.py counts an interlude's frames
+            pic = off if os.path.exists(off) and int(clock / 0.5) % 2 else on
+            if shots and shots[-1][0] == pic:
+                shots[-1][1] = round(shots[-1][1] + 1.0 / FPS, 3)
+            else:
+                shots.append([pic, 1.0 / FPS])
+            clock += 1.0 / FPS
+    with open(os.path.join(work, "interludes.json"), "w") as f:
+        json.dump(inter, f)
+
+    env = dict(os.environ)
+    env.pop("HOST_MOVIE_NICK", None)
+    if a.nick:
+        env["HOST_MOVIE_NICK"] = a.nick
+    subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + ids + [
+        "--badge", "--story", story_path, "--splash", splash, "--chambers", chambers,
+        "--work", os.path.join(work, "movie"), "--mp4", os.path.abspath(a.mp4),
+        "--interludes", os.path.join(work, "interludes.json")], check=True, env=env)
+    shutil.rmtree(os.path.join(work, "movie", "shots"), ignore_errors=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pack", help="a desk story's folder, dlc/<pack>")
     ap.add_argument("--mp4", required=True)
-    ap.add_argument("--work", help="where it is made (default build/story-film/<pack>)")
+    ap.add_argument("--work", help="where it is made (default build/story-film/<pack>, with --badge <pack>-badge)")
+    ap.add_argument("--route", help="the way to go where the story branches (ROUTE at the desk); default its first")
+    ap.add_argument("--badge", action="store_true",
+                    help="only what the badge shows: its splash, desk, HUD and outro, drawn by the game's own code")
+    ap.add_argument("--nick", help="with --badge: the badge owner's nickname, for [Subject-Name-here] as main.c "
+                    "puts it in; none, and it stands as written, as on a badge without one")
     a = ap.parse_args()
+    if a.nick and not a.badge:
+        ap.error("--nick wants --badge")
 
     folder = os.path.abspath(a.pack)
     pid = os.path.basename(folder.rstrip("/"))
-    work = os.path.abspath(a.work or os.path.join(ROOT, "build", "story-film", pid))
+    work = os.path.abspath(a.work or os.path.join(ROOT, "build", "story-film", pid + ("-badge" if a.badge else "")))
     shutil.rmtree(work, ignore_errors=True)
     day, chambers, pics = os.path.join(work, "day"), os.path.join(work, "chambers"), os.path.join(work, "pics")
     for d in (chambers, pics):
@@ -167,10 +249,13 @@ def main():
     info, rounds = pack_info(folder)
 
     # The day, played.
-    subprocess.run([os.path.join(ROOT, "build", "host_review"), "story", folder, day], check=True,
-                   stdout=subprocess.DEVNULL)
+    subprocess.run([os.path.join(ROOT, "build", "host_review"), "story", folder, day] + ([a.route] if a.route else []),
+                   check=True, stdout=subprocess.DEVNULL)
     with open(os.path.join(day, "rounds.tsv")) as f:
         played = [line.rstrip("\n").split("\t") for line in f]
+    if a.badge:
+        badge_film(a, folder, info, day, work, chambers, pics, played)
+        return
 
     # Each round a chamber: its name the round's, its story GLaDOS's -- the
     # chamber's own on a first draft, what she said of the last on the next.
