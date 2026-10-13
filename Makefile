@@ -206,6 +206,39 @@ host_desk:
 	$(HOSTCC) -O2 -Wall -Wextra -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
 		$(ENGINE_DEFS) tests/host_desk.c -lm -o $(BUILD)/desk/host_desk
 
+# The badge starting up, as a film (tools/title_film.py): the splash
+# screens (`make splash`; GRACELOADER_META as for that), then the title
+# screen -- main/menu.c's menu on the engine's se_ui over the attract mode,
+# as main.c runs them (tests/host_title.c, tests/title_ui.c) -- with the
+# menu music and a slow tour of Stories and Settings (title_film.py's
+# --keys): $(BUILD)/title/startup.mp4 (1600 x 960) and
+# startup-2400x1440.mp4. TITLE_SECONDS, TITLE_SEED as for attract_seed.
+# title_ui.c and the splashes want the real PAX headers, as movie_hud.c.
+TITLE_SECONDS ?= 27
+TITLE_SEED    ?= 58
+APP_VERSION_STR = $(shell python3 -c "import json; print(json.load(open('metadata/metadata.json')).get('version', ''))")
+.PHONY: host_title title-film
+host_title: chambers_c
+	mkdir -p $(BUILD)/title
+	$(HOSTCC) -O2 -Wall -Wextra -c -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+		$(ENGINE_DEFS) -Wno-unused-variable -DAPP_VERSION='"$(APP_VERSION_STR)"' tests/title_ui.c -o $(BUILD)/title/title_ui.o
+	$(HOSTCC) -O2 -Wall -Wextra -c -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+		$(ENGINE_DEFS) main/settings.c -o $(BUILD)/title/settings.o
+	for s in splash loadsplash; do \
+		$(HOSTCC) -O2 -Wall -Wextra -c -Imain $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+			$(ENGINE_DEFS) main/$$s.c -o $(BUILD)/title/$$s.o || exit 1; \
+	done
+	$(HOSTCC) -O2 -fcommon -w -Imain -Itests/movie_shims $(HOST_ENGINE) -Itests/shims $(ENGINE_DEFS) \
+		tests/host_title.c $(BUILD)/title/title_ui.o $(BUILD)/title/settings.o $(BUILD)/title/splash.o \
+		$(BUILD)/title/loadsplash.o main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
+		synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
+		third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
+		-lm -o $(BUILD)/title/host_title
+
+title-film: host_title splash
+	python3 tools/title_film.py --seconds $(TITLE_SECONDS) --seed $(TITLE_SEED) --end-on-fade \
+		--work $(BUILD)/title --splash $(BUILD)/splash/splash.json
+
 # Each card folder as a zip, to unzip into /sd/portals/dlc/: for a release.
 dlc-zip: dlc
 	python3 tools/dlc.py zip
