@@ -1,0 +1,24 @@
+// One: the white cupboard's floor, and the drain out in the goo. White gel
+// dropped down the pipe comes up out of the drain just as fast, and paints
+// the ceiling round the skylight.
+walk_to 1.5 4.5
+shoot blue 1.5 1.0 1.4
+walk_to 6.5 5.0
+shoot orange 6.5 1.0 12.6
+wait 2.5
+// Two: the ceiling beside the skylight takes a portal now. Blue gel drips
+// out of it and splashes onto the drain.
+shoot orange 7.5 6.0 12.6
+walk_to 10.5 4.5
+shoot blue 10.5 1.0 1.4
+wait 2.5
+// Three: the cleaners' way out to the drain: into the blue cupboard's
+// floor, out of the ceiling, onto the island.
+walk_to 10.5 1.5
+wait 1.0
+// Four: a running jump off blue gel, onto the ledge.
+walk_to 6.5 10.5
+face 0 0
+walk 0.55
+jump
+walk_to 6.5 17.5
