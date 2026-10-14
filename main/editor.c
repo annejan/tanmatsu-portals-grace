@@ -783,7 +783,10 @@ void editor_draw(pax_buf_t* fb) {
             char key = '?';
             for (int i = 0; i < chamber_legend_n; i++)
                 if (chamber_legend[i].ch == to) key = chamber_legend[i].key;
-            snprintf(line, sizeof(line), "%c  %.10s to %.10s", key, brush_name(s_rules.debug[j][0]), brush_name(to));
+            // Both names whole ("metal to white panel"); too long for the
+            // panel, the swatches say what it was and the line what it becomes.
+            snprintf(line, sizeof(line), "%c  %s to %s", key, brush_name(s_rules.debug[j][0]), brush_name(to));
+            if (strlen(line) > 30) snprintf(line, sizeof(line), "%c  to %.24s", key, brush_name(to));
             rendertext_draw(fb, s_brush == to ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 30, y, line);
         }
         // Changed cells, outlined.
