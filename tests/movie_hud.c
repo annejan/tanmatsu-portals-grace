@@ -147,12 +147,18 @@ static void fb_out(uint32_t* px) {
         }
 }
 
+static hud_timer_t const* s_timer;
+
+void movie_hud_timer(void const* timer) {
+    s_timer = timer;
+}
+
 void movie_hud_frame(uint32_t* px, float lit, game_t const* g) {
     for (int y = 0; y < DISPLAY_LOG_H; y++)
         for (int x = 0; x < DISPLAY_LOG_W; x++) s_fb565[fb_index(x, y)] = pack565(px[y * DISPLAY_LOG_W + x]);
     if (lit < 1.0f) hud_fade(&s_fb, lit);
     // main.c's play HUD, less what a PC would make up: no frame rate.
-    hud_info_t const info = {.no_stats = true};
+    hud_info_t const info = {.no_stats = true, .timer = s_timer};
     hud_draw(&s_fb, g, &info);
     fb_out(px);
 }

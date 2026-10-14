@@ -122,8 +122,16 @@ def runs(frames):
 
 
 def main():
+    global SCALE
     ap = argparse.ArgumentParser()
-    ap.add_argument("demos", nargs="+", help="demo names: chamber ids, filmed one after the other")
+    ap.add_argument("demos", nargs="*", help="demo names: chamber ids, filmed one after the other")
+    ap.add_argument("--recording", help="film a recording (main/recording.h) instead of demos: a run recorded on "
+                    "the badge, as Watch a recording plays it, with its timer (implies --badge)")
+    ap.add_argument("--packs", help="story packs for a recording's chambers, as /sd/portals/dlc")
+    ap.add_argument("--recorder", help="the film's recorder (default build/movie/host_movie): another physics' "
+                    "build, `make board-tools`")
+    ap.add_argument("--scale", type=int, choices=(1, 2), default=SCALE,
+                    help="the film's size: 2 (the default) 1600 x 960, each badge pixel doubled; 1 the badge's 800 x 480")
     ap.add_argument("--mp4", help="the film, with sound")
     ap.add_argument("--gif", help="a GIF of it, without sound")
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
@@ -154,15 +162,22 @@ def main():
     ap.add_argument("--tas", action="store_true",
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
+    SCALE = a.scale
     if not a.mp4 and not a.gif:
         ap.error("--mp4 and/or --gif")
+    if a.recording:
+        a.badge = True
+        if a.demos:
+            ap.error("a recording, or demos: not both")
+    elif not a.demos:
+        ap.error("which demos?")
     if a.story and not a.badge:
         ap.error("--story wants --badge")
     if a.badge and not a.story:
         a.lifts = True
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    recorder = os.path.join(root, "build", "movie", "host_movie")
+    recorder = os.path.abspath(a.recorder) if a.recorder else os.path.join(root, "build", "movie", "host_movie")
     build = os.path.abspath(a.work) if a.work else os.path.join(root, "build", "movie")
     shots = os.path.join(build, "shots")
     tex = os.path.join(build, "tex")
@@ -181,6 +196,10 @@ def main():
     if a.story:
         env["HOST_MOVIE_STORY"] = os.path.abspath(a.story)
     env["HOST_MOVIE_MUSIC"] = a.music or ""
+    if a.recording:
+        env["HOST_MOVIE_RECORDING"] = os.path.abspath(a.recording)
+    if a.packs:
+        env["HOST_MOVIE_PACKS"] = os.path.abspath(a.packs)
     inter = {}
     if a.interludes:
         with open(a.interludes) as f:

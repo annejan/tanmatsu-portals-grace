@@ -72,7 +72,7 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review host_runcheck
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review host_runcheck board-tools
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -167,6 +167,25 @@ host_tas: chambers_c
 host_runcheck: chambers_c
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_runcheck.c $(HOST_SRCS) -lm -o $(BUILD)/host_runcheck
+
+# The speedrun board's tools (scene.rs/runs, on its servers): the run check
+# and the film of a run, static, for each physics -- the 0.12.0 one by
+# PORTALS_PHYSICS (main/physics.h). Out: $(BUILD)/board/.
+BOARD_PHYSICS := 0.12.0:-DPORTALS_PHYSICS=1200 0.12.8:-DPORTALS_PHYSICS=1208 0.13.0:
+board-tools: chambers_c
+	mkdir -p $(BUILD)/board
+	set -e; for p in $(BOARD_PHYSICS); do v=$${p%%:*}; f=$${p#*:}; \
+	  $(HOSTCC) -O2 -static $$f -Imain tests/host_runcheck.c $(HOST_SRCS) -lm -o $(BUILD)/board/runcheck-$$v; \
+	  $(HOSTCC) -O2 -Wall -Wextra -c $$f -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal \
+	    -idirafter include $(ENGINE_DEFS) tests/movie_hud.c -o $(BUILD)/board/movie_hud-$$v.o; \
+	  $(HOSTCC) -O2 -static -fcommon -w $$f -Imain -Itests/movie_shims $(HOST_ENGINE) -Itests/shims $(ENGINE_DEFS) \
+	    tests/host_movie.c $(BUILD)/board/movie_hud-$$v.o main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
+	    synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
+	    third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
+	    -lm -o $(BUILD)/board/movie-$$v; \
+	  $(BUILD)/board/runcheck-$$v /dev/null | grep -q "\"physics\":\"$$v\"" || { echo "runcheck-$$v: not $$v"; exit 1; }; \
+	done
+	ls -la $(BUILD)/board
 
 host_review: chambers_c
 	mkdir -p $(BUILD)

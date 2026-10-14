@@ -42,6 +42,13 @@
 // as main.c tells sound_music_progress (the desk before it too); unset,
 // each demo's place among them: the first 0, the last 1.
 //
+// HOST_MOVIE_RECORDING=FILE: no DEMOs -- the recording's runs instead
+// (recording.h), as Watch a recording plays them: a run recorded on the
+// badge frame by frame, each frame stepped with its own time and input, its
+// view the player's own; a script as a demo. With the badge's run timer.
+// HOST_MOVIE_PACKS=DIR: story packs, for a recording's runs through their
+// chambers (as /sd/portals/dlc).
+//
 // HOST_MOVIE_NICK: the badge owner's nickname for "[Subject-Name-here]",
 // as main.c's personalise; unset, the joke stands as written.
 // The frames come from host_shot's rasterizer, included below, through a
@@ -61,6 +68,7 @@
 #include "movie_hud.h"
 #include "outro.h"
 #include "pack.h"
+#include "recording.h"
 #include "sound.h"
 #include "story.h"
 
@@ -246,6 +254,13 @@ static void titles(rec_t* r, char const* line, float seconds) {
     r->t0 += seconds;
 }
 
+// HOST_MOVIE_RECORDING: the recording, each run's chamber, and the timer.
+static recording_t s_rec;
+static int         s_rec_chamber[RECORDING_MAX];
+static bool        s_recorded;
+static hud_timer_t s_timer;
+static float       s_timer_done;  // the runs before this one, to their exits
+
 static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     rec_t*    r = ctx;
     int const k = r->step++;
@@ -287,6 +302,8 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     sound_music_mood(r->exit_t >= 0.0f ? SOUND_MOOD_DESK : SOUND_MOOD_PLAY);
     float const film = r->t0 + now;
     sound_to(r, film);
+    s_timer.run   = r->exit_t >= 0.0f ? r->exit_t : now;  // stopped at the exit, as watch.c's
+    s_timer.total = s_timer_done + s_timer.run;
     if (r->badge) {
         // main.c's play frame: the HUD's clocks, and at the exit its word.
         hud_tick(TICK);
@@ -583,15 +600,101 @@ static char* slurp(char const* path) {
     return t;
 }
 
+// A recorded run, filmed: its frames stepped as recorded, `fn` called on
+// the film's own steps of `dt` with the game as it stood -- a frame's events
+// on the step after it. Its clock is the frames' (each at most 0.1 s, as
+// watch.c counts them); it stops at `cap`, or once the frames run out.
+static void run_frames(int k, float cap, float dt, demo_state_t* s, demo_tick_fn fn, void* ctx) {
+    memset(s, 0, sizeof(*s));
+    game_t* const                g   = &s->g;
+    recording_run_t const* const run = &s_rec.runs[k];
+    game_load(g, s_rec_chamber[k]);
+    float clock = 0.0f, next = dt;
+    int   ev    = 0;
+    for (int i = 0; i < run->frames && clock < cap; i++) {
+        recording_frame_t const* const f  = &s_rec.frame[run->frame0 + i];
+        float const                    fd = (float)f->dt_us * 1e-6f;
+        game_input_t                   in;
+        recording_frame_input(f, &in);
+        ev        |= game_step(g, &in, fd);
+        s->events |= ev;
+        clock     += fminf(fd, 0.1f);
+        for (; next <= clock + 1e-6f; next += dt) {
+            if (fn != NULL) fn(g, ev, next, ctx);
+            ev = 0;
+        }
+    }
+    // A last step for the exit's frame, and a little after, as the game stands.
+    for (float end = next + 2.0f; next < end && next < cap; next += dt) {
+        if (fn != NULL) fn(g, ev, next, ctx);
+        ev = 0;
+    }
+}
+
+// A run: demo `i`'s script, or, filming a recording, its run `k`.
+static void run_item(int i, int k, float cap, float dt, demo_state_t* s, demo_tick_fn fn, void* ctx, float pace) {
+    if (!s_recorded) {
+        demo_run(i, cap, dt, s, fn, ctx, pace);
+        return;
+    }
+    if (s_rec.runs[k].frames > 0) {
+        run_frames(k, cap, dt, s, fn, ctx);
+        return;
+    }
+    memset(s, 0, sizeof(*s));
+    game_t* const g = &s->g;
+    game_load(g, s_rec_chamber[k]);
+    static demo_player_t p;
+    demo_player_start(&p, s_rec.runs[k].steps);
+    for (float now = 0.0f; now + dt * 0.5f < cap; now += dt) {
+        int const ev  = demo_player_step(&p, g, dt, pace);
+        s->events    |= ev;
+        if (fn != NULL) fn(g, ev, now + dt, ctx);
+    }
+}
+
+// HOST_MOVIE_RECORDING: read, each run's chamber found as watch.c finds it.
+static bool load_recording(char const* path) {
+    char* const text = slurp(path);
+    char        err[160];
+    if (text == NULL || !recording_parse(text, &s_rec, err, sizeof(err))) {
+        fprintf(stderr, "%s: %s\n", path, text == NULL ? "cannot read it" : err);
+        free(text);
+        return false;
+    }
+    free(text);
+    for (int k = 0; k < s_rec.n; k++) {
+        int c = chamber_find(s_rec.runs[k].id);
+        for (int p = 0; c < 0 && p < pack_count(); p++) {
+            char full[96];
+            snprintf(full, sizeof(full), "%.31s/%.63s", pack_get(p)->id, s_rec.runs[k].id);
+            c = chamber_find(full);
+        }
+        if (c < 0) {
+            fprintf(stderr, "%s: no chamber %s\n", path, s_rec.runs[k].id);
+            return false;
+        }
+        s_rec_chamber[k] = c;
+    }
+    s_recorded    = true;
+    s_timer.name  = s_rec.name;
+    return true;
+}
+
 int main(int argc, char** argv) {
-    if (argc < 3) {
-        fprintf(stderr, "usage: host_movie SECONDS DEMO [DEMO...]\n");
+    char const* const recording = getenv("HOST_MOVIE_RECORDING");
+    if (argc < 3 && !(argc == 2 && recording != NULL && recording[0])) {
+        fprintf(stderr, "usage: host_movie SECONDS DEMO [DEMO...]\n       HOST_MOVIE_RECORDING=FILE host_movie SECONDS\n");
         return 1;
     }
     render_init("textures");
     char const* extra = getenv("PORTALS_CHAMBERS");
     if (extra != NULL) chamber_load_dir(extra);
-    for (int a = 2; a < argc; a++)
+    char const* packs = getenv("HOST_MOVIE_PACKS");
+    if (packs != NULL && packs[0]) pack_load(packs);
+    if (recording != NULL && recording[0] && !load_recording(recording)) return 1;
+    int const n_items = s_recorded ? s_rec.n : argc - 2;
+    for (int a = 2; a < argc && !s_recorded; a++)
         if (demo_find(argv[a]) < 0) {
             fprintf(stderr, "no demo %s\n", argv[a]);
             return 1;
@@ -646,11 +749,14 @@ int main(int argc, char** argv) {
         titles(&r, "C", OPEN_S);
     char const* desks    = getenv("HOST_MOVIE_DESKS");
     char const* progress = getenv("HOST_MOVIE_PROGRESS");
-    for (int a = 2; a < argc; a++) {
-        int const           i  = demo_find(argv[a]);
-        story_info_t const* si = n_info > 0 ? &info[a - 2] : NULL;
+    if (s_recorded && r.badge) movie_hud_timer(&s_timer);
+    for (int j = 0; j < n_items; j++) {
+        int const           a  = j + 2;
+        int const           i  = s_recorded ? -1 : demo_find(argv[a]);
+        int const           ch = s_recorded ? s_rec_chamber[j] : demo_chamber(i);
+        story_info_t const* si = n_info > 0 ? &info[j] : NULL;
         // How far into the story: the music builds with it, and may lift.
-        float at = argc > 3 ? (float)(a - 2) / (float)(argc - 3) : 0.0f;
+        float at = n_items > 1 ? (float)j / (float)(n_items - 1) : 0.0f;
         if (progress != NULL && *progress) {
             at = strtof(progress, (char**)&progress);
             if (*progress == ',') progress++;
@@ -662,7 +768,7 @@ int main(int argc, char** argv) {
         if (desks != NULL && *desks == ',') desks++;
         if (desk > 0) film_desk(&r, desk);
         static game_t g;
-        game_load(&g, demo_chamber(i));
+        game_load(&g, ch);
         static char story[sizeof(g.lv.story)];
         snprintf(story, sizeof(story), "%s", g.lv.story);
         if (si != NULL) personalise(story, sizeof(story));
@@ -722,7 +828,7 @@ int main(int argc, char** argv) {
             hud_story_start();
             hud_message(g.lv.name);
         }
-        if (r.lifts && (a > 2 || r.badge)) {
+        if (r.lifts && (j > 0 || r.badge)) {
             // Down into it, from the last one's lift -- on the badge the
             // first too, as Continue arrives (main.c's arrive_by_lift).
             static game_t ride;
@@ -737,23 +843,27 @@ int main(int argc, char** argv) {
         float               pace = r.tas ? 0.0f : PACE_S;
         plan_t              p    = {false};
         s_n                      = 0;
-        demo_run(i, cap, TICK, &st, log_tick, &p, pace);
-        if (!p.exited) {
-            fprintf(stderr, "%s: paced, it misses the exit; filmed at the script's own pace\n", argv[a]);
-            pace = 0.0f;
-            s_n  = 0;
-            demo_run(i, cap, TICK, &st, log_tick, &p, pace);
+        if (s_recorded) pace = 0.0f;  // a recording as it was played
+        if (!(s_recorded && s_rec.runs[j].frames > 0)) {  // a recorded run: the player's own view, no camera planned
+            run_item(i, j, cap, TICK, &st, log_tick, &p, pace);
+            if (!p.exited && pace > 0.0f) {
+                fprintf(stderr, "%s: paced, it misses the exit; filmed at the script's own pace\n", argv[a]);
+                pace = 0.0f;
+                s_n  = 0;
+                run_item(i, j, cap, TICK, &st, log_tick, &p, pace);
+            }
+            plan_camera();
         }
-        plan_camera();
         r.story  = story;
         r.exit_t = -1.0f;
         r.sub    = NULL;
         r.last   = 0.0f;
         r.step   = 0;
-        r.done   = a + 1 < argc ? "Chamber complete" : "All chambers complete. Cake later.";
+        r.done   = j + 1 < n_items ? "Chamber complete" : "All chambers complete. Cake later.";
         if (!r.badge) sound_say(story[0] ? story : NULL);
-        demo_run(i, cap, TICK, &st, film_tick, &r, pace);
+        run_item(i, j, cap, TICK, &st, film_tick, &r, pace);
         r.t0 += r.last;
+        s_timer_done += r.exit_t >= 0.0f ? r.exit_t : r.last;
         if (r.round && s_exit_have) film_verdict(&r);
         if (r.lifts && s_exit_have) {
             // Up and out of it: in, the doors shut, into the shaft.
@@ -761,7 +871,7 @@ int main(int argc, char** argv) {
             lift_site_t   site;
             if (lift_exit_for(&s_exit.lv, &s_sites, s_exit.pl.pos, &site)) {
                 lift_enter(&l, &s_exit, &site, false);
-                film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t, a + 1 >= argc);
+                film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t, j + 1 >= n_items);
             }
         }
     }

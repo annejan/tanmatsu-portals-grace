@@ -10,6 +10,9 @@ void movie_hud_init(void);
 // picture; out as the badge shows it -- in RGB565, faded by `lit` (1: not
 // at all), main/hud.c's HUD drawn over it.
 void movie_hud_frame(uint32_t* px, float lit, game_t const* g);
+// A recording's timer on every frame after (hud.h: as Watch a recording
+// shows it), NULL for none.
+void movie_hud_timer(void const* timer);
 // The outro's cards (outro.h, its walk over) into `px`, as outro_draw
 // draws them on the badge.
 void movie_outro_cards(uint32_t* px);
