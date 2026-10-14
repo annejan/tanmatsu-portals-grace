@@ -96,6 +96,13 @@ The cheese routes go in the pack's `replays/cheeses.txt`, to watch.
 Copy the folder to `/sd/portals/dlc/` on the badge's card. **Stories** on
 the title screen lists the packs there; Continue picks up inside one.
 
+Or from [scene.rs/stories](https://scene.rs/stories/): each pack there
+has a button that writes it onto a Tanmatsu over USB, straight from
+Chrome or Edge (WebUSB, the launcher's BadgeLink mode), and a zip.
+`tools/stories_site.py OUT_DIR` makes that page's data from the packs
+here (`make dlc-zip` first): a zip, a bundle of its files and a still
+for each, and an `index.json` listing them.
+
 `make dlc-upload` does it for every pack here: it checks every chamber is
 solved (twelve times, at the badge's random 20 to 35 frames a second),
 then puts each pack in `/sd/portals/dlc/<pack>/` without its solutions;
