@@ -12,7 +12,10 @@ recorder) on every picture, lifts between the chambers and into the
 first, the film over at the top of the last ride up. With --story (a
 desk story's rounds and outro, tools/story_film.py --badge) no lifts: as
 main.c plays a desk story's rounds, each with its message and verdict,
-and the outro as main/outro.c plays it.
+and the outro as main/outro.c plays it. With --badge nothing is silent
+that is not on the badge: the splash screens (--splash) have their own
+sounds and the menu music (tests/host_title.c, `make host_title`), and a
+story's desk (--interludes) the story's tune, played on by the recorder.
 
 A DEMO is a demo name (a chamber file's id, such as 12-redirection); a
 chamber from DIR, as the badge reads them from the SD card, needs its
@@ -77,6 +80,33 @@ def card(w, h, big, small, f_big, f_small):
 
 def fade(im, k):
     return Image.blend(Image.new("RGB", im.size, (0, 0, 0)), im, max(0.0, min(1.0, k)))
+
+
+def splash_sound(splash_json, n_frames):
+    """The splash screens' sound as the badge plays it, n_frames long:
+    tests/host_title.c's start-up -- the engine's splash silent, then
+    Graceloader's ticks and the game's shots, the menu music on -- with
+    as many pictures of each as `make splash` made (it checks they agree).
+    Raw 16-bit stereo, as movie.wav."""
+    import tempfile
+    import wave
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    recorder = os.path.join(root, "build", "title", "host_title")
+    if not os.path.exists(recorder):
+        sys.exit("%s: none -- `make host_title` first (the splash screens' sound)" % recorder)
+    with open(splash_json) as f:
+        pics = json.load(f)
+    count = [sum(1 for p, _ in pics if os.path.basename(p).startswith(k + "_")) for k in ("engine", "loader", "portals")]
+    if sum(count) != len(pics):
+        sys.exit("%s: not make splash's (engine_, loader_ and portals_ pictures)" % splash_json)
+    with tempfile.TemporaryDirectory(dir=os.path.join(root, "build")) as out:
+        env = dict(os.environ, HOST_TITLE_OUT=out, HOST_TITLE_CONTINUE="", HOST_TITLE_KEYS="")
+        subprocess.run([recorder] + [str(c) for c in count] + ["0", "-1"], env=env, cwd=root, check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        with wave.open(os.path.join(out, "title.wav")) as src:
+            step = src.getsampwidth() * src.getnchannels()
+            return src.readframes(int(round(n_frames * src.getframerate() / FPS)))[:int(round(
+                n_frames * src.getframerate() / FPS)) * step]
 
 
 def runs(frames):
@@ -146,6 +176,17 @@ def main():
     if a.story:
         env["HOST_MOVIE_STORY"] = os.path.abspath(a.story)
     env["HOST_MOVIE_MUSIC"] = a.music or ""
+    inter = {}
+    if a.interludes:
+        with open(a.interludes) as f:
+            inter = json.load(f)
+
+    def frames_of(key):
+        return sum(max(1, int(round(float(secs) * FPS))) for _, secs in inter.get(key, []))
+    if a.badge:
+        # The desks between a story's rounds: on the badge its tune plays on
+        # there, so the recorder plays it on through each (HOST_MOVIE_DESKS).
+        env["HOST_MOVIE_DESKS"] = ",".join(str(frames_of(str(k))) for k in range(len(a.demos)))
     subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
 
     with open(os.path.join(build, "movie.txt")) as f:
@@ -173,12 +214,9 @@ def main():
     total = before + done
     names = [l[1] for l in lines if l[0] == "S"]
 
-    # Interludes: pictures between the chambers, the sound stopped for them.
-    silences = []  # (at the original frame, for so many frames)
-    inter = {}
-    if a.interludes:
-        with open(a.interludes) as f:
-            inter = json.load(f)
+    # Interludes: pictures between the chambers, the sound stopped for them
+    # -- with --badge, the sound they have on the badge instead (below).
+    silences = []  # (at the original frame, for so many frames[, the sound for them])
     if a.splash:
         with open(a.splash) as f:
             inter["start"] = json.load(f)
@@ -196,7 +234,7 @@ def main():
             opened = True
             out += pictures("start")
             if out:
-                silences.append((0, len(out)))
+                silences.append((0, len(out), splash_sound(a.splash, len(out))))
         for line in lines:
             if line[0] == "C" and not opened:
                 opened = True  # the splash screens, before the opening card
@@ -206,7 +244,7 @@ def main():
                 out += extra
             if line[0] == "S":
                 extra = pictures(str(k))
-                if extra:
+                if extra and not a.badge:  # with --badge the recorder played the desk's sound
                     silences.append((fi, len(extra)))
                 out += extra
                 k += 1
@@ -300,9 +338,11 @@ def main():
         step = params.sampwidth * params.nchannels
         per_frame = params.framerate / FPS
         pieces, last = [], 0
-        for at, n_frames in silences:
+        for at, n_frames, *sound in silences:
             cut = int(round(at * per_frame)) * step
-            pieces += [audio[last:cut], b"\0" * (int(round(n_frames * per_frame)) * step)]
+            size = int(round(n_frames * per_frame)) * step
+            fill = sound[0][:size] if sound and sound[0] else b""
+            pieces += [audio[last:cut], fill + b"\0" * (size - len(fill))]
             last = cut
         pieces.append(audio[last:])
         wav = os.path.join(build, "movie-interludes.wav")

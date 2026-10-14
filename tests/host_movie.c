@@ -30,6 +30,11 @@
 //       the outro (main/outro.c, MODE_CINE): the walk, lights low, the
 //       pack's ending said and typed; the fade; then the desk's cards
 //
+// HOST_MOVIE_DESKS=N,N,...: before each demo, so many frames of a desk
+// story's desk (tools/make_movie.py --badge splices in tests/host_desk.c's
+// pictures there): no pictures here, but the sound going on as main.c's
+// MODE_DESK has it -- the tune in the desk's mood, nothing else playing.
+//
 // HOST_MOVIE_MUSIC: the tune, a pack's `music:` (sound.h; tools/dlc.py and
 // story_film.py pass the pack's), played to the mood as main.c plays it.
 // HOST_MOVIE_STEM=music: the music alone in movie.wav.
@@ -396,6 +401,23 @@ static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float tim
     r->t0 += t;
 }
 
+// `n` frames at a desk story's desk (HOST_MOVIE_DESKS): main.c's MODE_DESK
+// frames -- sound_update, desk_frame (no sound of its own: the desk and
+// deskview.c play none), music_where in the desk's mood. The pictures are
+// make_movie.py's to splice in; here the clock and the frame count go on
+// by them, so the frames after fall where they would with none.
+static void film_desk(rec_t* r, int n) {
+    float const from = r->t0, len = (float)n / FPS;
+    for (float t = 0.0f; t < len - 1e-4f;) {
+        t = fminf(t + TICK, len);
+        sound_update();
+        sound_music_mood(SOUND_MOOD_DESK);
+        sound_to(r, from + t);
+    }
+    r->t0    += len;
+    r->frame += n;
+}
+
 // A round's exit, as main.c's play frame goes on after round_exit: the
 // game stopped where it stood, the verdict up and GLaDOS saying her line;
 // once the message is down and she is done, back to the desk -- a cut.
@@ -619,9 +641,14 @@ int main(int argc, char** argv) {
         movie_hud_init();
     else
         titles(&r, "C", OPEN_S);
+    char const* desks = getenv("HOST_MOVIE_DESKS");
     for (int a = 2; a < argc; a++) {
         int const           i  = demo_find(argv[a]);
         story_info_t const* si = n_info > 0 ? &info[a - 2] : NULL;
+        // The desk before it, if any: its pictures, and its sound.
+        int const desk = desks != NULL && *desks ? (int)strtol(desks, (char**)&desks, 10) : 0;
+        if (desks != NULL && *desks == ',') desks++;
+        if (desk > 0) film_desk(&r, desk);
         static game_t g;
         game_load(&g, demo_chamber(i));
         static char story[sizeof(g.lv.story)];
