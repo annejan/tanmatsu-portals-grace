@@ -128,6 +128,8 @@ def main():
     ap.add_argument("--recording", help="film a recording (main/recording.h) instead of demos: a run recorded on "
                     "the badge, as Watch a recording plays it, with its timer (implies --badge)")
     ap.add_argument("--packs", help="story packs for a recording's chambers, as /sd/portals/dlc")
+    ap.add_argument("--ghost", help="another recording of the same chambers, raced as a ghost (its runner drawn "
+                    "as the game draws a ghost)")
     ap.add_argument("--recorder", help="the film's recorder (default build/movie/host_movie): another physics' "
                     "build, `make board-tools`")
     ap.add_argument("--scale", type=int, choices=(1, 2), default=SCALE,
@@ -198,6 +200,9 @@ def main():
     env["HOST_MOVIE_MUSIC"] = a.music or ""
     if a.recording:
         env["HOST_MOVIE_RECORDING"] = os.path.abspath(a.recording)
+        env["HOST_MOVIE_TICK"] = "0.033333"  # a script's steps as host_runcheck and `make tas` take them
+    if a.ghost:
+        env["HOST_MOVIE_GHOST"] = os.path.abspath(a.ghost)
     if a.packs:
         env["HOST_MOVIE_PACKS"] = os.path.abspath(a.packs)
     inter = {}

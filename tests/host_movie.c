@@ -46,6 +46,9 @@
 // (recording.h), as Watch a recording plays them: a run recorded on the
 // badge frame by frame, each frame stepped with its own time and input, its
 // view the player's own; a script as a demo. With the badge's run timer.
+// HOST_MOVIE_GHOST=FILE: another recording of the same chambers, raced as
+// a ghost (ghost.h): its runner drawn as the game draws a ghost, on the
+// film's own clock, in each chamber it has a run for.
 // HOST_MOVIE_PACKS=DIR: story packs, for a recording's runs through their
 // chambers (as /sd/portals/dlc).
 //
@@ -261,6 +264,41 @@ static bool        s_recorded;
 static hud_timer_t s_timer;
 static float       s_timer_done;  // the runs before this one, to their exits
 
+// HOST_MOVIE_GHOST: the ghost's recording, and its run in this chamber.
+static recording_t s_gh_rec;
+static bool        s_gh_on;
+static game_t      s_gh;
+static int         s_gh_run = -1, s_gh_fi;
+static float       s_gh_clock;
+
+static void ghost_start(int chamber) {
+    s_gh_run = -1;
+    for (int k = 0; s_gh_on && k < s_gh_rec.n; k++)
+        if (s_gh_rec.runs[k].frames > 0 && chamber_find(s_gh_rec.runs[k].id) == chamber) s_gh_run = k;
+    if (s_gh_run >= 0) game_load(&s_gh, chamber);
+    s_gh_fi    = 0;
+    s_gh_clock = 0.0f;
+}
+
+// The ghost up to the film's `now` in this chamber, and drawn there.
+static void ghost_to(float now) {
+    if (s_gh_run < 0) {
+        render_set_ghosts(NULL, NULL, 0);
+        return;
+    }
+    recording_run_t const* const run = &s_gh_rec.runs[s_gh_run];
+    while (s_gh_clock < now && s_gh_fi < run->frames) {
+        recording_frame_t const* const f  = &s_gh_rec.frame[run->frame0 + s_gh_fi++];
+        float const                    fd = (float)f->dt_us * 1e-6f;
+        game_input_t                   in;
+        recording_frame_input(f, &in);
+        game_step(&s_gh, &in, fd);
+        s_gh_clock += fminf(fd, 0.1f);
+    }
+    uint8_t const tint = 0;
+    render_set_ghosts(&s_gh.pl, &tint, 1);
+}
+
 static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     rec_t*    r = ctx;
     int const k = r->step++;
@@ -341,6 +379,7 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     }
     render_set_level(&shot.lv, shot.portals);
     render_set_time(now);
+    ghost_to(now);
     render_frame(NULL, &shot);
     if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
     char name[32];
@@ -693,6 +732,18 @@ int main(int argc, char** argv) {
     char const* packs = getenv("HOST_MOVIE_PACKS");
     if (packs != NULL && packs[0]) pack_load(packs);
     if (recording != NULL && recording[0] && !load_recording(recording)) return 1;
+    char const* const ghost = getenv("HOST_MOVIE_GHOST");
+    if (ghost != NULL && ghost[0]) {
+        char* const text = slurp(ghost);
+        char        err[160];
+        if (text == NULL || !recording_parse(text, &s_gh_rec, err, sizeof(err))) {
+            fprintf(stderr, "%s: %s\n", ghost, text == NULL ? "cannot read it" : err);
+            free(text);
+            return 1;
+        }
+        free(text);
+        s_gh_on = true;
+    }
     int const n_items = s_recorded ? s_rec.n : argc - 2;
     for (int a = 2; a < argc && !s_recorded; a++)
         if (demo_find(argv[a]) < 0) {
@@ -769,6 +820,7 @@ int main(int argc, char** argv) {
         if (desk > 0) film_desk(&r, desk);
         static game_t g;
         game_load(&g, ch);
+        ghost_start(ch);
         static char story[sizeof(g.lv.story)];
         snprintf(story, sizeof(story), "%s", g.lv.story);
         if (si != NULL) personalise(story, sizeof(story));
