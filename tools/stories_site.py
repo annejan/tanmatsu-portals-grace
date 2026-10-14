@@ -90,8 +90,8 @@ def pack_info(folder):
 
 
 def updated(pid):
-    """When the pack's sources last changed, from git: YYYY-MM-DD, or None."""
-    r = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%cs", "--", "dlc/" + pid],
+    """When the pack's sources last changed, from git: an ISO 8601 time, or None."""
+    r = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%cI", "--", "dlc/" + pid],
                        capture_output=True, text=True)
     return r.stdout.strip() or None
 
