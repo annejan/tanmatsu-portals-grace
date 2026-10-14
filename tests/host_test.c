@@ -2388,6 +2388,33 @@ static void test_floor_portal(void) {
     }
 }
 
+// Walking along a wall past a portal in it, a little towards the wall, the
+// portal does not pull you back into its middle: chamber 11, out of the
+// orange portal beside the door, turned to face the door and walking to it
+// (a bug report: "an invisible wall, forwards; backwards it is fine").
+static void test_portal_walk_past(void) {
+    static game_t g;
+    for (int k = 0; k < N_FPS; k++) {
+        float const dt = FPS_DT[k];
+        game_load(&g, demo_chamber(demo_find("11-against-the-clock")));
+        portal_place_at(&g.lv, 0, 1, 2, DIR_PX, v3(0, 1, 0), NULL, &g.portals[0]);
+        portal_place_at(&g.lv, 20, 1, 6, DIR_NZ, v3(0, 1, 0), &g.portals[0], &g.portals[1]);
+        g.pl.pos = v3(20.44f, 1.0f, 4.91f);  // where the report's run stood, just out of the portal
+        g.pl.yaw = 81.7f / 57.29578f;        // facing the door, a little towards the wall
+        game_input_t const go = {.fwd = 1.0f};
+        float              x0 = g.pl.pos.x, back = 0.0f;
+        for (int i = 0; i < (int)(0.5f / dt); i++) {
+            for (int d = 0; d < g.lv.n_doors; d++) g.lv.doors[d].open = 1.0f;
+            game_step(&g, &go, dt);
+            back = fmaxf(back, x0 - g.pl.pos.x);  // pulled back west, ever?
+            x0   = fmaxf(x0, g.pl.pos.x);
+        }
+        CHECK(back < 0.01f && g.pl.pos.x > 21.6f,
+              "%.0f fps: walking to the door past the portal, pulled back %.2f m, at x %.2f after 0.5 s", 1.0f / dt,
+              (double)back, (double)g.pl.pos.x);
+    }
+}
+
 // A portal's tunnel is open from the front only: through a thin wall
 // with a portal on its far face, you cannot walk in from behind.
 static void test_portal_back(void) {
@@ -2672,6 +2699,7 @@ int main(void) {
     test_attract();
     test_solutions_fps();
     test_floor_portal();
+    test_portal_walk_past();
     test_portal_back();
     test_platform_ceiling();
     test_fizzlers();

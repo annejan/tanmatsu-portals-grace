@@ -127,6 +127,16 @@ static void funnel(body_t* b, portal_t const* pt, float dt) {
     if (v3_dot(b->vel, pt->n) > -0.5f || l.z < 0.0f || l.z > 2.5f) return;
     if (fabsf(l.x) > PORTAL_HALF_W + half_along(b, pt->right) || fabsf(l.y) > PORTAL_HALF_H + half_along(b, pt->up))
         return;
+#if PORTALS_PHYSICS >= 1300
+    // Only a box that is going in: one that, at this speed, meets the
+    // portal's plane over the hole. Walking along a wall past a portal in
+    // it, a little towards the wall, it pulled the player back towards the
+    // portal's middle every frame -- an invisible wall (11-against-the-clock,
+    // turned to face the door after coming out of the portal beside it).
+    float const vn = -v3_dot(b->vel, pt->n);
+    float const tt = l.z / vn;  // vn > 0.5 here: seconds to the plane
+    if (fabsf(l.x + v3_dot(b->vel, pt->right) * tt) > PORTAL_HALF_W + half_along(b, pt->right)) return;
+#endif
     float const k = fminf(1.0f, 10.0f * dt);
     for (int i = 0; i < 2; i++) {
         vec3_t const ax = i == 0 ? pt->right : pt->up;
@@ -166,12 +176,16 @@ static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
     // floor and out of one, d = 0.7 m both ways: 1.4 m given back that no
     // fall put in. The speed along the exit is set as if it had gone the
     // exit's way all along.
+#if PORTALS_PHYSICS >= 1208  // the physics of 0.12.0 to 0.12.7 had none of it
     if (d > 0.0f) {
         float const vn = v3_dot(b->vel, o->n);
         float const k  = vn * vn - 2.0f * PHYS_GRAVITY * d * (a->n.y + o->n.y);
         float const to = k > 0.0f ? sqrtf(k) : 0.0f;
         if (vn > 0.0f) b->vel = v3_mad(b->vel, o->n, to - vn);
     }
+#else
+    (void)d;
+#endif
 
     float const vn   = v3_dot(b->vel, o->n);
     float const vmin = o->n.y > 0.5f ? EXIT_MIN_UP : EXIT_MIN_OTHER;

@@ -13,7 +13,17 @@
 // on. Bump it when a change to the game, the player, the physics or the
 // portals makes a recorded run go otherwise -- not for each release, which
 // would retire every ghost. make check holds it to tests/physics.txt.
+// The physics' version: ghosts and replays race and play only on their own.
+// PORTALS_PHYSICS picks an older one to build -- 1200 the physics of 0.12.0
+// to 0.12.7, 1208 of 0.12.8 -- for a board that replays runs made on them
+// (tests/host_runcheck.c); main/physics.c has what each changed.
+#if PORTALS_PHYSICS >= 1300
+#define GAME_PHYSICS "0.13.0"
+#elif PORTALS_PHYSICS >= 1208
 #define GAME_PHYSICS "0.12.8"
+#else
+#define GAME_PHYSICS "0.12.0"
+#endif
 
 #define CUBE_HALF      0.3f  // the cube is 0.6 m on a side
 #define CUBE_HOLD      1.3f  // carried this far in front of the eye

@@ -4,6 +4,12 @@
 // an open portal, and going through one with momentum kept. Pure C, no
 // engine.
 
+// Which physics to build (main/game.h's GAME_PHYSICS says it): 1300 the
+// current; 1208 that of 0.12.8, 1200 that of 0.12.0 to 0.12.7.
+#ifndef PORTALS_PHYSICS
+#define PORTALS_PHYSICS 1300
+#endif
+
 #include <stdbool.h>
 #include "level.h"
 #include "portal.h"
