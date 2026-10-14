@@ -11,7 +11,7 @@ you find, her patch.
 |---|---|---|
 | `momentum/` | skip the paint: the drip's own splat is a runway | `fixed.txt` (in `dlc/after-hours/`) |
 | `pressure/` | stand on button 3; topple the turret; shield with the cube | one per flaw, `fixed-*.txt` |
-| `canyon/` | ride a funnel column out of the pad | `fixed.txt` |
-| `shop-floor/` | catch the resting cube by hand | `fixed.txt` |
+| `canyon/` | ride a funnel column out of the pad | `fixed.txt` (in `dlc/after-hours/`) |
+| `shop-floor/` | catch the resting cube by hand | `fixed.txt` (in `dlc/after-hours/`) |
 | `spire/` | the exit room's open north side (not proven) | `fixed.txt` (in `dlc/after-hours/`) |
 | `light-work/` | none proven | `chamber.txt` |
