@@ -99,6 +99,10 @@ onto the card: the game does not read it.
 
 Copy the folder to `/sd/portals/dlc/` on the badge's card. **Stories** on
 the title screen lists the packs there; Continue picks up inside one.
+A desk story keeps where you are in `/sd/portals/saves/<pack>.txt`, until
+its end: Stories marks it "in progress" and asks whether to carry on or
+start over, and `RESTART` at its desk starts it over too. A chamber run
+always starts at its first chamber.
 
 Or from [scene.rs/stories](https://scene.rs/stories/): each pack there
 has a button that writes it onto a Tanmatsu over USB, straight from

@@ -20,6 +20,7 @@ typedef enum {
     MENU_CMD_RECORD,    // record from the start of menu_cmd_t.chamber on (title: a new game)
     MENU_CMD_RECORD_STOP,
     MENU_CMD_STORY,  // play story pack menu_cmd_t.chamber (pack.h) from its start (a desk story: where it was)
+    MENU_CMD_STORY_NEW,  // ... a desk story from its start, its save forgotten
     MENU_CMD_DESK,   // from a desk story's round, back to its desk
     MENU_CMD_QUIT,
 } menu_cmd_kind_t;

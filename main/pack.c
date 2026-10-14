@@ -211,3 +211,17 @@ int pack_load(char const* dir) {
         }
     return s_n;
 }
+
+void pack_save_path(pack_t const* p, char* out, size_t n) {
+    snprintf(out, n, "%s/%.40s.txt", PACK_SAVE_DIR, p->id);
+}
+
+bool pack_has_save(pack_t const* p) {
+    if (p == NULL || !p->desk) return false;
+    char path[96];
+    pack_save_path(p, path, sizeof(path));
+    FILE* const f = card_fopen(path, "r");
+    if (f == NULL) return false;
+    fclose(f);
+    return true;
+}

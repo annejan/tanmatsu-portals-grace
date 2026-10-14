@@ -24,10 +24,13 @@ typedef enum {
     SCR_RECORDINGS,
     SCR_TIMES,
     SCR_STORIES,
+    SCR_STORY,  // a desk story with a save: Continue, or Start over
     SCR_COUNT
 } screen_t;
 
 static screen_t s_scr;
+static bool     s_st_saved[PACK_MAX];  // a desk story part played: its save, read as the list opens
+static int      s_story_pick;          // SCR_STORY's pack
 static screen_t s_home;  // where a screen's Back goes: the title or the pause menu
 static int      s_cursor[SCR_COUNT];
 static int      s_chamber;  // the one being played (on the title: Continue's, or the first)
@@ -80,6 +83,8 @@ enum {
 
 static void go(screen_t s) {
     s_scr = s;
+    if (s == SCR_STORIES)
+        for (int i = 0; i < pack_count() && i < PACK_MAX; i++) s_st_saved[i] = pack_has_save(pack_get(i));
     if (s == SCR_RECORDINGS) {
         s_cursor[s] = 0;
         list_recordings();
@@ -330,6 +335,8 @@ static screen_t      s_t_back;  // what was up under it, or SCR_NONE
 static se_menu_row_t s_t_rows[RECORDING_MAX + 2];
 static se_menu_row_t s_st_rows[PACK_MAX + 1];  // the story packs
 static char          s_st_sub[100];
+static se_menu_row_t s_story_rows[3];
+static char          s_story_title[48];
 
 enum {
     SET_GYRO,
@@ -480,7 +487,10 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
         }
         case SCR_STORIES: {
             int const n = pack_count();
-            for (int i = 0; i < n; i++) s_st_rows[i] = (se_menu_row_t){.label = pack_get(i)->name};
+            for (int i = 0; i < n; i++)
+                s_st_rows[i] = s_st_saved[i] ? (se_menu_row_t){.label = pack_get(i)->name, .kind = SE_MENU_VAL_TEXT,
+                                                               .value = "in progress"}
+                                             : (se_menu_row_t){.label = pack_get(i)->name};
             s_st_rows[n]          = (se_menu_row_t){.label = "Back"};
             // The one the cursor is on: who made it (what it is goes under
             // the list, wrapped: menu_draw -- the subtitle is one line).
@@ -496,6 +506,18 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             def->hint      = "Copy a pack's folder to " PACK_DIR;
             return n + 1;
         }
+        case SCR_STORY:
+            s_story_rows[0] = (se_menu_row_t){.label = "Continue"};
+            s_story_rows[1] = (se_menu_row_t){.label = "Start over"};
+            s_story_rows[2] = (se_menu_row_t){.label = "Back"};
+            snprintf(s_story_title, sizeof(s_story_title), "%.40s",
+                     pack_get(s_story_pick) != NULL ? pack_get(s_story_pick)->name : "");
+            def->title     = s_story_title;
+            def->subtitle  = "Part played: carry on, or start over";
+            def->rows      = s_story_rows;
+            def->row_count = 3;
+            def->hint      = "Start over forgets where you were";
+            return 3;
         case SCR_TIMES:
             for (int i = 0; i < s_t_n; i++)
                 s_t_rows[i] = (se_menu_row_t){.label = s_t_label[i], .kind = SE_MENU_VAL_TEXT, .value = s_t_value[i]};
@@ -717,10 +739,24 @@ menu_cmd_t menu_update(void) {
         case SCR_STORIES:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
                 go(s_home);
+            } else if (r == SE_MENU_RESULT_ACTIVATED && cur < PACK_MAX && s_st_saved[cur]) {
+                s_story_pick        = cur;  // part played: carry on, or start over?
+                s_cursor[SCR_STORY] = 0;
+                go(SCR_STORY);
             } else if (r == SE_MENU_RESULT_ACTIVATED) {
                 s_scr       = SCR_NONE;
                 cmd.kind    = MENU_CMD_STORY;
                 cmd.chamber = cur;  // the pack
+            }
+            break;
+
+        case SCR_STORY:
+            if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == 2)) {
+                go(SCR_STORIES);
+            } else if (r == SE_MENU_RESULT_ACTIVATED) {
+                s_scr       = SCR_NONE;
+                cmd.kind    = cur == 1 ? MENU_CMD_STORY_NEW : MENU_CMD_STORY;
+                cmd.chamber = s_story_pick;
             }
             break;
 

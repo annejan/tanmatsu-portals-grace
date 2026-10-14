@@ -185,8 +185,6 @@ static story_result_t s_desk_result;  // ... with this
 static bool           s_leaving;      // the day done: the ending said, then the title
 static float          s_leaving_t;
 
-#define SAVE_DIR "/sd/portals/saves"
-
 // The round in play's chamber, in the chamber list.
 static int round_chamber(void) {
     pack_t const* const p = pack_get(s_story.pack);
@@ -729,7 +727,7 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
 // --- The desk ---------------------------------------------------------------
 
 static void save_path(char* out, size_t n) {
-    snprintf(out, n, "%s/%.40s.txt", SAVE_DIR, pack_get(s_story.pack)->id);
+    pack_save_path(pack_get(s_story.pack), out, n);
 }
 
 // The story where it stands, on the card: Continue comes back to it.
@@ -737,7 +735,7 @@ static void desk_save(void) {
     char text[512], path[96];
     if (desk_save_text(&s_desk, text, sizeof(text)) < 0) return;
     mkdir("/sd/portals", 0755);
-    mkdir(SAVE_DIR, 0755);
+    mkdir(PACK_SAVE_DIR, 0755);
     save_path(path, sizeof(path));
     FILE* f = card_fopen(path, "w");
     if (f == NULL) {
@@ -839,6 +837,16 @@ static void desk_frame(float dt) {
             desk_save();
             to_title();
             break;
+        case DESK_RESTART: {
+            // From its start: the save gone, the desk as it first was.
+            char path[96];
+            save_path(path, sizeof(path));
+            chamber_remove_file(path);
+            int const pk = s_story.pack;
+            sound_restart_music();
+            if (!desk_enter(pk)) to_title();
+            break;
+        }
         case DESK_LEAVE: {
             // The day is done: its save gone, so the story starts afresh;
             // the ending said -- over the outro, if there is one, else at
@@ -928,10 +936,17 @@ static void menu_frame(void) {
             menu_set_round(false);
             s_mode = MODE_DESK;
             break;
+        case MENU_CMD_STORY_NEW:
         case MENU_CMD_STORY: {
             // A story pack from its start: the music from its first bar.
             pack_t const* const p = pack_get(cmd.chamber);
             if (p == NULL) break;
+            if (cmd.kind == MENU_CMD_STORY_NEW && p->desk) {
+                // Start over: its save forgotten, so the desk opens at the start.
+                char path[96];
+                pack_save_path(p, path, sizeof(path));
+                chamber_remove_file(path);
+            }
             record_stop();
             if (p->desk) {
                 snprintf(s_story_back, sizeof(s_story_back), "%s",

@@ -114,6 +114,7 @@ typedef enum {
     DESK_PLAY,   // GLADOS: the next round
     DESK_LEAVE,  // the day done, and out of the door
     DESK_TITLE,  // Esc at an empty prompt: back to the title, saved
+    DESK_RESTART,  // RESTART YES: the story from its start, its save gone
 } desk_action_t;
 
 // Keys, as deskview.c turns the badge's into them.

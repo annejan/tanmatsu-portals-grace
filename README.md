@@ -54,7 +54,9 @@ which can go back to the title screen.
 
 **Stories** are packs of chambers played one after another, with an
 ending: folders in `/sd/portals/dlc/` on the card, made and shared as
-`dlc/README.md` says. The first, *After hours*, is in `dlc/`.
+`dlc/README.md` says. Three are in `dlc/`: *After hours*, and two told
+from a desk, *Human in the loop* and *Off to Hackfest*. A desk story picks
+up where you left it; Stories (or `RESTART` at its desk) starts it over.
 
 ## Controls
 

@@ -57,6 +57,7 @@
 #define PACK_MAX      16
 #define PACK_CHAMBERS 24
 #define PACK_ROUTES   4
+#define PACK_SAVE_DIR "/sd/portals/saves"  // a desk story's save: PACK_SAVE_DIR/<pack>.txt
 
 typedef struct {
     char id[16];  // what the player types: ROUTE TRAIN
@@ -91,6 +92,10 @@ int           pack_count(void);
 pack_t const* pack_get(int i);
 // The pack chamber `chamber` is in, and its place in it; -1 if none.
 int           pack_of(int chamber, int* at);
+// Where desk story `p` is saved (main.c writes it at the desk, deletes it
+// when the story ends), and whether there is a save there now.
+void          pack_save_path(pack_t const* p, char* out, size_t n);
+bool          pack_has_save(pack_t const* p);
 // Parse a pack.txt's text into `p` (its chambers by file id, in `files`:
 // a desk story's rounds); false if it names no chamber. For the tests too.
 bool          pack_parse(char const* text, pack_t* p, char files[][CHAMBER_ID_N], int* n_files);

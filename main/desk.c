@@ -587,6 +587,7 @@ static void cmd_help(desk_t* k) {
         out(k, "TIME         the time");
         out(k, "CLEAR        clear the screen");
         out(k, "EXIT         leave, once it is all done");
+        out(k, "RESTART      start the story over");
         return;
     }
     out(k, "DIR          the files here");
@@ -598,6 +599,7 @@ static void cmd_help(desk_t* k) {
     out(k, "TIME         the time");
     out(k, "CLS          clear the screen");
     out(k, "EXIT         leave, once the queue is empty");
+    out(k, "RESTART      start the story over");
 }
 
 static void cmd_status(desk_t* k) {
@@ -654,6 +656,14 @@ static desk_action_t command(desk_t* k, char* line) {
         k->n_lines = 0;
     } else if (strcmp(cmd, "HELP") == 0 || strcmp(cmd, "?") == 0) {
         cmd_help(k);
+    } else if (strcmp(cmd, "RESTART") == 0 || strcmp(cmd, "REBOOT") == 0) {
+        // Asked twice, the second time meant: it forgets everything.
+        char yes[8];
+        snprintf(yes, sizeof(yes), "%s", arg);
+        upcase(yes);
+        if (strcmp(yes, "YES") == 0) return DESK_RESTART;
+        out(k, "This starts the story over from its beginning: everything so far is forgotten.");
+        out(k, "Type %s YES to do it.", cmd);
     } else if (strcmp(cmd, "EXIT") == 0 || strcmp(cmd, "LOGOUT") == 0) {
         if (!desk_done(k)) {
             out(k, "%s", k->d->badge ? "Not yet: there is still stuff on the TODO list."

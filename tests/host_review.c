@@ -698,6 +698,10 @@ static void test_desk(void) {
     CHECK(type(&k, "exit") == DESK_LEAVE, "exit, the queue empty");
     CHECK(type(&k, "glados") == DESK_NONE && strstr(screen_text(&k), "nothing left"), "no more rounds");
     CHECK(desk_key(&k, DK_ESC, 0) == DESK_TITLE, "Esc at an empty prompt: the title");
+    // Starting over: asked once, then meant.
+    CHECK(type(&k, "restart") == DESK_NONE && strstr(screen_text(&k), "RESTART YES"), "restart asks first");
+    CHECK(type(&k, "restart no") == DESK_NONE, "restart no: nothing");
+    CHECK(type(&k, "Restart yes") == DESK_RESTART, "restart yes: from the start");
 }
 
 // Routes: a story that branches, and the desk that picks one.
