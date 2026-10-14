@@ -11,7 +11,7 @@ round: wet-floor
 choose: Henry's cake, in the break room. Or the queue.
 route: cake | The break room | Five minutes. It is cake. Real cake: Henry checked.
 round: break-room
-route: queue | Stay at your desk | The queue is to be empty today. Your supervisor said so.
+route: queue | Stay at your desk | The queue is to be empty today, says your boss.
 round: second-opinion
 join
 round: observation

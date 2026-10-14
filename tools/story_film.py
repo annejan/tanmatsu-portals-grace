@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """A desk story's day as a film: the desk between the rounds, screen by
 screen, and each round as it was played -- every flaw cheesed, every final
-solved as meant, the broken draft repaired -- then the outro's walk, its
-cards and its reveal.
+solved as meant, the broken drafts repaired in the debugger
+(tools/debugger_film.py) -- then the outro's walk, its cards and its
+reveal.
 
     tools/story_film.py dlc/human-in-the-loop --mp4 build/dlc/human-in-the-loop-story.mp4
 
@@ -28,6 +29,9 @@ import subprocess
 import sys
 
 from PIL import Image, ImageDraw, ImageFont
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import debugger_film  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W, H = 1600, 960
@@ -265,6 +269,8 @@ def main():
             text = f.read()
         name = header(text, "name")
         title = "Round %s: %s" % (rnd, name) if draft == "1" else "Round %s: %s, draft %s" % (rnd, name, draft)
+        if len(title) > 31:  # a chamber's name holds 31: keep the draft's number
+            title = "R%s: %s" % (rnd, title.partition(": ")[2])
         story = header(text, "story") if draft == "1" else said.get(file_id, "")
         text = set_header(text, "name", title[:31])
         text = set_header(text, "story", story.replace("[Subject-Name-here]", "test subject")[:159])
@@ -296,6 +302,13 @@ def main():
         p = os.path.join(pics, "desk-" + name[:-4] + ".png")
         im.save(p)
         inter.setdefault(seg, []).append([p, secs])
+    # A broken round opens in the debugger: the repairs made there, after
+    # the desk and before the play-test (tools/debugger_film.py).
+    for n, (rnd, file_id, draft, route, headline, line) in enumerate(played, 1):
+        with open(os.path.join(folder, file_id + ".txt")) as f:
+            text = f.read()
+        if header(text, "review") == "broken":
+            inter.setdefault(str(n - 1), []).extend(debugger_film.frames(text, pics, "r%02d" % n))
     inter["end"] = cards(os.path.join(folder, "desk"), pics)
     with open(os.path.join(work, "interludes.json"), "w") as f:
         json.dump(inter, f)
