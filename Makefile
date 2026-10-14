@@ -72,7 +72,7 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review host_runcheck
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -162,6 +162,12 @@ host_tas: chambers_c
 
 # Play a chamber file's solution and cheese routes, judged as a story
 # round judges them (review.h).
+# A recording replayed as the badge plays it, its times worked out: the
+# speedrun board's check (scene.rs/runs; tests/host_runcheck.c).
+host_runcheck: chambers_c
+	mkdir -p $(BUILD)
+	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_runcheck.c $(HOST_SRCS) -lm -o $(BUILD)/host_runcheck
+
 host_review: chambers_c
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_review.c $(HOST_SRCS) -lm -o $(BUILD)/host_review
