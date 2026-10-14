@@ -5,9 +5,12 @@ ending: That concludes your overtime, [Subject-Name-here]. It was not paid. Neit
 music: overtime bpm=110 key=D seed=42
 chamber: overtime
 chamber: momentum
+chamber: rush-hour
 chamber: cleaning-crew
 chamber: courier
+chamber: two-way-street
 chamber: reflections
+chamber: bowling-night
 chamber: lights-out
 chamber: night-shift
 chamber: crunch-time

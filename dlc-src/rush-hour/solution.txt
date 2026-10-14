@@ -1,0 +1,23 @@
+// One: the drain's floor, where the orange gel lands and does no good.
+walk_to 8.5 7.5
+shoot blue 11.9 1.0 7.5
+// Two: into the lane, and the white strip in its ceiling at the far end.
+// The gel comes out of it and paints the last metres of the lane; then
+// a little further back, so the run is long enough.
+walk_to 1.5 4.0
+walk_to 1.5 1.5
+walk_to 11.5 1.5
+shoot orange 15.75 4.0 1.5
+wait 1.5
+shoot orange 12.75 4.0 1.5
+wait 1.5
+// Three: the panel at the foot of the platform, through the gap in the
+// glass, and the wall at the end of the lane.
+walk_to 1.5 1.5
+shoot orange 6.5 1.0 9.0
+shoot blue 17.0 2.0 1.5
+// Four: run. Eleven metres a second into the wall is eleven metres a
+// second up out of the floor, and forward is onto the platform.
+face 90 0
+walk_to 17.5 1.5
+walk_to 6.5 11.5

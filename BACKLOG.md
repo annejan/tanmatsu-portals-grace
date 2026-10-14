@@ -93,6 +93,17 @@ mean is what predicts the badge (40.07 s against its 40.05 s).
 - **Older Graceloader (before 2.7.0) does not retry a failed SD write.**
   Ghosts and Watch's times are written a second time if the first fails.
 
+## Physics
+
+- **Floor portal to floor portal gives back more height than the fall put
+  in**, and more the longer the frame: a body sinks a little into a floor
+  portal before it goes through and comes out of the other floor that far
+  above it. At 10-15 fps a walk into one floor portal came out of another
+  at 6.9 m/s, 0.5 m up -- enough for Rush hour's draft to be cheesed
+  (dlc-src/rush-hour/cheese-drain.txt; closed there with a fizzler, not in
+  the engine). A fix changes GAME_PHYSICS, so ghosts and the TAS would
+  need re-recording: left for a physics release.
+
 ## Music
 
 Every tune is the engine's procedural generator with a bank of its own
