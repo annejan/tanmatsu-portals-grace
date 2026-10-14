@@ -93,6 +93,23 @@ mean is what predicts the badge (40.07 s against its 40.05 s).
 - **Older Graceloader (before 2.7.0) does not retry a failed SD write.**
   Ghosts and Watch's times are written a second time if the first fails.
 
+## Music
+
+Every tune is the engine's procedural generator with a bank of its own
+(main/sound.c): chords, arps, drums, bass, voices. A pack picks one in
+pack.txt (`music: overtime bpm=110 key=D seed=42`; After hours since
+2026-10-14, picked by ear from host_movie renders with
+HOST_MOVIE_STEM=music). Ideas, not started:
+
+- **Progression over a story.** The renders build nicely as play gets
+  going (the mood brings layers in); a story could build too, chamber to
+  chamber: energy, tempo or a section change rising towards its end.
+- **New tunes in code** (a release; older builds fall back to calm for an
+  unknown name), and perhaps a lead melody: the generator has none, only
+  the arp.
+- **A tune per chamber**: a `music:` key in a chamber file, so a pack can
+  change tune between chambers.
+
 ## Engine
 
 - **The engine is a fork until upstream merges.** Light (`SE_TRI_GLOW`) is
