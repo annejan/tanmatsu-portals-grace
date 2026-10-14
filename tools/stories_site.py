@@ -32,7 +32,7 @@ CARD = os.path.join(ROOT, "build", "dlc")
 # starts (a chamber in play, both).
 FILMS = {
     "hackfest": ("hackfest-story-badge-henk.mp4", 116.0, 113.0),
-    "human-in-the-loop": ("human-in-the-loop-story-badge.mp4", 60.0, 210.0),
+    "human-in-the-loop": ("human-in-the-loop-story.mp4", 333.5, 336.5),
     "after-hours": ("after-hours-cinema.mp4", 276.0, 380.0),
 }
 CLIP = 6.0
