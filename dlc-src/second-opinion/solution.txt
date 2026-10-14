@@ -1,0 +1,25 @@
+// One: up to the consulting floor -- the west wall and the new back-wall panel.
+shoot blue 1.0 2.0 3.5
+shoot orange 8.5 6.0 15.0
+walk_to 1.5 3.5
+walk_to 0.2 3.5
+// Two: along the back wall and down the hatch into the dispensary.
+walk_to 13.5 14.5
+walk_to 13.5 12.5
+wait 0.5
+walk_to 12.6 12.5
+grab
+wait 0.4
+// Three: the dispensary's panel with the colour that is downstairs, and out.
+shoot blue 14.0 2.0 11.5
+walk_to 14.2 11.5
+wait 0.6
+// Four: the cube on the button, through the door, into the exit.
+walk_to 7.5 13.7
+look 7.5 4.3 12.5
+wait 0.6
+use
+wait 0.6
+walk_to 6.0 13.5
+walk_to 4.5 12.5
+walk_to 2.5 12.5

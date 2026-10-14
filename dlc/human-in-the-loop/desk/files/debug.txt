@@ -6,8 +6,10 @@ Some drafts are broken: GLaDOS cannot solve them herself. When GLADOS
 loads one, the debugger opens instead of the chamber.
 
 The debugger shows the chamber from above, a layer at a time (Q and E).
-It allows a few changes, of a few kinds: the draft says which. Usually
-it is one surface made portable: metal (#) made white (W).
+It allows a few changes, of a few kinds: the draft says which, and the
+panel beside the map lists them, each with the key that picks it. Usually
+it is a surface made portable: metal (#) made white (W). Sometimes it is
+something in the way taken out.
 
   arrows   move              Space   make the change
   Q / E    layer down / up   Bksp    change a cell back

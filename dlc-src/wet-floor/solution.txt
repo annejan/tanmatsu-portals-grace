@@ -1,0 +1,30 @@
+// One: the mop water is in the cupboard. A portal in its floor, under the
+// drip, and one in the ceiling strip out over the hall: the blue gel falls
+// through and mops a patch of floor in front of the mezzanine.
+walk_to 3.5 10.5
+look 3.5 1.0 12.9
+wait 0.6
+shoot blue 3.5 1.0 12.9
+walk_to 8.5 9.0
+look 8.5 7.0 11.0
+wait 0.6
+shoot orange 8.5 7.0 11.0
+// Two: fetch the cube, and take a running jump off the wet floor, cube and
+// all, three metres up onto the mezzanine.
+walk_to 4.5 4.8
+grab
+wait 0.4
+walk_to 8.5 7.0
+face 0 0
+walk 0.6
+jump
+walk_to 8.5 13.0
+// Three: the cube on its button opens the store room under the mezzanine.
+walk_to 8.8 13.2
+look 9.5 4.0 14.5
+wait 0.5
+use
+wait 1.0
+walk_to 8.5 10.0
+walk_to 7.0 10.0
+walk_to 7.0 14.5

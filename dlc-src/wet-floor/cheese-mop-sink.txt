@@ -1,0 +1,21 @@
+// CHEESE "mop sink": the cupboard's floor and the ceiling strip over the
+// button. Hold the cube out over the cupboard's floor and let go: it drops
+// out of the ceiling onto the button. Nobody bounces.
+walk_to 3.5 10.5
+look 3.5 1.0 12.9
+wait 0.6
+shoot blue 3.5 1.0 12.9
+walk_to 9.0 9.0
+look 9.5 7.0 14.9
+wait 0.6
+shoot orange 9.5 7.0 14.9
+walk_to 4.5 4.8
+grab
+wait 0.4
+walk_to 3.5 11.4
+face 0 30
+wait 0.5
+use
+wait 3.0
+walk_to 7.0 10.0
+walk_to 7.0 14.5

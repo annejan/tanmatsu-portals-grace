@@ -1,0 +1,217 @@
+name: Observation
+hint: Portals bring the beam down to you. Only a cube turns it the last corner.
+story: Nobody has sat in the observation room for some time, [Subject-Name-here]. They are very busy. I do the observing now. I am observing you.
+review: flawed
+intended: pickup, button 1 by beam, door a
+flaw: a button 1 by beam, no pickup -- No cube: a panel square to the catcher, and the beam went straight in. Nobody carried anything.
+flaw: b no door a -- In through a missing pane of the observation window, and down the observers' stairs. The door never opened.
+fix: a 0 1-2 6 W#
+fix: b 6 4-5 13 .G
+size: 16 8 18
+facing: north
+
+layer 0
+################
+##EE############
+##EE############
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+
+layer 1
+################
+##...........###
+##...........###
+##...........###
+####GGaaGG######
+##............##
+#............###
+#.R...........##
+#.............##
+#.............##
+#.............##
+W.............O#
+#.............##
+#.............##
+##...........###
+#..S..........##
+#.............##
+##########W#####
+
+layer 2
+################
+##...........###
+##...........###
+##...........###
+####GGaaGG######
+##............##
+#............###
+#.............##
+#.............##
+#.............##
+#.............##
+W.............1#
+#.............##
+#.............##
+##...........###
+#.............##
+#.............##
+##########W#####
+
+layer 3
+################
+###########..###
+###########..###
+################
+################
+##............##
+#............###
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+##...........###
+#.............##
+#.............##
+################
+
+layer 4
+###WWWWWWWW#####
+##...........###
+##...........###
+##.II...II...###
+###GGG.GGGG#####
+##............##
+#............###
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+##...........###
+#.............##
+#.............##
+################
+
+layer 5
+###WWWWWWWW#####
+##...........###
+##...........###
+##...........###
+###GGG.GGGG#####
+##............##
+#............###
+#.............##
+L.............W#
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+##...........###
+#.............##
+#.............##
+################
+
+layer 6
+################
+################
+################
+################
+################
+##............##
+#............###
+#.............##
+#.............W#
+#.............##
+#.............##
+#.............##
+#.............##
+#.............##
+##...........###
+#.............##
+#.............##
+################
+
+layer 7
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+################
+
+solution
+// The cube, from the north-west corner, to where Pw's line crosses the
+// catcher's: set down facing east, square to it.
+walk_to 2.5 9.0
+grab
+wait 0.4
+walk_to 9.2 6.5
+face 90 25
+wait 0.5
+use
+wait 0.6
+// The strip high in the east wall, and Pw low in the south wall: the beam
+// comes out of Pw going north, into the cube, and east into the catcher.
+shoot blue 14.0 6.0 9.5
+shoot orange 10.5 2.0 1.0
+wait 1.0
+// West of the cube, out of the beam, to the door.
+walk_to 7.0 11.5
+walk_to 7.0 14.5
+walk_to 3.0 16.0
+
+cheese a
+// CHEESE: no cube. The strip, and the low panel in the west wall square
+// to the catcher: the beam goes straight in. From the north side of it.
+walk_to 5.0 9.5
+shoot blue 14.0 6.0 9.5
+shoot orange 1.0 2.0 6.5
+wait 1.0
+walk_to 7.0 11.5
+walk_to 7.0 14.5
+walk_to 3.0 16.0
+
+cheese b
+// CHEESE: over the observation deck. A portal through the missing pane
+// onto the white back wall of the observation room, one in Pw: in, along
+// the room, down the stairwell, and to the exit. The door stays shut.
+walk_to 6.5 5.0
+shoot blue 6.5 5.0 17.0
+shoot orange 10.5 2.0 1.0
+walk_to 10.5 1.5
+walk_to 10.5 -1.0
+wait 0.5
+walk_to 12.0 15.5
+wait 1.0
+walk_to 3.0 16.0
