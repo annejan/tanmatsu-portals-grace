@@ -32,19 +32,19 @@ CARD = os.path.join(ROOT, "build", "dlc")
 # starts (a chamber in play, both).
 FILMS = {
     "hackfest": ("hackfest-story-badge-henk.mp4", 116.0, 113.0),
-    "human-in-the-loop": ("human-in-the-loop-story.mp4", 344.0, 347.0),
-    "after-hours": ("after-hours-cinema.mp4", 276.0, 380.0),
+    "human-in-the-loop": ("human-in-the-loop-story-badge.mp4", 366.0, 372.0),
+    "after-hours": ("after-hours-badge.mp4", 286.0, 388.0),
 }
 CLIP = 6.0
 # The trailer: (film, start) shots of TRAILER_SHOT seconds each, in order.
 TRAILER = [
-    ("after-hours-cinema.mp4", 37.0),
-    ("after-hours-cinema.mp4", 276.0),
+    ("after-hours-badge.mp4", 46.0),
+    ("after-hours-badge.mp4", 285.0),
     ("hackfest-story-badge-henk.mp4", 114.0),
-    ("after-hours-cinema.mp4", 201.0),
-    ("human-in-the-loop-story-badge.mp4", 210.0),
-    ("after-hours-cinema.mp4", 309.0),
-    ("after-hours-cinema.mp4", 381.0),
+    ("after-hours-badge.mp4", 209.0),
+    ("human-in-the-loop-story-badge.mp4", 228.0),
+    ("after-hours-badge.mp4", 318.0),
+    ("after-hours-badge.mp4", 390.0),
 ]
 TRAILER_SHOT = 3.5
 FFMPEG = ["ffmpeg", "-y", "-loglevel", "error"]
@@ -123,7 +123,7 @@ def clip(pid, out):
     if film is None or not os.path.exists(os.path.join(CARD, film[0])):
         return False
     subprocess.run(FFMPEG + ["-ss", str(film[2]), "-t", str(CLIP), "-i", os.path.join(CARD, film[0]),
-                             "-vf", "scale=640:384:flags=area,fps=30"] + H264 + ["-crf", "30", out], check=True)
+                             "-vf", "scale=800:480:flags=area,fps=30"] + H264 + ["-crf", "30", out], check=True)
     return True
 
 
