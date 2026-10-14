@@ -135,6 +135,9 @@ def main():
     ap.add_argument("--interludes", help="a JSON file: {\"K\": [[png, seconds], ...], \"end\": [...]}, pictures "
                     "shown before the K-th chamber (from 0) and before the closing card, in silence "
                     "(tools/story_film.py: the desk between rounds)")
+    ap.add_argument("--desk-sound", action="store_true",
+                    help="the interludes before the chambers are a desk story's desk: the tune plays on through them "
+                    "in the desk's mood, as on the badge (main.c's MODE_DESK), not silence (--badge always does)")
     ap.add_argument("--lifts", action="store_true",
                     help="from chamber to chamber by lift, as the game goes with Settings -> Lifts (main/lift.h)")
     ap.add_argument("--splash", help="a JSON list [[picture, seconds], ...] shown before the opening card: the "
@@ -183,7 +186,7 @@ def main():
 
     def frames_of(key):
         return sum(max(1, int(round(float(secs) * FPS))) for _, secs in inter.get(key, []))
-    if a.badge:
+    if a.badge or a.desk_sound:
         # The desks between a story's rounds: on the badge its tune plays on
         # there, so the recorder plays it on through each (HOST_MOVIE_DESKS).
         env["HOST_MOVIE_DESKS"] = ",".join(str(frames_of(str(k))) for k in range(len(a.demos)))
@@ -237,14 +240,14 @@ def main():
                 silences.append((0, len(out), splash_sound(a.splash, len(out))))
         for line in lines:
             if line[0] == "C" and not opened:
-                opened = True  # the splash screens, before the opening card
+                opened = True  # the splash screens, before the opening card, with their sound
                 extra = pictures("start")
                 if extra:
-                    silences.append((fi, len(extra)))
+                    silences.append((fi, len(extra), splash_sound(a.splash, len(extra)) if a.splash else b""))
                 out += extra
             if line[0] == "S":
                 extra = pictures(str(k))
-                if extra and not a.badge:  # with --badge the recorder played the desk's sound
+                if extra and not (a.badge or a.desk_sound):  # else the recorder played the desk's sound
                     silences.append((fi, len(extra)))
                 out += extra
                 k += 1

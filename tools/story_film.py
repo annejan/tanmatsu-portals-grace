@@ -3,7 +3,8 @@
 screen, and each round as it was played -- every flaw cheesed, every final
 solved as meant, the broken drafts repaired in the debugger
 (tools/debugger_film.py) -- then the outro's walk, its cards and its
-reveal.
+reveal. It opens as the badge starts (`make splash`), and the pack's
+tune plays on at the desk, as on the badge.
 
     tools/story_film.py dlc/human-in-the-loop --mp4 build/dlc/human-in-the-loop-story.mp4
 
@@ -289,6 +290,9 @@ def main():
             f.write(text)
         ids.append("outro")
 
+    # The badge starting up, to open with, if `make splash` has drawn it.
+    splash = os.path.join(ROOT, "build", "splash", "splash.json")
+
     # The desk's screens, before each round (and before the walk).
     f_mono = font(MONO, 32)
     cell_w = f_mono.getlength("M")
@@ -316,7 +320,8 @@ def main():
     subprocess.run([sys.executable, os.path.join(ROOT, "tools", "make_movie.py")] + ids + [
         "--chambers", chambers, "--work", os.path.join(work, "movie"), "--mp4", os.path.abspath(a.mp4),
         "--title", info.get("name", pid), "--about", info.get("about", ""),
-        "--interludes", os.path.join(work, "interludes.json"), "--music", info.get("music", ""),
+        "--interludes", os.path.join(work, "interludes.json"), "--music", info.get("music", ""), "--desk-sound",
+        ] + (["--splash", splash] if os.path.exists(splash) else []) + [
         "--ending", "A fan story in honour of Valve's Portal. Aperture Science, GLaDOS, Chell and Doug Rattmann "
                     "are Valve's."], check=True)
     shutil.rmtree(os.path.join(work, "movie", "shots"), ignore_errors=True)

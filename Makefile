@@ -192,7 +192,7 @@ ghosts-push:
 # main/deskview.c draws it (tests/host_desk.c), the game's own HUD and
 # outro; $(BUILD)/dlc/$(PACK)-story-badge.mp4.
 PACK ?= human-in-the-loop
-story-film: host_review host_movie $(if $(BADGE),host_desk host_title splash)
+story-film: host_review host_movie host_title splash $(if $(BADGE),host_desk)
 	mkdir -p $(BUILD)/dlc
 	python3 tools/story_film.py dlc/$(PACK) $(if $(ROUTE),--route $(ROUTE)) $(if $(BADGE),--badge) \
 		--mp4 $(BUILD)/dlc/$(PACK)-story$(if $(BADGE),-badge).mp4
