@@ -17,8 +17,9 @@ tools first.
 each pixel doubled): the splash screens (`make splash`), the desk as
 main/deskview.c draws it (tests/host_desk.c, from host_review's screens),
 each round as main.c plays a desk story's -- no lifts, its message, the
-story line and the verdict by main/hud.c -- cut to and from the desk, and
-the outro as main/outro.c plays it. No title cards, no fades of the
+story line and the verdict by main/hud.c -- cut to and from the desk, a
+broken round's debugger as main/editor.c draws it (tests/host_debugger.c),
+and the outro as main/outro.c plays it. No title cards, no fades of the
 film's own, no text drawn here. `make story-film PACK=hackfest BADGE=1`.
 """
 
@@ -163,6 +164,18 @@ def cards(desk_dir, out_dir):
     return pics
 
 
+def debugger(folder, played, pics, inter):
+    """A broken round opens in the debugger: the repairs made there, drawn by
+    editor.c (tools/debugger_film.py), after the desk and before the
+    play-test -- the K-th interlude, before the K-th round."""
+    for n, (rnd, file_id, draft, route, headline, line) in enumerate(played, 1):
+        path = os.path.join(folder, file_id + ".txt")
+        with open(path) as f:
+            broken = header(f.read(), "review") == "broken"
+        if broken:
+            inter.setdefault(str(n - 1), []).extend(debugger_film.frames(path, pics, "r%02d" % n))
+
+
 def badge_film(a, folder, info, day, work, chambers, pics, played):
     """The day as the badge shows it: its splash, its desk, its rounds and
     its outro, each drawn by the game's own code."""
@@ -216,6 +229,7 @@ def badge_film(a, folder, info, day, work, chambers, pics, played):
             else:
                 shots.append([pic, 1.0 / FPS])
             clock += 1.0 / FPS
+    debugger(folder, played, pics, inter)
     with open(os.path.join(work, "interludes.json"), "w") as f:
         json.dump(inter, f)
 
@@ -308,11 +322,7 @@ def main():
         inter.setdefault(seg, []).append([p, secs])
     # A broken round opens in the debugger: the repairs made there, after
     # the desk and before the play-test (tools/debugger_film.py).
-    for n, (rnd, file_id, draft, route, headline, line) in enumerate(played, 1):
-        with open(os.path.join(folder, file_id + ".txt")) as f:
-            text = f.read()
-        if header(text, "review") == "broken":
-            inter.setdefault(str(n - 1), []).extend(debugger_film.frames(text, pics, "r%02d" % n))
+    debugger(folder, played, pics, inter)
     inter["end"] = cards(os.path.join(folder, "desk"), pics)
     with open(os.path.join(work, "interludes.json"), "w") as f:
         json.dump(inter, f)

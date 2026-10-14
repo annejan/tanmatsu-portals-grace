@@ -93,6 +93,10 @@ The cheese routes go in the pack's `replays/cheeses.txt`, to watch.
 
 ## Sharing one
 
+A `file_id.diz` in the folder (at most 45 columns and 10 lines, plain
+ASCII, as BBSes and scene archives want one) goes along in the zip and
+onto the card: the game does not read it.
+
 Copy the folder to `/sd/portals/dlc/` on the badge's card. **Stories** on
 the title screen lists the packs there; Continue picks up inside one.
 

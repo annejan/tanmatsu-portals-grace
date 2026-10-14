@@ -256,6 +256,9 @@ def card():
         os.makedirs(out)
         if os.path.exists(os.path.join(folder, "pack.txt")):
             shutil.copy(os.path.join(folder, "pack.txt"), out)
+        # A release's file_id.diz, as a scene prod has: it travels in the zip.
+        if os.path.exists(os.path.join(folder, "file_id.diz")):
+            shutil.copy(os.path.join(folder, "file_id.diz"), out)
         desk = info.get("frame") == "desk"
         if desk:
             # Older builds know only "chamber:" lines: theirs is a room that
@@ -306,6 +309,12 @@ def zips():
         if not os.path.isdir(base):
             sys.exit("%s: run tools/dlc.py card first" % base)
         made = shutil.make_archive(base, "zip", root_dir=OUT, base_dir=pid)
+        diz = os.path.join(base, "file_id.diz")
+        if os.path.exists(diz):
+            # Archives and BBSes read it at the top; the game reads only folders there.
+            import zipfile
+            with zipfile.ZipFile(made, "a") as z:
+                z.write(diz, "file_id.diz")
         print(made)
 
 

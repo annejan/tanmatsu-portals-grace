@@ -138,6 +138,8 @@ def main():
     ap.add_argument("--desk-sound", action="store_true",
                     help="the interludes before the chambers are a desk story's desk: the tune plays on through them "
                     "in the desk's mood, as on the badge (main.c's MODE_DESK), not silence (--badge always does)")
+    ap.add_argument("--smooth", action="store_true",
+                    help="blend the game's 800 x 480 pixels up to the film's size, instead of doubling each")
     ap.add_argument("--lifts", action="store_true",
                     help="from chamber to chamber by lift, as the game goes with Settings -> Lifts (main/lift.h)")
     ap.add_argument("--splash", help="a JSON list [[picture, seconds], ...] shown before the opening card: the "
@@ -306,7 +308,9 @@ def main():
         if a.badge:  # drawn by hud.c itself: the badge's pixels, each doubled
             return Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h),
                                                                                                       Image.NEAREST)
-        im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h), Image.LANCZOS)
+        # The badge's pixels, each doubled, as it shows them (--smooth: blended); the text over them sharp.
+        im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize(
+            (w, h), Image.LANCZOS if a.smooth else Image.NEAREST)
         d = ImageDraw.Draw(im)
         d.text((8 * SCALE, 6 * SCALE), f["name"], font=f_name, fill=(255, 255, 255))
         d.text((8 * SCALE, 26 * SCALE), f["hint"], font=f_hint, fill=(160, 160, 160))

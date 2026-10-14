@@ -192,7 +192,7 @@ ghosts-push:
 # main/deskview.c draws it (tests/host_desk.c), the game's own HUD and
 # outro; $(BUILD)/dlc/$(PACK)-story-badge.mp4.
 PACK ?= human-in-the-loop
-story-film: host_review host_movie host_title splash $(if $(BADGE),host_desk)
+story-film: host_review host_movie host_title host_debugger splash $(if $(BADGE),host_desk)
 	mkdir -p $(BUILD)/dlc
 	python3 tools/story_film.py dlc/$(PACK) $(if $(ROUTE),--route $(ROUTE)) $(if $(BADGE),--badge) \
 		--mp4 $(BUILD)/dlc/$(PACK)-story$(if $(BADGE),-badge).mp4
@@ -201,6 +201,15 @@ story-film: host_review host_movie host_title splash $(if $(BADGE),host_desk)
 # framebuffer laid out as the badge's -- for story-film BADGE=1. On the
 # real PAX headers, as host_splash.
 .PHONY: host_desk
+# A broken round's debugger as the badge draws it -- main/editor.c's own
+# editor_draw, into a badge-shaped framebuffer -- for the story films
+# (tools/debugger_film.py, tests/host_debugger.c).
+host_debugger: chambers_c
+	mkdir -p $(BUILD)/debugger
+	$(HOSTCC) -O2 -Wall -Wextra -Wno-format-truncation -c -Imain -Itests/shims $(HOST_ENGINE) \
+		-Isynthengine3D/src/internal -idirafter include $(ENGINE_DEFS) tests/host_debugger.c -o $(BUILD)/debugger/host_debugger.o
+	$(HOSTCC) -O2 -Imain $(BUILD)/debugger/host_debugger.o $(HOST_SRCS) -lm -o $(BUILD)/debugger/host_debugger
+
 host_desk:
 	mkdir -p $(BUILD)/desk
 	$(HOSTCC) -O2 -Wall -Wextra -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
