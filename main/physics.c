@@ -148,6 +148,7 @@ static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
     // Inside the exit's hole. Across the entry may be along the exit's
     // height -- a floor portal into a wall one -- and a box half out of
     // the hole came out with its feet inside the floor.
+    float const d  = -portal_local(a, body_center(b)).z;  // the centre, past the entry (below)
     vec3_t      l  = portal_local(o, portal_map_point(a, o, body_center(b)));
     float const mx = fmaxf(0.0f, PORTAL_HALF_W - half_along(b, o->right) - 0.002f);
     float const my = fmaxf(0.0f, PORTAL_HALF_H - half_along(b, o->up) - 0.002f);
@@ -157,6 +158,20 @@ static void teleport(body_t* b, portal_t const* a, portal_t const* o) {
         v3_add(o->center, v3_add(v3_add(v3_scale(o->right, l.x), v3_scale(o->up, l.y)), v3_scale(o->n, l.z)));
     b->vel = portal_map_dir(a, o, b->vel);
     b->pos = v3(c.x, c.y - b->h * 0.5f, c.z);
+
+    // Gravity's work since the centre crossed. The probe (a player's eyes)
+    // goes through after the centre has: by then the centre is `d` past
+    // the entry, and has fallen (or risen) that far by the entry's gravity,
+    // while out of the exit it has gone that far the exit's way. Into a
+    // floor and out of one, d = 0.7 m both ways: 1.4 m given back that no
+    // fall put in. The speed along the exit is set as if it had gone the
+    // exit's way all along.
+    if (d > 0.0f) {
+        float const vn = v3_dot(b->vel, o->n);
+        float const k  = vn * vn - 2.0f * PHYS_GRAVITY * d * (a->n.y + o->n.y);
+        float const to = k > 0.0f ? sqrtf(k) : 0.0f;
+        if (vn > 0.0f) b->vel = v3_mad(b->vel, o->n, to - vn);
+    }
 
     float const vn   = v3_dot(b->vel, o->n);
     float const vmin = o->n.y > 0.5f ? EXIT_MIN_UP : EXIT_MIN_OTHER;

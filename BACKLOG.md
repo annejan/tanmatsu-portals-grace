@@ -95,14 +95,17 @@ mean is what predicts the badge (40.07 s against its 40.05 s).
 
 ## Physics
 
-- **Floor portal to floor portal gives back more height than the fall put
-  in**, and more the longer the frame: a body sinks a little into a floor
-  portal before it goes through and comes out of the other floor that far
-  above it. At 10-15 fps a walk into one floor portal came out of another
-  at 6.9 m/s, 0.5 m up -- enough for Rush hour's draft to be cheesed
-  (dlc-src/rush-hour/cheese-drain.txt; closed there with a fizzler, not in
-  the engine). A fix changes GAME_PHYSICS, so ghosts and the TAS would
-  need re-recording: left for a physics release.
+- **Floor portal to floor portal gave back more height than the fall put
+  in** -- fixed for 0.12.8 (GAME_PHYSICS "0.12.8"). A player goes through
+  when its eyes cross the portal (the probe), but comes out by its centre:
+  by then the centre was 0.7 m past the floor portal, falling faster by
+  the entry's gravity while out of the exit it had already risen that
+  far. teleport() now takes that work back: a 3 m drop gives 3.0 m at 30
+  fps and up (it gave 4.5), and Rush hour's draft no longer cheeses at
+  10-15 fps. What remains is the ordinary frame-step error: at 10-15 fps a
+  drop comes back within about half a metre.
+- **EXIT_MIN_UP**: out of a floor portal you come out at 6.5 m/s at the
+  least, by design (a walk in is a step up, about 1.3 m).
 
 ## Music
 
@@ -112,9 +115,8 @@ pack.txt (`music: overtime bpm=110 key=D seed=42`; After hours since
 2026-10-14, picked by ear from host_movie renders with
 HOST_MOVIE_STEM=music). Ideas, not started:
 
-- **Progression over a story.** The renders build nicely as play gets
-  going (the mood brings layers in); a story could build too, chamber to
-  chamber: energy, tempo or a section change rising towards its end.
+- **Progression over a story**: done for 0.12.8 -- build=, push= and
+  lift= in a pack's `music:` (dlc/README.md).
 - **New tunes in code** (a release; older builds fall back to calm for an
   unknown name), and perhaps a lead melody: the generator has none, only
   the arp.
