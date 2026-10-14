@@ -1312,6 +1312,17 @@ static void music_mood(bool menu) {
     else if (!menu && (s_mode == MODE_PLAY || watch_on()))
         pk = pack_of(s_game.chamber, NULL);
     pack_t const* const p = pack_get(pk);
+    // How far into the story: its rounds or chambers, its outro the end.
+    float progress = 0.0f;
+    if (p != NULL && p->n > 1) {
+        int at = 0;
+        if (s_story_on)
+            at = s_mode == MODE_CINE ? p->n - 1 : s_story.at;
+        else
+            pack_of(s_game.chamber, &at);
+        progress = (float)at / (float)(p->n - 1);
+    }
+    sound_music_progress(progress);  // before the tune: it may lift the key
     sound_music_tune(p != NULL ? p->music : NULL);
     sound_mood_t mood = SOUND_MOOD_PLAY;
     if (s_mode == MODE_CINE)

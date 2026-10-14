@@ -63,6 +63,14 @@ typedef enum {
     SOUND_MOOD_WALK,   // an outro's walk, the lights low
     SOUND_MOOD_DARK,   // ... and its fade to black
 } sound_mood_t;
+// How far into its story the game is, 0 (its start) to 1 (its last
+// chamber or round); every frame. A pack's tune builds with it -- more of
+// its layers in, at the desk and in play -- by its `build=` (a percent,
+// default 70). The story is in three acts, by its thirds: each act plays
+// `push=` BPM faster (default 0), and the last `lift=` semitones higher
+// (default 0), faded in over the last as a new tune is. The game's own
+// tune takes no notice.
+void sound_music_progress(float progress);
 // How the tune is played; every frame. Deaths and turrets are told by
 // sound_events, GLaDOS by sound_update.
 void sound_music_mood(sound_mood_t mood);

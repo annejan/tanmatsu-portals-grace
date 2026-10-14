@@ -2,7 +2,7 @@ name: Human in the loop
 author: annejan, story by Renze
 about: Aperture's test generator needs a human to break its drafts. You are the human.
 ending: Review queue empty. Thank you for your feedback: all of it has been incorporated. You may go. There is nobody left to stop you.
-music: office
+music: office push=5 lift=1
 frame: desk
 round: hold-the-door
 round: pressure

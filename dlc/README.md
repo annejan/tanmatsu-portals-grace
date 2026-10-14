@@ -40,7 +40,23 @@ music: office key=D bpm=64 seed=7
 ```
 
 The tune first, then any of `bpm=` (40 to 180), `key=` (the tonic: `C`,
-`C#`, `Db` ... `B`) and `seed=` (other music from the same tune). Each is
+`C#`, `Db` ... `B`) and `seed=` (other music from the same tune), and
+how it grows over the story (Portals 0.12.8 and later; older builds read
+past these):
+
+- `build=` how far its layers build from the first chamber to the last,
+  a percent: at 70 (the default) the desk and the chambers near the end
+  sound nearly as full as a turret's alarm.
+- `push=` BPM faster each act. A story is three acts, by its thirds; the
+  tempo goes up between chambers, faded over as a new tune is.
+- `lift=` semitones higher in the last act: the key change of a last
+  chorus.
+
+```
+music: overtime bpm=110 key=D seed=42 push=6 lift=2
+```
+
+The whole line holds 47 characters on older builds. Each is
 the game's own generator (`main/sound.c`) with chords, tempo and sounds of
 its own:
 

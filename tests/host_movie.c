@@ -38,6 +38,9 @@
 // HOST_MOVIE_MUSIC: the tune, a pack's `music:` (sound.h; tools/dlc.py and
 // story_film.py pass the pack's), played to the mood as main.c plays it.
 // HOST_MOVIE_STEM=music: the music alone in movie.wav.
+// HOST_MOVIE_PROGRESS=P,P,...: how far into its story each demo is, 0..1,
+// as main.c tells sound_music_progress (the desk before it too); unset,
+// each demo's place among them: the first 0, the last 1.
 //
 // HOST_MOVIE_NICK: the badge owner's nickname for "[Subject-Name-here]",
 // as main.c's personalise; unset, the joke stands as written.
@@ -641,10 +644,19 @@ int main(int argc, char** argv) {
         movie_hud_init();
     else
         titles(&r, "C", OPEN_S);
-    char const* desks = getenv("HOST_MOVIE_DESKS");
+    char const* desks    = getenv("HOST_MOVIE_DESKS");
+    char const* progress = getenv("HOST_MOVIE_PROGRESS");
     for (int a = 2; a < argc; a++) {
         int const           i  = demo_find(argv[a]);
         story_info_t const* si = n_info > 0 ? &info[a - 2] : NULL;
+        // How far into the story: the music builds with it, and may lift.
+        float at = argc > 3 ? (float)(a - 2) / (float)(argc - 3) : 0.0f;
+        if (progress != NULL && *progress) {
+            at = strtof(progress, (char**)&progress);
+            if (*progress == ',') progress++;
+        }
+        sound_music_progress(at);
+        sound_music_tune(getenv("HOST_MOVIE_MUSIC"));
         // The desk before it, if any: its pictures, and its sound.
         int const desk = desks != NULL && *desks ? (int)strtol(desks, (char**)&desks, 10) : 0;
         if (desks != NULL && *desks == ',') desks++;

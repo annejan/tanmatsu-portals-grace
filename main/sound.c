@@ -532,9 +532,13 @@ static tune_t const s_tunes[] = {
 // music from the same tune). "" or an unknown name: the game's own.
 typedef struct {
     tune_t const* tune;
-    int           bpm;   // 0: the tune's
-    int           key;   // a MIDI tonic, or -1: the tune's
-    uint32_t      seed;  // the tune's, unless seed= says
+    int           bpm;    // 0: the tune's
+    int           key;    // a MIDI tonic, or -1: the tune's
+    uint32_t      seed;   // the tune's, unless seed= says
+    float         build;  // how far the layers build over a story, 0..1 (build=, a percent)
+    int           lift;   // semitones up for a story's last act (lift=)
+    int           push;   // BPM faster each act (push=)
+    int           act;    // the act in effect: 0, 1 or 2, by the story's thirds
 } spec_t;
 
 static bool word_is(char const* w, size_t n, char const* name) {
@@ -546,6 +550,10 @@ static void spec_parse(char const* text, spec_t* s) {
     s->bpm     = 0;
     s->key     = -1;
     s->seed    = s_tunes[0].seed;
+    s->build   = 0.7f;
+    s->lift    = 0;
+    s->push    = 0;
+    s->act     = 0;
     bool named = false;
     for (char const* p = text != NULL ? text : ""; *p;) {
         while (*p == ' ' || *p == '\t' || *p == ',') p++;
@@ -562,6 +570,15 @@ static void spec_parse(char const* text, spec_t* s) {
         } else if (eq != NULL && word_is(w, (size_t)(eq - w), "bpm")) {
             int const bpm = atoi(eq + 1);
             if (bpm >= 40 && bpm <= 180) s->bpm = bpm;
+        } else if (eq != NULL && word_is(w, (size_t)(eq - w), "build")) {
+            int const b = atoi(eq + 1);
+            s->build    = (float)(b < 0 ? 0 : b > 100 ? 100 : b) / 100.0f;
+        } else if (eq != NULL && word_is(w, (size_t)(eq - w), "lift")) {
+            int const l = atoi(eq + 1);
+            s->lift     = l < 0 ? 0 : l > 7 ? 7 : l;
+        } else if (eq != NULL && word_is(w, (size_t)(eq - w), "push")) {
+            int const b = atoi(eq + 1);
+            s->push     = b < 0 ? 0 : b > 20 ? 20 : b;
         } else if (eq != NULL && word_is(w, (size_t)(eq - w), "seed")) {
             s->seed = (uint32_t)strtoul(eq + 1, NULL, 0);
         } else if (eq != NULL && word_is(w, (size_t)(eq - w), "key")) {
@@ -579,8 +596,17 @@ static void spec_parse(char const* text, spec_t* s) {
     }
 }
 
+// What the act does to the tune: semitones up, BPM faster.
+static int spec_up(spec_t const* s) {
+    return s->act == 2 ? s->lift : 0;
+}
+static int spec_bpm_up(spec_t const* s) {
+    return s->act * s->push;
+}
+
 static bool spec_same(spec_t const* a, spec_t const* b) {
-    return a->tune == b->tune && a->bpm == b->bpm && a->key == b->key && a->seed == b->seed;
+    return a->tune == b->tune && a->bpm == b->bpm && a->key == b->key && a->seed == b->seed &&
+           spec_up(a) == spec_up(b) && spec_bpm_up(a) == spec_bpm_up(b);
 }
 
 // --- A band: one tune, playing ---------------------------------------------
@@ -602,6 +628,7 @@ typedef struct {
     music_source_t*   src;
     se_music_config_t cfg;
     int8_t            key;
+    int8_t            tonics[16];  // the tune's own tonics, lifted (spec_t.up)
     float             level[L_N];
     layer_t           layer[L_N];
 } band_t;
@@ -639,10 +666,17 @@ static band_t* band_new(spec_t const* s) {
         b->cfg.bpm_min  = (uint16_t)s->bpm;
         b->cfg.bpm_span = 1;
     }
+    // A story's act: the range moved whole, so the seed picks the same tempo, faster.
+    b->cfg.bpm_min = (uint16_t)(b->cfg.bpm_min + spec_bpm_up(s));
+    int const up   = spec_up(s);
     if (s->key >= 0) {
-        b->key             = (int8_t)s->key;
+        b->key             = (int8_t)(s->key + up);
         b->cfg.tonics      = &b->key;
         b->cfg.tonic_count = 1;
+    } else if (up != 0 && b->cfg.tonic_count <= (int)sizeof(b->tonics)) {
+        // The pool lifted whole: the seed picks the same one, `up` higher.
+        for (int i = 0; i < b->cfg.tonic_count; i++) b->tonics[i] = (int8_t)(b->cfg.tonics[i] + up);
+        b->cfg.tonics = b->tonics;
     }
     if (t->cfg != NULL) {
         se_voice_spec_t const* const spec[L_N] = {&b->cfg.bass, &b->cfg.arp, &b->cfg.kick, &b->cfg.snare, &b->cfg.hat};
@@ -686,6 +720,9 @@ static band_t* band_new(spec_t const* s) {
 #define E_SET     0        // a mood's energy: its own
 #define E_PLAY    1        // ... the tune's `play`
 #define E_OUTRO   2        // ... the tune's `outro`
+#define BUILD_TOP 0.9f     // a story's end, fully built: just under a turret's tension
+#define ACT_2     (1.0f / 3.0f)  // a story's second act: push= once
+#define ACT_3     (2.0f / 3.0f)  // ... its last: push= twice, and lift=
 
 typedef struct {
     uint8_t from;  // the energy: its own (E_SET), the tune's `play` or `outro`
@@ -709,6 +746,7 @@ static mood_t const s_moods[] = {
 static volatile int      s_mood = SOUND_MOOD_DESK;
 static volatile bool     s_ducked;
 static volatile unsigned s_alerts, s_dips;
+static volatile float    s_progress;  // how far into its story (sound_music_progress)
 
 typedef struct {
     music_source_t base;          // first
@@ -718,6 +756,7 @@ typedef struct {
     uint32_t       fade, fade_n;  // samples into the fade, of fade_n
     // The mood as it stands, eased towards what the game asks:
     float          energy, cut, gain, dip;
+    float          build;         // the tune's build= (spec_t), 0..1
     float          y1, y2;        // the low-pass: two one-pole stages, 12 dB an octave
     uint32_t       alert;         // samples of tension left
     unsigned       alerts, dips;  // the requests seen
@@ -747,6 +786,10 @@ static void mix_chunk(mix_t* m, int16_t* out, size_t n) {
     mood_t const        md    = s_moods[mood >= 0 && mood < COUNT(s_moods) ? mood : 0];
     // What the game asks.
     float               e_to  = md.from == E_PLAY ? t->play : md.from == E_OUTRO ? t->outro : md.energy;
+    // A story builds: at the desk, between chambers, in play and riding up,
+    // so much nearer BUILD_TOP as it is far in, by the pack's build=.
+    if (mood == SOUND_MOOD_DESK || mood == SOUND_MOOD_PLAY || mood == SOUND_MOOD_RIDE)
+        e_to += (BUILD_TOP - e_to) * (e_to < BUILD_TOP ? m->build * s_progress : 0.0f);
     float               cut   = moody ? md.cut : OPEN_HZ;
     float               gain  = moody ? md.gain * (s_ducked ? DUCK : 1.0f) : 1.0f;
     if (s_alerts != m->alerts) {
@@ -838,6 +881,7 @@ static void music_start(bool fade) {
     m->base.render    = mix_render;
     m->base.shutdown  = mix_shutdown;
     m->cur            = b;
+    m->build          = s_spec.build;
     mix_t* const prev = s_mix;
     if (prev != NULL) {
         // The mood goes on where it stood (read as the mixer left it).
@@ -896,13 +940,23 @@ void sound_restart_music(void) {
     s_fresh = true;
 }
 
+void sound_music_progress(float progress) {
+    s_progress = progress < 0.0f ? 0.0f : progress > 1.0f ? 1.0f : progress;
+}
+
 void sound_music_tune(char const* spec) {
     if (spec == NULL) spec = "";
-    if (strcmp(spec, s_spec_text) == 0) return;
+    // The story's act, by its thirds: a tune with push= or lift= changes with it.
+    int const act = s_progress >= ACT_3 ? 2 : s_progress >= ACT_2 ? 1 : 0;
+    if (strcmp(spec, s_spec_text) == 0 && act == s_spec.act) return;
     snprintf(s_spec_text, sizeof(s_spec_text), "%s", spec);
     spec_t s;
     spec_parse(spec, &s);
-    if (spec_same(&s, &s_spec)) return;
+    s.act = act;
+    if (spec_same(&s, &s_spec)) {
+        s_spec.act = act;  // nothing it changes: no new mix
+        return;
+    }
     s_spec = s;
     // Faded in over the last, if that was being heard and not just begun.
     music_start(s_gate && !s_fresh);

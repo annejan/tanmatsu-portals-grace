@@ -272,6 +272,13 @@ def main():
                    check=True, stdout=subprocess.DEVNULL)
     with open(os.path.join(day, "rounds.tsv")) as f:
         played = [line.rstrip("\n").split("\t") for line in f]
+    # How far into the story each is, as main.c tells the music: the round's
+    # file among the pack's rounds; the outro the end (HOST_MOVIE_PROGRESS).
+    last = max(1, len(rounds) - 1)
+    at = [rounds.index(row[1]) / last if row[1] in rounds else 0.0 for row in played]
+    if info.get("outro"):
+        at.append(1.0)
+    os.environ["HOST_MOVIE_PROGRESS"] = ",".join("%.4f" % x for x in at)
     if a.badge:
         badge_film(a, folder, info, day, work, chambers, pics, played)
         return
