@@ -1,0 +1,16 @@
+// One: the funnel runs along the foot of the south wall into the white
+// low in the east wall. Let it come out over the pillar: it picks the
+// parcel up and takes it across the room, through the slot, to the back
+// of the chute.
+shoot blue 16.0 1.5 1.5
+shoot orange 4.5 6.0 1.0
+wait 8
+// Two: send it out of the other panel instead. The parcel drops down the
+// chute onto the button, and the door opens.
+shoot orange 11.5 6.0 1.0
+// Three: you go by freight: in at the east wall, out of the south one,
+// over the room and through the door.
+walk_to 11.5 2.8
+walk_to 14.0 1.5
+wait 11.5
+walk_to 14.0 22.0

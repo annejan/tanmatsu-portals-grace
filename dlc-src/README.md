@@ -15,3 +15,6 @@ you find, her patch.
 | `shop-floor/` | catch the resting cube by hand | `fixed.txt` (in `dlc/after-hours/`) |
 | `spire/` | the exit room's open north side (not proven) | `fixed.txt` (in `dlc/after-hours/`) |
 | `light-work/` | none proven | `chamber.txt` |
+| `courier/` | handle the parcel: catch the cut-loose cube off the floor (`cheese-handled.txt`) | `fixed.txt` (in `dlc/after-hours/`) |
+| `lights-out/` | none proven (each room sees only its own panels; a pellet bounced home dies short) | `fixed.txt` (in `dlc/after-hours/`) |
+| `night-shift/` | skip the duct: shoot the far panel up the open duct, walk into the wall portal (`cheese-duct-skip.txt`) | `fixed.txt` (in `dlc/after-hours/`) |
