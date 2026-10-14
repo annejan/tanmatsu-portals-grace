@@ -84,6 +84,9 @@
 #define TAS_HOLD   1.2f    // a TAS cuts that short: the timer has stopped
 #define OPEN_S     4.0f    // the opening and closing titles
 #define CLOSE_S    4.5f
+#define REC_HOLD_S 1.2f   // watch.c's: "Chamber complete" with no lift to take it, or ...
+#define REC_LOST_S 2.4f   // ... "Lost its way" (a death, the frames out short of the exit), then the next
+#define REC_GIVE_S 60.0f  // ... and a script this long has lost its way (host_runcheck's GIVE_UP_S)
 #define MAX_TICKS  (200 * 50)
 
 static float s_tick = 1.0f / 50.0f;
@@ -263,6 +266,8 @@ static int         s_rec_chamber[RECORDING_MAX];
 static bool        s_recorded;
 static hud_timer_t s_timer;
 static float       s_timer_done;  // the runs before this one, to their exits
+static float       s_frame_exit = -1.0f;  // a recorded run's: the clock of the frame that reached the exit, or -1
+static float       s_frame_end = 1e30f;   // ... and of its last frame stepped (not one: 1e30)
 
 // HOST_MOVIE_GHOST: the ghost's recording, and its run in this chamber.
 static recording_t s_gh_rec;
@@ -304,15 +309,17 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     int const k = r->step++;
     // On the exit the game says so, and after MESSAGE_S moves on; here the
     // player stands on it, and it would say so every step.
+    // A recorded run's exit is its frame's own clock (run_frames), as
+    // host_runcheck and watch.c time it, not the step that films it.
     if (ev & PL_EV_EXIT) {
         if (r->exit_t < 0.0f)
-            r->exit_t = now;
+            r->exit_t = s_frame_exit >= 0.0f ? s_frame_exit : now;
         else
             ev &= ~PL_EV_EXIT;
     }
     // With lifts, filming stops on the exit: the ride takes it from there;
     // a round's, the verdict (film_verdict).
-    if ((r->lifts || r->round) && r->exit_t >= 0.0f && now > r->exit_t) return;
+    if ((r->lifts || r->round) && r->exit_t >= 0.0f && !(ev & PL_EV_EXIT)) return;
     // Moving on, but not over GLaDOS: a chamber solved in seconds would cut
     // her line off with the next one's. A TAS moves on, as the game does.
     if (r->exit_t >= 0.0f && now > r->exit_t + (r->tas ? TAS_HOLD : MESSAGE_S) &&
@@ -340,7 +347,8 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     sound_music_mood(r->exit_t >= 0.0f ? SOUND_MOOD_DESK : SOUND_MOOD_PLAY);
     float const film = r->t0 + now;
     sound_to(r, film);
-    s_timer.run   = r->exit_t >= 0.0f ? r->exit_t : now;  // stopped at the exit, as watch.c's
+    // Stopped at the exit, as watch.c's; a recorded run's, its frames' clock.
+    s_timer.run   = r->exit_t >= 0.0f ? r->exit_t : fminf(now, s_frame_end);
     s_timer.total = s_timer_done + s_timer.run;
     if (r->badge) {
         // main.c's play frame: the HUD's clocks, and at the exit its word.
@@ -392,7 +400,7 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     if (shown > len) shown = len;
     if (len == 0 || (now > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) shown = -1;
     char const* msg = r->exit_t >= 0.0f ? r->done : now < MESSAGE_S ? g->lv.name : "";
-    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\t%.2f\t%.2f\n", r->pic, shown,
+    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\t%.3f\t%.3f\n", r->pic, shown,
             r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "", msg, (double)now, (double)r->exit_t);
     r->pic++;
     r->frame++;
@@ -451,7 +459,7 @@ static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float tim
             char name[32];
             snprintf(name, sizeof(name), "movie_%05d", r->pic);
             save(name);
-            fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.2f\t%.2f\n", r->pic, msg, (double)time, (double)exit_t);
+            fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, msg, (double)time, (double)exit_t);
             r->pic++;
             r->frame++;
         }
@@ -502,7 +510,49 @@ static void film_verdict(rec_t* r) {
         char name[32];
         snprintf(name, sizeof(name), "movie_%05d", r->pic);
         save(name);
-        fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.2f\t%.2f\n", r->pic, r->headline, (double)(r->exit_t + t),
+        fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, r->headline, (double)(r->exit_t + t),
+                (double)r->exit_t);
+        r->pic++;
+        r->frame++;
+    }
+    r->t0 += t;
+}
+
+// Watch a recording's hold (watch.c's s_hold): the game stopped where it
+// stood in `g`, the HUD's message `msg` put up (NULL: the one up stays),
+// the timer stopped at the run's `time`, for `seconds`; the goo and the
+// fizzlers going on by the badge's own clock. Then the next run, straight
+// into its chamber.
+static void film_hold(rec_t* r, game_t const* g, char const* msg, float time, float seconds) {
+    static game_t shot;
+    shot = *g;
+    snprintf(shot.lv.story, sizeof(shot.lv.story), "%s", r->story);
+    if (msg != NULL) hud_message(msg);
+    s_timer.run   = time;  // watch_timer between runs: the run's, and the total to the exits
+    s_timer.total = s_timer_done;
+    float t = 0.0f;
+    while (t < seconds - 1e-4f) {
+        hud_tick(TICK);  // watch_update's, before it holds
+        sound_update();
+        sound_music_mood(SOUND_MOOD_PLAY);  // main.c's music_mood: play, all through Watch
+        t += TICK;
+        float const film = r->t0 + t;
+        sound_to(r, film);
+        if (film + 1e-4f < (float)r->frame / FPS) continue;
+        for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
+        if (r->lifts) {
+            lift_view_t v;
+            lift_view(NULL, &s_sites, &s_depart, &v);
+            render_set_lift(&v);
+        }
+        render_set_level(&shot.lv, shot.portals);
+        render_set_time(r->last + t);
+        render_frame(NULL, &shot);
+        if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
+        char name[32];
+        snprintf(name, sizeof(name), "movie_%05d", r->pic);
+        save(name);
+        fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, msg != NULL ? msg : r->done, (double)time,
                 (double)r->exit_t);
         r->pic++;
         r->frame++;
@@ -553,7 +603,7 @@ static void film_outro(rec_t* r, int chamber, desk_data_t const* d, char const* 
         char name[32];
         snprintf(name, sizeof(name), "movie_%05d", r->pic);
         save(name);
-        fprintf(r->txt, "P\t%d\t-1\t\t\t%.2f\t-1\n", r->pic, (double)t);
+        fprintf(r->txt, "P\t%d\t-1\t\t\t%.3f\t-1\n", r->pic, (double)t);
         r->pic++;
         r->frame++;
     }
@@ -642,7 +692,10 @@ static char* slurp(char const* path) {
 // A recorded run, filmed: its frames stepped as recorded, `fn` called on
 // the film's own steps of `dt` with the game as it stood -- a frame's events
 // on the step after it. Its clock is the frames' (each at most 0.1 s, as
-// watch.c counts them); it stops at `cap`, or once the frames run out.
+// watch.c counts them); it stops, as host_runcheck and watch.c do, on the
+// frame that reaches the exit (s_frame_exit its clock) or dies, at `cap`,
+// or once the frames run out (s_frame_end its clock) -- a last step for
+// that frame, if it fell between two.
 static void run_frames(int k, float cap, float dt, demo_state_t* s, demo_tick_fn fn, void* ctx) {
     memset(s, 0, sizeof(*s));
     game_t* const                g   = &s->g;
@@ -650,24 +703,25 @@ static void run_frames(int k, float cap, float dt, demo_state_t* s, demo_tick_fn
     game_load(g, s_rec_chamber[k]);
     float clock = 0.0f, next = dt;
     int   ev    = 0;
+    s_frame_exit = -1.0f;
     for (int i = 0; i < run->frames && clock < cap; i++) {
         recording_frame_t const* const f  = &s_rec.frame[run->frame0 + i];
         float const                    fd = (float)f->dt_us * 1e-6f;
         game_input_t                   in;
         recording_frame_input(f, &in);
-        ev        |= game_step(g, &in, fd);
-        s->events |= ev;
-        clock     += fminf(fd, 0.1f);
+        int const fev  = game_step(g, &in, fd);
+        ev            |= fev;
+        s->events     |= fev;
+        clock         += fminf(fd, 0.1f);
+        if (fev & PL_EV_EXIT) s_frame_exit = clock;
+        s_frame_end = clock;
         for (; next <= clock + 1e-6f; next += dt) {
             if (fn != NULL) fn(g, ev, next, ctx);
             ev = 0;
         }
+        if (fev & (PL_EV_EXIT | PL_EV_DIED)) break;
     }
-    // A last step for the exit's frame, and a little after, as the game stands.
-    for (float end = next + 2.0f; next < end && next < cap; next += dt) {
-        if (fn != NULL) fn(g, ev, next, ctx);
-        ev = 0;
-    }
+    if (next - dt < clock - 1e-6f && fn != NULL) fn(g, ev, next, ctx);
 }
 
 // A run: demo `i`'s script, or, filming a recording, its run `k`.
@@ -680,15 +734,21 @@ static void run_item(int i, int k, float cap, float dt, demo_state_t* s, demo_ti
         run_frames(k, cap, dt, s, fn, ctx);
         return;
     }
+    // A script, as watch.c plays it and host_runcheck times it: short of
+    // the exit, it stops where the player dies, or once it has gone on
+    // REC_GIVE_S (after the exit it goes on, unfilmed: the camera's plan).
     memset(s, 0, sizeof(*s));
     game_t* const g = &s->g;
     game_load(g, s_rec_chamber[k]);
     static demo_player_t p;
     demo_player_start(&p, s_rec.runs[k].steps);
+    s_frame_exit = -1.0f;
+    s_frame_end  = 1e30f;
     for (float now = 0.0f; now + dt * 0.5f < cap; now += dt) {
         int const ev  = demo_player_step(&p, g, dt, pace);
         s->events    |= ev;
         if (fn != NULL) fn(g, ev, now + dt, ctx);
+        if (!(s->events & PL_EV_EXIT) && ((ev & PL_EV_DIED) || now + dt >= REC_GIVE_S)) break;
     }
 }
 
@@ -801,6 +861,7 @@ int main(int argc, char** argv) {
     char const* desks    = getenv("HOST_MOVIE_DESKS");
     char const* progress = getenv("HOST_MOVIE_PROGRESS");
     if (s_recorded && r.badge) movie_hud_timer(&s_timer);
+    bool by_lift = false;  // the last run left by lift
     for (int j = 0; j < n_items; j++) {
         int const           a  = j + 2;
         int const           i  = s_recorded ? -1 : demo_find(argv[a]);
@@ -880,9 +941,11 @@ int main(int argc, char** argv) {
             hud_story_start();
             hud_message(g.lv.name);
         }
-        if (r.lifts && (j > 0 || r.badge)) {
+        if (r.lifts && (j > 0 || r.badge) && !(s_recorded && j > 0 && !by_lift)) {
             // Down into it, from the last one's lift -- on the badge the
             // first too, as Continue arrives (main.c's arrive_by_lift).
+            // Watch a recording after a run that did not leave by lift
+            // (watch.c's hold, then next_run): straight into it.
             static game_t ride;
             static lift_t l;
             ride = g;
@@ -915,8 +978,11 @@ int main(int argc, char** argv) {
         if (!r.badge) sound_say(story[0] ? story : NULL);
         run_item(i, j, cap, TICK, &st, film_tick, &r, pace);
         r.t0 += r.last;
-        s_timer_done += r.exit_t >= 0.0f ? r.exit_t : r.last;
+        // The total: the runs to their exits, as watch.c's s_total -- a run
+        // that lost its way adds nothing.
+        if (r.exit_t >= 0.0f) s_timer_done += r.exit_t;
         if (r.round && s_exit_have) film_verdict(&r);
+        by_lift = false;
         if (r.lifts && s_exit_have) {
             // Up and out of it: in, the doors shut, into the shaft.
             static lift_t l;
@@ -924,7 +990,22 @@ int main(int argc, char** argv) {
             if (lift_exit_for(&s_exit.lv, &s_sites, s_exit.pl.pos, &site)) {
                 lift_enter(&l, &s_exit, &site, false);
                 film_ride(&r, &s_exit, &l, r.done, r.exit_t, r.exit_t, j + 1 >= n_items);
+                by_lift = true;
+            } else if (s_recorded) {
+                film_hold(&r, &s_exit, NULL, r.exit_t, REC_HOLD_S);  // watch.c: no lift, "Chamber complete" held
             }
+        } else if (s_recorded && r.exit_t < 0.0f) {
+            // watch.c: a death, the frames out short of the exit, a script
+            // gone on too long -- the run stopped there, "Lost its way" held
+            // over it, the timer stopped where the run did.
+            static game_t lost;
+            lost        = st.g;
+            int const k = r.step - 1;  // as the camera saw it last
+            if (k >= 0 && k < s_n) {
+                lost.pl.yaw   = s_cam[k][0];
+                lost.pl.pitch = s_cam[k][1];
+            }
+            film_hold(&r, &lost, "Lost its way", fminf(r.last, s_frame_end), REC_LOST_S);
         }
     }
     if (!r.badge) titles(&r, "E", CLOSE_S);

@@ -136,6 +136,11 @@ def main():
                     help="the film's size: 2 (the default) 1600 x 960, each badge pixel doubled; 1 the badge's 800 x 480")
     ap.add_argument("--mp4", help="the film, with sound")
     ap.add_argument("--gif", help="a GIF of it, without sound")
+    ap.add_argument("--chapters", help="a JSON file of where each run (S line) starts and ends in the film, "
+                    "in seconds, in the recording's order")
+    ap.add_argument("--crf", type=int, default=20, help="x264 quality of the film (lower: better, bigger)")
+    ap.add_argument("--preset", default="medium", help="x264 preset of the film")
+    ap.add_argument("--tune", help="x264 tune of the film (animation suits the badge's flat pixels)")
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
     ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
@@ -200,7 +205,9 @@ def main():
     env["HOST_MOVIE_MUSIC"] = a.music or ""
     if a.recording:
         env["HOST_MOVIE_RECORDING"] = os.path.abspath(a.recording)
-        env["HOST_MOVIE_TICK"] = "0.033333"  # a script's steps as host_runcheck and `make tas` take them
+        # A script's steps as host_runcheck takes them: 1/30 s, to the float
+        # (`make tas`'s 0.033333 drifts from it by a millisecond a minute).
+        env["HOST_MOVIE_TICK"] = "%.17g" % (1 / 30)
     if a.ghost:
         env["HOST_MOVIE_GHOST"] = os.path.abspath(a.ghost)
     if a.packs:
@@ -226,18 +233,19 @@ def main():
     f_small = font(["DejaVuSans.ttf", "/usr/share/fonts/truetype/DejaVuSans.ttf"], 14 * SCALE)
 
     # The film's frames, each with what the HUD shows on it.
-    frames, chamber, before, done = [], {}, 0.0, 0.0
+    frames, chamber, before, done, ci = [], {}, 0.0, 0.0, -1
     for line in lines:
         if line[0] == "S":
             before += done  # the runs so far, to their exits
             done = 0.0
-            chamber = {"name": line[1], "hint": line[2], "story": line[3] if len(line) > 3 else ""}
+            ci += 1
+            chamber = {"name": line[1], "hint": line[2], "story": line[3] if len(line) > 3 else "", "ci": ci}
         elif line[0] == "P":
             now, exit_t = float(line[5]), float(line[6])
             run = exit_t if exit_t >= 0 else now
-            done = run
+            done = exit_t if exit_t >= 0 else 0.0  # the total counts a run to its exit, as watch.c's
             frames.append({"kind": "P", "pic": int(line[1]), "typed": int(line[2]), "turret": line[3],
-                           "message": line[4], "run": run, "total": before + run, **chamber})
+                           "message": line[4], "run": run, "exit": exit_t, "total": before + run, **chamber})
         else:
             frames.append({"kind": line[0]})
     total = before + done
@@ -389,11 +397,25 @@ def main():
                 (w, h), Image.NEAREST if a.badge else Image.LANCZOS)
         return pic_cache[f["png"]]
 
+    # Where each run is in the film, for a page to jump to: its first and last
+    # frame, and from its last whether it reached the exit, and when (the
+    # exit frame's own clock, as host_runcheck's split); no exit, no time.
+    if a.chapters:
+        at = {}  # run -> [first frame, after its last, its exit time or -1]
+        for i, f in enumerate(frames):
+            if f["kind"] == "P" and "ci" in f:
+                at.setdefault(f["ci"], [i, i, -1.0])[1:] = [i + 1, f["exit"]]
+        with open(a.chapters, "w") as fo:
+            json.dump({"chapters": [{"name": n, "start": round(at[c][0] / FPS, 3), "end": round(at[c][1] / FPS, 3),
+                                     "time": round(at[c][2], 3) if at[c][2] >= 0 else None, "exit": at[c][2] >= 0}
+                                    for c, n in enumerate(names) if c in at]}, fo)
+
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
                            "%dx%d" % (w, h), "-framerate", str(FPS), "-i", "-", "-i",
-                           wav, "-c:v", "libx264", "-preset", "medium", "-crf", "20",
-                           "-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-shortest",
+                           wav, "-c:v", "libx264", "-preset", a.preset, "-crf", str(a.crf)] +
+                          (["-tune", a.tune] if a.tune else []) +
+                          ["-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-shortest",
                            "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
     for kind, run in runs(frames):
