@@ -120,7 +120,11 @@ then shows each chamber's time and the total; they are written to
 was played, at whatever frame rate the badge manages; a run recorded on
 another version of the game may go otherwise, and the badge says so.
 Scripted runs, such as the tool-assisted one (`make tas`), are recordings
-too: see `main/recording.h` for both forms.
+too: see `main/recording.h` for both forms. A scripted one is played as a
+player's inputs, and when every chamber reaches its exit the run is kept
+as this badge played it, frame by frame, next to it as `<recording>-badge`:
+the run on the hardware, to put on the [speedrun board](https://scene.rs/runs/)
+straight from the badge.
 
 ## The chamber editor
 

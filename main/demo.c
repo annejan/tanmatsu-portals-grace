@@ -97,6 +97,113 @@ static int shot_events(bool ok, int which) {
     return ok ? GAME_EV_PORTAL | (which == 0 ? GAME_EV_SHOT_BLUE : GAME_EV_SHOT_ORANGE) : GAME_EV_SHOT_FAIL;
 }
 
+#define ACT_S 1e-6f  // an act's frame (demo_player_play)
+
+// Where the player must look to face `target`.
+static void aim_at(player_t const* p, vec3_t target, float* yaw, float* pitch) {
+    vec3_t const d = v3_sub(target, player_eye(p));
+    *yaw           = atan2f(d.x, d.z);
+    *pitch         = -atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+}
+
+int demo_player_play(demo_player_t* p, game_t* g, float dt, demo_play_fn play, void* ctx) {
+    int   ev  = 0;
+    float yaw = g->pl.yaw, pitch = g->pl.pitch;  // where the script would have the player look
+    // An act: a frame of its own, turned from where the player looks to
+    // where the script has them look, and the act. A microsecond long, the
+    // least a recording holds: game_step() does nothing in a frame of no
+    // time, nor would a replay.
+    #define ACT(field_set)                                         \
+        do {                                                       \
+            game_input_t in = {.dyaw = yaw - g->pl.yaw, .dpitch = pitch - g->pl.pitch}; \
+            field_set;                                             \
+            ev |= play(g, &in, ACT_S, ctx);                        \
+            yaw = g->pl.yaw, pitch = g->pl.pitch;                  \
+        } while (0)
+    for (;;) {  // the instant steps, as demo_player_step() takes them (no pace here)
+        step_t const* st = &p->steps[p->k];
+        if (st->op == OP_FACE) {
+            yaw   = st->a;
+            pitch = st->b;
+        } else if (st->op == OP_FACE_POINT) {
+            aim_at(&g->pl, v3(st->a, st->b, st->c), &yaw, &pitch);
+        } else if (st->op == OP_SHOOT) {
+            aim_at(&g->pl, v3(st->a, st->b, st->c), &yaw, &pitch);
+            ACT(in.fire[st->which] = true);
+        } else if (st->op == OP_SHOOT_VIEW) {
+            ACT(in.fire[st->which] = true);
+        } else if (st->op == OP_USE) {
+            ACT(in.use = true);
+        } else if (st->op == OP_JUMP) {
+            p->jump = true;
+        } else if (st->op == OP_GRAB) {
+            int   near = -1;  // the nearest cube not already carried, as demo_player_step()
+            float best = 1e9f;
+            for (int c = 0; c < g->n_cubes; c++) {
+                if (c == g->held) continue;
+                float const d = v3_len(v3_sub(body_center(&g->cubes[c].body), player_eye(&g->pl)));
+                if (d < best) {
+                    best = d;
+                    near = c;
+                }
+            }
+            if (near >= 0) {
+                aim_at(&g->pl, body_center(&g->cubes[near].body), &yaw, &pitch);
+                ACT(in.use = true);
+            }
+        } else {
+            break;
+        }
+        p->k++;
+        p->in_step = 0.0f;
+    }
+    #undef ACT
+    step_t const* st   = &p->steps[p->k];
+    game_input_t  in   = {0};
+    bool          done = false;
+    switch (st->op) {
+        case OP_WALK:
+            in.fwd = 1.0f;
+            done   = p->in_step >= st->a;
+            break;
+        case OP_WALK_TO: {
+            float const dx = st->a - g->pl.pos.x, dz = st->c - g->pl.pos.z;
+            float const dist = sqrtf(dx * dx + dz * dz);
+            yaw              = atan2f(dx, dz);
+            in.fwd           = fminf(st->b, dist * 2.0f);
+            done             = (dist < 0.2f && g->pl.on_ground) || p->in_step > 6.0f;
+            break;
+        }
+        case OP_STEP_OFF:
+            if (p->in_step == 0.0f) p->walked = false;
+            if (g->pl.on_ground) {
+                in.fwd    = st->a;
+                p->walked = true;
+            } else if (p->walked) {
+                done = true;
+            }
+            break;
+        case OP_WAIT:
+            done = p->in_step >= st->a;
+            break;
+        default:
+            break;
+    }
+    in.dyaw   = yaw - g->pl.yaw;
+    in.dpitch = pitch - g->pl.pitch;
+    in.jump   = p->jump;
+    p->jump   = false;
+    int const step_ev = play(g, &in, dt, ctx);
+    ev |= step_ev;
+    if (st->op == OP_WALK_TO && (step_ev & PL_EV_TELEPORT)) done = true;
+    p->in_step += dt;
+    if (done) {
+        p->k++;
+        p->in_step = 0.0f;
+    }
+    return ev;
+}
+
 void demo_player_start(demo_player_t* p, step_t const* steps) {
     *p       = (demo_player_t){0};
     p->steps = steps;

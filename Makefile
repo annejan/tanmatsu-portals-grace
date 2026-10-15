@@ -160,6 +160,14 @@ host_tas: chambers_c
 	mkdir -p $(BUILD)
 	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_tas.c $(HOST_SRCS) -lm -o $(BUILD)/host_tas
 
+# The TAS played as a player's inputs, as Watch records it on the badge
+# (demo_player_play), written as a recording: build/host_tasrec SEED OUT
+# tas-01-gap ... (PORTALS_CHAMBERS=build, after make tas); host_runcheck
+# must replay it the same way.
+host_tasrec: chambers_c
+	mkdir -p $(BUILD)
+	$(HOSTCC) -O2 -Wall -Wextra -Werror -Imain tests/host_tasrec.c $(HOST_SRCS) -lm -o $(BUILD)/host_tasrec
+
 # Play a chamber file's solution and cheese routes, judged as a story
 # round judges them (review.h).
 # A recording replayed as the badge plays it, its times worked out: the

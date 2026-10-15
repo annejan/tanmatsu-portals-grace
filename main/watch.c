@@ -63,6 +63,15 @@ static int           s_worst_upd[RECORDING_MAX], s_worst_rend[RECORDING_MAX], s_
     s_worst_tris[RECORDING_MAX];
 // Between runs, with Settings -> Lifts: up out of one, down into the next.
 static lift_t        s_lift;
+// A recording all of scripts (a TAS), watched: played as a player's inputs
+// (demo_player_play) and kept, frame by frame as this badge played it, and
+// written next to it as <id>-badge -- the run as this hardware ran it, to
+// put on the speedrun board. Only if every run reaches its exit.
+static recording_capture_t s_cap;
+static bool                s_capturing;
+static char                s_dir[64];
+static char                s_kept[CHAMBER_ID_N + 8];  // what it was kept as, for the times screen
+static void                capture_stop(void);
 
 bool watch_on(void) {
     return s_on;
@@ -93,14 +102,34 @@ static void begin(int k) {
         snprintf(msg, sizeof(msg), "No chamber %s", s_recording.runs[k].id);
         hud_message(msg);
         s_hold = REC_HOLD_S;
+        capture_stop();
         return;
     }
     if (!app_load_chamber(c)) {  // on the card, but it does not read: lost, said so
         s_hold = REC_HOLD_S;
+        capture_stop();
         return;
     }
     hud_message(app_game()->lv.name);
     demo_player_start(&s_player, s_recording.runs[k].steps);
+    if (s_capturing) recording_capture_chamber(&s_cap, s_recording.runs[k].id);
+}
+
+static void capture_stop(void) {
+    if (s_capturing) recording_capture_free(&s_cap);
+    s_capturing = false;
+}
+
+// One frame of a script played as inputs: rounded as a recording keeps it,
+// played so, kept, and timed.
+static int play_input(game_t* g, game_input_t const* in, float dt, void* ctx) {
+    (void)ctx;
+    recording_frame_t const f = recording_frame(dt, in);
+    game_input_t            q;
+    float const             fd = recording_frame_input(&f, &q);
+    if (s_capturing && !recording_capture_frame(&s_cap, &f)) capture_stop();  // out of memory: not kept
+    s_run += fminf(fd, 0.1f);
+    return game_step(g, &q, fd);
 }
 
 bool watch_start(char const* dir, char const* id, char const* pack, bool to_title, char const* back) {
@@ -117,6 +146,13 @@ bool watch_start(char const* dir, char const* id, char const* pack, bool to_titl
         snprintf(s_id, sizeof(s_id), "%s", id);
     snprintf(s_pack, sizeof(s_pack), "%s", pack);
     snprintf(s_back, sizeof(s_back), "%s", back);
+    snprintf(s_dir, sizeof(s_dir), "%s", dir);
+    // All scripts, and not a pack's replay: kept as this badge plays it.
+    capture_stop();
+    s_capturing = !pack[0] && s_recording.n > 0;
+    for (int i = 0; i < s_recording.n; i++)
+        if (s_recording.runs[i].frames > 0) s_capturing = false;
+    if (s_capturing) recording_capture_start(&s_cap);
     s_title = to_title;
     // From the start, as a new game: the music from its first bar, and the
     // first chamber's story told even if that chamber is the one in play.
@@ -191,13 +227,17 @@ static void summary(void) {
     }
     char total[24];
     snprintf(total, sizeof(total), "%d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
-    char         name[RECORDING_NAME_N + 40];
+    char         name[RECORDING_NAME_N + 80];
     size_t const release = strcspn(s_recording.version, " ");  // the release only: the build is in the file
     if (s_recording.version[0])
         snprintf(name, sizeof(name), "%s (version %.*s)", s_recording.name, (int)(release < 16 ? release : 16),
                  s_recording.version);
     else
         snprintf(name, sizeof(name), "%s", s_recording.name);
+    if (s_kept[0]) {  // and the run as this badge played it, kept
+        size_t const n = strlen(name);
+        snprintf(name + n, sizeof(name) - n, ", kept as %s", s_kept);
+    }
     menu_times(name, s_recording.n, ids, values, total);
 }
 
@@ -206,6 +246,7 @@ static void summary(void) {
 static void leave(void) {
     s_on         = false;
     s_lift.phase = LIFT_NONE;
+    capture_stop();
     if (s_title) {
         app_to_title();
     } else {
@@ -233,8 +274,20 @@ static void next_run(void) {
         begin(s_k + 1);
     } else {
         write_times(s_recording.n);
-        char done[48];
+        char done[HUD_MESSAGE_N];
         snprintf(done, sizeof(done), "Done: %d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
+        s_kept[0] = '\0';
+        if (s_capturing && s_cap.r.n == s_recording.n) {  // every run to its exit: kept
+            char path[160], name[RECORDING_NAME_N], kept[CHAMBER_ID_N + 8];
+            snprintf(kept, sizeof(kept), "%.40s-badge", s_id);
+            snprintf(path, sizeof(path), "%s/%s.txt", s_dir, kept);
+            snprintf(name, sizeof(name), "%.32s, on a badge", s_recording.name[0] ? s_recording.name : s_id);
+            if (recording_capture_write(&s_cap, path, name, APP_VERSION " " APP_GIT_HASH)) {
+                snprintf(s_kept, sizeof(s_kept), "%s", kept);
+                size_t const n = strlen(done);
+                snprintf(done + n, sizeof(done) - n, ", kept as %.24s", kept);
+            }
+        }
         leave();
         hud_message(done);
         summary();
@@ -312,12 +365,13 @@ void watch_update(float dt) {
     } else {
         // Scripted: stepped with each of this badge's frames. The game's
         // own clock: game_step() takes no step longer than 0.1 s.
-        ev     = demo_player_step(&s_player, g, dt, 0.0f);
-        s_run += fminf(dt, 0.1f);
+        // As a player's inputs, each timed as it is played (play_input).
+        ev = demo_player_play(&s_player, g, dt, play_input, NULL);
     }
     sound_events(ev);
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&g->lv, g->portals);
     if (ev & PL_EV_EXIT) {
+        if (s_capturing) recording_capture_done(&s_cap);
         s_times[s_k]  = s_run;
         s_total      += s_run;
         hud_message("Chamber complete");
@@ -331,6 +385,7 @@ void watch_update(float dt) {
         s_hold = REC_HOLD_S;
     } else if ((ev & PL_EV_DIED) || out || (run->frames == 0 && s_run > REC_GIVE_S)) {
         hud_message("Lost its way");  // the frames came otherwise than the run was made for
+        capture_stop();
         s_hold = REC_HOLD_S * 2.0f;
     }
     if (s_hold > 0.0f) write_times(s_k + 1);

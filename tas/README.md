@@ -17,7 +17,12 @@ other, with a timer. On the badge, `make tas-upload` puts them on the card
 as one recording, `/sd/portals/recordings/tas.txt` (`main/recording.h`),
 and Esc -> Watch a recording plays it back, timed by the game's own clock;
 the times go to `/sd/portals/tas-times.txt`, and `make tas-result` fetches
-them.
+them. Watch plays the routes as a player's inputs (`demo_player_play`) and
+keeps the run as the badge played it, `/sd/portals/recordings/tas-badge.txt`:
+upload that to [scene.rs/runs](https://scene.rs/runs/) as a TAS, and the
+board replays the badge's own frames to the badge's own times.
+`build/host_tasrec SEED OUT tas-01-gap ...` (`make host_tasrec`, with
+`PORTALS_CHAMBERS=build/tas` after `make tas`) does the same on the PC.
 
 The routes were found by trimming the solutions, by random search (a step
 dropped, nudged, a jump put in, kept only if the run still reaches the

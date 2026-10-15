@@ -58,3 +58,11 @@ void          demo_player_start(demo_player_t* p, step_t const* steps);
 int           demo_player_step(demo_player_t* p, game_t* g, float dt, float pace);
 // Whether the script has run out (the player stands still from then on).
 bool          demo_player_done(demo_player_t const* p);
+// demo_player_step() played as a player's inputs, as a recording holds them
+// (recording.h): each act -- a shot, a Use, a grab -- a frame of its own of
+// a microsecond, turned to it, and the step's motion a frame of `dt`. Each goes
+// to `play`, which steps the game with it (game_step()) and returns its
+// events; it may play the input as a recording would keep it (rounded),
+// and keep it. Returns the step's events.
+typedef int (*demo_play_fn)(game_t* g, game_input_t const* in, float dt, void* ctx);
+int           demo_player_play(demo_player_t* p, game_t* g, float dt, demo_play_fn play, void* ctx);
