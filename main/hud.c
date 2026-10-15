@@ -109,9 +109,24 @@ static void draw_message(pax_buf_t* fb) {
     rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 24, RENDER_HALF_W - sz.x * 0.5f, RENDER_HORIZON_Y - 70, s_msg);
 }
 
+// `text` from (x, y), cut short with "..." where it would pass `right`.
+static void draw_fitted(pax_buf_t* fb, uint32_t col, float size, float x, float y, char const* text, float right) {
+    if (x + rendertext_size(pax_font_sky_mono, size, text).x <= right) {
+        rendertext_draw(fb, col, pax_font_sky_mono, size, x, y, text);
+        return;
+    }
+    static char cut[160];  // off the render stack (8 KB on the badge)
+    size_t n = strlen(text) < sizeof(cut) - 4 ? strlen(text) : sizeof(cut) - 4;
+    for (; n > 0; n--) {
+        snprintf(cut, sizeof(cut), "%.*s...", (int)n, text);
+        if (x + rendertext_size(pax_font_sky_mono, size, cut).x <= right) break;
+    }
+    if (n > 0) rendertext_draw(fb, col, pax_font_sky_mono, size, x, y, cut);
+}
+
 // A recording's timer, where the keys' help goes: the run so far, and
-// this chamber's.
-static void draw_timer(pax_buf_t* fb, hud_timer_t const* t) {
+// this chamber's. Returns where its leftmost text begins.
+static float draw_timer(pax_buf_t* fb, hud_timer_t const* t) {
     char big[24], small[80];
     snprintf(big, sizeof(big), "%d:%05.2f", (int)(t->total / 60.0f), (double)fmodf(t->total, 60.0f));
     if (t->run >= 0.0f)
@@ -123,6 +138,7 @@ static void draw_timer(pax_buf_t* fb, hud_timer_t const* t) {
     rendertext_draw(fb, 0xFF78FF8Cu, pax_font_sky_mono, 24, DISPLAY_LOG_W - bs.x - 13, 6, big);
     pax_vec2f const ss = rendertext_size(pax_font_sky_mono, 12, small);
     rendertext_draw(fb, 0xFFC8C8C8u, pax_font_sky_mono, 12, DISPLAY_LOG_W - ss.x - 13, 34, small);
+    return fminf(DISPLAY_LOG_W - bs.x - 20, DISPLAY_LOG_W - ss.x - 13);
 }
 
 void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
@@ -139,15 +155,17 @@ void hud_draw(pax_buf_t* fb, game_t const* g, hud_info_t const* info) {
     }
     pax_simple_rect(fb, 0xFFFFFFFFu, cx - 1, cy - 1, 2, 2);
 
-    rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, g->lv.name);
-    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, g->lv.hint);
-
     if (info->timer != NULL) {
-        draw_timer(fb, info->timer);
+        // The chamber's name and hint left of the timer, never under it.
+        float const left = draw_timer(fb, info->timer) - 12.0f;
+        draw_fitted(fb, 0xFFFFFFFFu, 16, 8, 6, g->lv.name, left);
+        draw_fitted(fb, 0xFFA0A0A0u, 12, 8, 26, g->lv.hint, left);
         draw_subtitle(fb, draw_story(fb, g->lv.story));
         draw_message(fb);
         return;
     }
+    rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 16, 8, 6, g->lv.name);
+    rendertext_draw(fb, 0xFFA0A0A0u, pax_font_sky_mono, 12, 8, 26, g->lv.hint);
     // The keys as they are bound now, not as they shipped.
     char blue[16], orange[16], use[16], help[112];
     snprintf(help, sizeof(help), "%s blue   %s orange   %s use   Esc menu",

@@ -279,7 +279,17 @@ static void next_run(void) {
             char path[160], name[RECORDING_NAME_N], kept[CHAMBER_ID_N + 8];
             snprintf(kept, sizeof(kept), "%.40s-badge", s_id);
             snprintf(path, sizeof(path), "%s/%s.txt", s_dir, kept);
-            snprintf(name, sizeof(name), "%.32s, on a badge", s_recording.name[0] ? s_recording.name : s_id);
+            // Its own name and ", on a badge": shortened at a word, not mid-number, if it must be.
+            char         base[RECORDING_NAME_N];
+            size_t const room = sizeof(name) - sizeof(", on a badge");
+            snprintf(base, sizeof(base), "%s", s_recording.name[0] ? s_recording.name : s_id);
+            if (strlen(base) > room) {
+                base[room] = '\0';
+                char* cut  = strrchr(base, ' ');
+                if (cut != NULL && cut > base) *cut = '\0';
+                for (size_t n = strlen(base); n > 0 && (base[n - 1] == ',' || base[n - 1] == ' '); n--) base[n - 1] = '\0';
+            }
+            snprintf(name, sizeof(name), "%s, on a badge", base);
             if (recording_capture_write(&s_cap, path, name, APP_VERSION " " APP_GIT_HASH)) {
                 snprintf(s_kept, sizeof(s_kept), "%s", kept);
                 size_t const n = strlen(done);
