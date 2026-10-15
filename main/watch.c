@@ -227,18 +227,16 @@ static void summary(void) {
     }
     char total[24];
     snprintf(total, sizeof(total), "%d:%05.2f", (int)(s_total / 60.0f), (double)fmodf(s_total, 60.0f));
-    char         name[RECORDING_NAME_N + 80];
+    char         name[RECORDING_NAME_N + 40];
     size_t const release = strcspn(s_recording.version, " ");  // the release only: the build is in the file
     if (s_recording.version[0])
         snprintf(name, sizeof(name), "%s (version %.*s)", s_recording.name, (int)(release < 16 ? release : 16),
                  s_recording.version);
     else
         snprintf(name, sizeof(name), "%s", s_recording.name);
-    if (s_kept[0]) {  // and the run as this badge played it, kept
-        size_t const n = strlen(name);
-        snprintf(name + n, sizeof(name) - n, ", kept as %s", s_kept);
-    }
-    menu_times(name, s_recording.n, ids, values, total);
+    char note[64] = "";
+    if (s_kept[0]) snprintf(note, sizeof(note), "Kept as %.48s", s_kept);  // the run as this badge played it
+    menu_times(name, s_recording.n, ids, values, total, note);
 }
 
 // Out, stopped or done: to the title, or to the chamber play was in --

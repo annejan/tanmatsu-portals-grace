@@ -52,7 +52,8 @@ void       menu_close(void);
 void       menu_set_recording(bool on);
 // A recording's times, on a screen of their own over whatever is up:
 // each chamber `ids[k]` and its `values[k]`, then the total. Back closes it.
-void       menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total);
+void       menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total,
+                      char const* note);  // under them, or NULL
 bool       menu_active(void);
 // Every input event while the menu is open; also Esc, to open it.
 void       menu_event(bsp_input_event_t const* ev);

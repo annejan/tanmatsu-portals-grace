@@ -329,6 +329,7 @@ void menu_set_recording(bool on) {
 // A recording's times (menu_times): copied, as the strings may not last.
 #define TIMES_VALUE_N 32
 static char          s_t_name[RECORDING_NAME_N + 40];  // and its version
+static char          s_t_note[64];                      // a line under the times, or ""
 static char          s_t_label[RECORDING_MAX][32], s_t_value[RECORDING_MAX][TIMES_VALUE_N], s_t_total[24];
 static int           s_t_n;
 static screen_t      s_t_back;  // what was up under it, or SCR_NONE
@@ -525,6 +526,7 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             s_t_rows[s_t_n + 1] = (se_menu_row_t){.label = "Back"};
             def->title          = "TIMES";
             def->subtitle       = s_t_name;
+            def->hint           = s_t_note[0] ? s_t_note : NULL;
             def->rows           = s_t_rows;
             def->row_count      = s_t_n + 2;
             return s_t_n + 2;
@@ -835,7 +837,9 @@ void menu_draw(pax_buf_t* fb) {
     }
 }
 
-void menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total) {
+void menu_times(char const* name, int n, char const* const* ids, char const* const* values, char const* total,
+                char const* note) {
+    snprintf(s_t_note, sizeof(s_t_note), "%s", note != NULL ? note : "");
     snprintf(s_t_name, sizeof(s_t_name), "%s", name);
     s_t_n = n < RECORDING_MAX ? n : RECORDING_MAX;
     for (int i = 0; i < s_t_n; i++) {
