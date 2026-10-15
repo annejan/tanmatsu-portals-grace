@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Finding and checking the TAS routes in tas/: what the routes were made with.
 
-    tools/tas_search.py eval CID ROUTE [--seeds A B] [--fps LO HI] [--first S] [--hitch P S]
-    tools/tas_search.py search CID START OUT ITERS RNGSEED [--ban-cube] [--fps LO HI]
+    tools/tas_search.py eval CID ROUTE [--seeds A B] [--fps LO HI] [--rec | --badge FILES] [--first S] [--hitch P S]
+    tools/tas_search.py search CID START OUT ITERS RNGSEED [--ban-cube] [--fps LO HI] [--rec | --badge FILES]
     tools/tas_search.py robust [CID...] [--seeds N] [--first S] [--hitch P S]
 
 A route is a solution script (chambers/README.md), one step per line, for
@@ -20,6 +20,13 @@ search  random search from START: a step dropped, nudged or a jump put in,
         kept only if it scores better -- (failures, mean), failures first.
         --fps LO HI searches for one badge's band of frame rates (its fixed
         rates in the band only): a route for that badge, not the TAS.
+        --rec scores as Watch plays a route (build/host_tasrec: inputs
+        rounded, each shot its own frame) on uneven frames in --fps's band
+        (120 of them in a search): routes found without it can fail there.
+        --badge FILE[:FILE...] scores the badge's way instead (eval too):
+        played as Watch plays it (build/host_tasrec, make host_tasrec), on
+        the frames of runs kept on that badge -- the first one's in order,
+        and --seeds' count drawn at random from them all.
         800-1500 iterations take a few minutes. --ban-cube keeps the cube
         out of it.
 robust  every tas/ route (or those named) on N uneven runs (200 unless
@@ -46,7 +53,9 @@ TRAIN = list(range(1, 41))
 
 
 def chamber_map(cid):
-    with open(os.path.join(ROOT, "chambers", cid + ".txt")) as f:
+    """CID's map: chambers/CID.txt, or a story pack's chamber, "pack/file" (dlc/pack/file.txt)."""
+    path = os.path.join(ROOT, "dlc" if "/" in cid else "chambers", cid + ".txt")
+    with open(path) as f:
         t = f.read()
     return t[:t.find("\nsolution") + 1]
 
@@ -70,6 +79,55 @@ def evaluate(cid, steps, seeds=TRAIN, fps=(20, 35), extra=(), work=None):
     ok = [x for x in js if x is not None]
     return {"fixed": fixed, "fails": sum(v is None for v in fixed.values()) + sum(x is None for x in js),
             "jitter_fails": sum(x is None for x in js), "mean": round(sum(ok) / len(ok), 3) if ok else None,
+            "n": len(js)}
+
+
+RECTOOL = os.path.join(ROOT, "build", "host_tasrec")
+
+
+def run_badge(cid, steps, frames, seed, copies, work):
+    """The route played as the badge plays it (host_tasrec): on the frames of the runs kept on a badge
+    (FILE:FILE...), drawn at random from the chamber's own (seed not 0; copies plays, one after the
+    other) or in the first run's order (seed 0). Each play's time to the exit, or None."""
+    name = cid.replace("/", "-")
+    with open(os.path.join(work, "tas-%s.txt" % name), "w") as f:
+        f.write(chamber_map(cid) + "\nsolution\n" + "\n".join(steps) + "\n")
+    out = subprocess.run([RECTOOL, str(seed), os.devnull] + ["tas-" + name] * copies,
+                         env=dict(os.environ, PORTALS_CHAMBERS=work, **({"TASREC_FRAMES": frames} if frames else {})),
+                         capture_output=True, text=True).stdout
+    got = [l.split("\t")[1].strip() for l in out.splitlines() if "\t" in l]
+    return [None if v.startswith("FAIL") else float(v) for v in got] + [None] * (copies - len(got))
+
+
+def evaluate_rec(cid, steps, fps=(20, 35), seeds=TRAIN, work=None):
+    """eval, played as Watch plays it (host_tasrec: inputs rounded as a recording keeps them, each act
+    a frame of its own) on uneven frames in the band: what a route must survive on the badge."""
+    if work is None:
+        work = tempfile.mkdtemp(prefix="tas-")
+    old = os.environ.get("TASREC_FPS")
+    os.environ["TASREC_FPS"] = "%g %g" % fps
+    try:
+        js = run_badge(cid, steps, "", seeds[0], len(seeds), work)
+    finally:
+        if old is None:
+            del os.environ["TASREC_FPS"]
+        else:
+            os.environ["TASREC_FPS"] = old
+    ok = [x for x in js if x is not None]
+    return {"fails": sum(x is None for x in js), "jitter_fails": sum(x is None for x in js),
+            "mean": round(sum(ok) / len(ok), 4) if ok else None, "n": len(js)}
+
+
+def evaluate_badge(cid, steps, frames, seeds=TRAIN, work=None):
+    """eval, the badge's way: the first kept run's own frames, and len(seeds) plays on frames drawn
+    from the kept runs' (seeds[0] starts the draw)."""
+    if work is None:
+        work = tempfile.mkdtemp(prefix="tas-")
+    order = run_badge(cid, steps, frames, 0, 1, work)[0]
+    js = run_badge(cid, steps, frames, seeds[0], len(seeds), work)
+    ok = [x for x in js if x is not None]
+    return {"order": order, "fails": (order is None) + sum(x is None for x in js),
+            "jitter_fails": sum(x is None for x in js), "mean": round(sum(ok) / len(ok), 4) if ok else None,
             "n": len(js)}
 
 
@@ -104,12 +162,17 @@ def mutate(s, rng):
     return s
 
 
-def search(cid, start, out, iters, seed, ban_cube=False, fps=(20, 35)):
+def search(cid, start, out, iters, seed, ban_cube=False, fps=(20, 35), badge=None, rec=False):
     rng = random.Random(seed)
     work = tempfile.mkdtemp(prefix="tas-")
 
     def score(st):
-        e = evaluate(cid, st, fps=fps, work=work)
+        if badge:
+            e = evaluate_badge(cid, st, badge, list(range(1, 101)), work)
+        elif rec:
+            e = evaluate_rec(cid, st, fps, list(range(1, 121)), work)
+        else:
+            e = evaluate(cid, st, fps=fps, work=work)
         return (e["fails"], e["mean"] if e["mean"] is not None else 1e9)
 
     steps = start
@@ -150,13 +213,19 @@ def main():
         if "--fps" in a:
             i = a.index("--fps")
             fps = (float(a[i + 1]), float(a[i + 2]))
-        print(json.dumps(evaluate(a[1], lines(a[2]), seeds, fps, extra_args(a))))
+        if "--badge" in a:
+            print(json.dumps(evaluate_badge(a[1], lines(a[2]), a[a.index("--badge") + 1], seeds)))
+        elif "--rec" in a:
+            print(json.dumps(evaluate_rec(a[1], lines(a[2]), fps, seeds)))
+        else:
+            print(json.dumps(evaluate(a[1], lines(a[2]), seeds, fps, extra_args(a))))
     elif a[0] == "search" and len(a) >= 6:
         fps = (20, 35)
         if "--fps" in a:
             i = a.index("--fps")
             fps = (float(a[i + 1]), float(a[i + 2]))
-        search(a[1], lines(a[2]), a[3], int(a[4]), int(a[5]), "--ban-cube" in a, fps)
+        badge = a[a.index("--badge") + 1] if "--badge" in a else None
+        search(a[1], lines(a[2]), a[3], int(a[4]), int(a[5]), "--ban-cube" in a, fps, badge, "--rec" in a)
     elif a[0] == "robust":
         n = 200
         if "--seeds" in a:

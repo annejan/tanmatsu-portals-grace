@@ -1,0 +1,21 @@
+shoot orange 6.5 8.0 1.0
+walk_to 10.53 3.44
+walk_to 10.66 9.54
+shoot blue 10.5 1.0 11.9
+walk_to 11.15 2.74
+grab
+walk_to 10.49 2.26
+face -6.8 9.0
+wait 0.12
+use
+walk_to 10.92 3.39
+walk_to 13.08 2.42
+grab
+walk_to 10.47 3.05
+face -4.2 16.8
+jump
+use
+walk_to 10.17 7.97
+walk_to 10.5 2.5
+walk_to 15.5 1.5
+walk_to 17.5 1.5

@@ -1,0 +1,14 @@
+shoot blue 29.75 1.0 23.5
+walk_to 60.43 19.34
+shoot orange 56.0 20.5 23.5
+wait 4.40
+shoot orange 56.0 11.5 22.5
+walk_to 52.47 19.3
+shoot blue 13.0 2.5 40.5
+wait 3.50
+shoot blue 13.0 2.5 7.5
+walk_to 56.92 17.84
+shoot orange 56.0 11.5 24.5
+walk_to 60.73 16.79
+walk_to 103.24 23.31
+walk_to 106.47 23.76

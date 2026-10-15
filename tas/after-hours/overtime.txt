@@ -1,0 +1,35 @@
+// Ceiling portal over the turret (aimed at its north end: holds under rounded aim), floor portal on the balcony.
+shoot orange 8.5 9.0 11.5
+shoot blue 8.0 5.0 2.5
+// Pick the cube up on the way west; carry it.
+walk_to 6.3 1.6
+look 4.5 5.3 1.5
+use
+// Swap: drop the cube, grab the sphere, throw it NNW over the lip into the cup.
+walk_to 3.4 1.35
+use
+look 2.5 5.3 2.5
+use
+face -20 -50
+walk 0.2
+use
+// Regrab the cube, fall through the balcony floor portal holding it.
+look 2.25 5.3 1.35
+use
+walk_to 7.9 2.5
+// Land north of the beam; hold the cube facing SE: the beam reflects diagonally onto the catcher.
+walk_to 8.65 13.2
+face 135 45
+wait 0.1
+use
+// Through the door, both funnel portals from just inside, walk into the east one.
+walk_to 8.6 16.3
+shoot blue 17.0 1.5 18.5
+shoot orange 1.0 7.5 20.5
+walk_to 11 18.3
+walk_to 16.9 18.5
+// Ride the funnel out of the high portal, steer off it onto the exit.
+face 90 0
+walk 1.65
+face 35 0
+walk 3

@@ -1,0 +1,13 @@
+// Skip: the funnel's other end on the post by the exit. Both shots from the start.
+shoot orange 15.5 22.6 122.0
+shoot blue 8.5 26.0 6.02
+// Run at the funnel; jump into it to start the ride higher.
+walk 2.25
+jump
+walk_to 8.5 6.17
+// Out of the post, over the hole in the mesa: one frame of steering east, then
+// move the ceiling portal away to stop the funnel and drop onto the mesa.
+face 94.0 0
+walk 0
+shoot blue 38.9 24.9 80.5
+walk_to 18.20 123.38

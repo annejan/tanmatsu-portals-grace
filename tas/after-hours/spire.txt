@@ -1,0 +1,30 @@
+// Lobby: J1, steering the throw straight onto J2 (L1 never walked)
+look 90.43 1 22.5
+walk 1.64
+look 84.5 11 16.0
+walk 1.87
+wait 0.00
+// Rising off J2, below the lintel and south of the chute: orange on F
+shoot orange 13.5 1 21.5
+// Steer the J2 arc to the chute top and walk in; fall pressed to its north-west corner
+look 71.05 25 22.90
+walk 3.6
+// Low in the chute (about y 8), aim south down the shaft: pitch stays under the 83 deg limit, blue lands on the floor, long side along z
+shoot blue 71.3 1 20.7
+walk_to 7.41 18.62
+// Out of F at 26 m/s: steer for the cube; laser portals from mid-air, over the gatehouse
+look 5.09 21 25.5
+walk 0.9
+shoot blue 99 2.9 26.5
+shoot orange 94.25 1 14.5
+// Land just south of the cube, grab it on the run, throw it west onto button 2
+look 5.94 21 21.2
+walk 1.65
+grab
+look 2.07 20.4 26.42
+walk 0.1
+use
+// To J3; steer its 37 m/s throw north so it ends against the wall at x 71, then the exit
+look 9.9 20 14.31
+walk 2.72
+walk_to 70.8 25.3

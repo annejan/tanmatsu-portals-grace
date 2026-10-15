@@ -79,3 +79,28 @@ total                       118.74     40.21
 
 On the badge's uneven frames (200 runs at 20 to 35 frames a second) the
 whole run takes 40.07 s on average.
+
+## After hours
+
+`after-hours/` holds a route for each of the After hours story pack's
+chambers (`dlc/after-hours/`), and `after-hours/recording.txt`, all
+fourteen in the pack's order under their full ids
+(`chamber: after-hours/overtime`, ...). Put the recording in
+`/sd/portals/recordings/` -- not in the pack's own `replays/`, whose runs
+Watch does not keep -- with the pack on the card, and Watch keeps the run
+as the badge played it, for the After hours board on scene.rs/runs. On a
+badge it finished in 173.46 s (the pack's solutions take 348.4 s).
+
+These were found and judged as Watch plays a route:
+`tools/tas_search.py eval|search after-hours/<file> ROUTE --rec` plays it
+with `build/host_tasrec`, each input rounded as a recording keeps it and
+each shot, use and grab a frame of its own. A route that passes the plain
+eval can fail there: the scripted player looks straight down where a
+player's view stops at `PL_PITCH_MAX`, and a throw tuned to the last
+millimetre lands elsewhere once rounded. Several of these miss now and
+then when stepped as a script (`make tas`'s way); played as Watch plays
+them, each misses at most one run in 150 on frames it was not searched on.
+Canyon, overtime, spire and lights-out were found by hand: a funnel out of
+the bridge's post seen from the start, the sphere thrown into its cup from
+the balcony, the chute's portal shot from above while falling, and a jump
+off the rising lift.

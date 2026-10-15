@@ -1,0 +1,11 @@
+shoot blue 11.9 1.0 7.5
+walk_to 2.12 1.60
+shoot orange 15.75 4.0 1.5
+wait 0.30
+shoot orange 12.75 4.0 1.5
+wait 0.10
+shoot orange 6.5 1.0 9.0
+shoot blue 17.0 2.0 1.5
+face 90 0
+walk_to 17.22 1.93
+walk_to 5.10 11.68
