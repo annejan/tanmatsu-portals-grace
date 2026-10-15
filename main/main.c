@@ -776,11 +776,9 @@ static void on_input(bsp_input_event_t const* ev, void* user) {
         menu_event(ev);
     } else if (menu_is_open_key(ev)) {
         // The built-in keyboard's second Esc, after the one that stopped a
-        // recording, does not open the menu as well.
-        // Not in a lift: two seconds, and it is somewhere else by then.
-        // Not while riding (a few seconds, and somewhere else by then) --
-        // but in a pack's last lift, shut while its ending is told, yes.
-        if (!watch_just_stopped() && (!lift_on(&s_lift) || s_lift.stay)) menu_open(s_game.chamber);
+        // recording, does not open the menu as well. In a lift too: the
+        // ride waits underneath, and whatever sends play elsewhere stops it.
+        if (!watch_just_stopped()) menu_open(s_game.chamber);
     } else {
         input_event(ev);
     }
@@ -1055,6 +1053,7 @@ static void menu_frame(void) {
             record_stop();
             race_stop();
             s_pending_chamber = -1;
+            s_lift.phase      = LIFT_NONE;  // a ride it was opened in: Watch comes back to a chamber, not to it
             if (!watch_start(cmd.recording_dir, cmd.recording, cmd.pack, title, chamber_id(s_game.chamber)) && title) {
                 char err[HUD_MESSAGE_N];
                 snprintf(err, sizeof(err), "%s", hud_message_text());
