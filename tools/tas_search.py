@@ -2,7 +2,7 @@
 """Finding and checking the TAS routes in tas/: what the routes were made with.
 
     tools/tas_search.py eval CID ROUTE [--seeds A B] [--fps LO HI] [--first S] [--hitch P S]
-    tools/tas_search.py search CID START OUT ITERS RNGSEED [--ban-cube]
+    tools/tas_search.py search CID START OUT ITERS RNGSEED [--ban-cube] [--fps LO HI]
     tools/tas_search.py robust [CID...] [--seeds N] [--first S] [--hitch P S]
 
 A route is a solution script (chambers/README.md), one step per line, for
@@ -18,6 +18,8 @@ eval    the route at fixed 20, 25, 30 and 35 frames a second (and exactly 1/30
         --seeds 1000 1199.
 search  random search from START: a step dropped, nudged or a jump put in,
         kept only if it scores better -- (failures, mean), failures first.
+        --fps LO HI searches for one badge's band of frame rates (its fixed
+        rates in the band only): a route for that badge, not the TAS.
         800-1500 iterations take a few minutes. --ban-cube keeps the cube
         out of it.
 robust  every tas/ route (or those named) on N uneven runs (200 unless
@@ -62,7 +64,8 @@ def run(cid, steps, args, work):
 def evaluate(cid, steps, seeds=TRAIN, fps=(20, 35), extra=(), work=None):
     if work is None:
         work = tempfile.mkdtemp(prefix="tas-")
-    fixed = {r: run(cid, steps, ["-dt", r], work) for r in RATES}
+    # The fixed rates in the band only (all of them for the badge's 20 to 35).
+    fixed = {r: run(cid, steps, ["-dt", r], work) for r in RATES if fps[0] - 0.01 <= 1 / float(r) <= fps[1] + 0.01}
     js = [run(cid, steps, ["-jitter", str(s), str(fps[0]), str(fps[1])] + list(extra), work) for s in seeds]
     ok = [x for x in js if x is not None]
     return {"fixed": fixed, "fails": sum(v is None for v in fixed.values()) + sum(x is None for x in js),
@@ -101,12 +104,12 @@ def mutate(s, rng):
     return s
 
 
-def search(cid, start, out, iters, seed, ban_cube=False):
+def search(cid, start, out, iters, seed, ban_cube=False, fps=(20, 35)):
     rng = random.Random(seed)
     work = tempfile.mkdtemp(prefix="tas-")
 
     def score(st):
-        e = evaluate(cid, st, work=work)
+        e = evaluate(cid, st, fps=fps, work=work)
         return (e["fails"], e["mean"] if e["mean"] is not None else 1e9)
 
     steps = start
@@ -149,7 +152,11 @@ def main():
             fps = (float(a[i + 1]), float(a[i + 2]))
         print(json.dumps(evaluate(a[1], lines(a[2]), seeds, fps, extra_args(a))))
     elif a[0] == "search" and len(a) >= 6:
-        search(a[1], lines(a[2]), a[3], int(a[4]), int(a[5]), "--ban-cube" in a)
+        fps = (20, 35)
+        if "--fps" in a:
+            i = a.index("--fps")
+            fps = (float(a[i + 1]), float(a[i + 2]))
+        search(a[1], lines(a[2]), a[3], int(a[4]), int(a[5]), "--ban-cube" in a, fps)
     elif a[0] == "robust":
         n = 200
         if "--seeds" in a:

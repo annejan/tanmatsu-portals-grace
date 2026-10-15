@@ -6,7 +6,8 @@
 //
 //   host_tasrec SEED OUT DEMO...
 //
-// SEED picks the frames (20 to 35 a second, as host_tas -jitter); each
+// SEED picks the frames (20 to 35 a second, as host_tas -jitter, or
+// TASREC_FPS="LO HI"); each
 // DEMO is a chamber whose solution is the route (tools/tas.py's tas-<id>
 // files, in PORTALS_CHAMBERS), recorded under the chamber's own id (the
 // part after "tas-"). Prints each chamber's time to its exit, as the
@@ -40,6 +41,8 @@ int main(int argc, char** argv) {
     char const* dir = getenv("PORTALS_CHAMBERS");
     if (dir != NULL) chamber_load_dir(dir);
     unsigned seed  = (unsigned)atoi(argv[1]) * 2654435761u + 1u;
+    float    lo = 20.0f, hi = 35.0f;  // frames a second; TASREC_FPS="LO HI" for one badge's band
+    if (getenv("TASREC_FPS") != NULL) sscanf(getenv("TASREC_FPS"), "%f %f", &lo, &hi);
     int      fails = 0;
     recording_capture_start(&s_cap);
     for (int a = 3; a < argc; a++) {
@@ -56,7 +59,7 @@ int main(int argc, char** argv) {
             s_now = 0.0f;
             while (s_now < 120.0f && exit_t < 0.0f && !died) {
                 seed           = seed * 1103515245u + 12345u;
-                float const ft = 1.0f / 35.0f + (1.0f / 20.0f - 1.0f / 35.0f) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
+                float const ft = 1.0f / hi + (1.0f / lo - 1.0f / hi) * (float)((seed >> 8) & 0xFFFF) / 65535.0f;
                 int const   ev = demo_player_play(&p, &st.g, ft, play, NULL);
                 if (ev & PL_EV_EXIT) exit_t = s_now;
                 if (ev & PL_EV_DIED) died = true;
