@@ -73,7 +73,7 @@ the new keys are kept in NVS.
 | G | gyroscope on or off: look round by turning the badge |
 | R | restart the chamber |
 | Esc | the menu (not rebindable) |
-| F1 | back to the launcher |
+| F1 | back to the launcher (it asks first: F1 again to leave, Esc to stay) |
 
 The menu has:
 

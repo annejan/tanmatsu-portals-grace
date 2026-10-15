@@ -656,15 +656,77 @@ static void quit(void) {
     bsp_device_restart_to_launcher();
 }
 
+// F1: back to the launcher, from anywhere -- but asked first, so a stray
+// press does not end a run. F1 again, or Leave, goes (a recording saved
+// first: quit); Esc, or Stay, stays. Stay is where the cursor starts.
+// Everything waits while it asks, as under the menu.
+static bool    s_leave_ask;
+static int     s_leave_cursor;  // 0: Stay, 1: Leave
+static int64_t s_leave_us;      // when it asked: the press that asked is no answer
+
+static se_menu_row_t const s_leave_rows[] = {{.label = "Stay"}, {.label = "Leave"}};
+
+static void leave_answer(bool go) {
+    s_leave_ask = false;
+    if (go) quit();
+    input_resync();  // what was pressed while it asked is not the game's
+}
+
+// Whether the event was the question's: while it asks, all of them are.
+static bool leave_event(bsp_input_event_t const* ev) {
+    bool const press = ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state;
+    if (!s_leave_ask) {
+        if (!press || ev->args_navigation.key != BSP_INPUT_NAVIGATION_KEY_F1) return false;
+        s_leave_ask    = true;
+        s_leave_cursor = 0;
+        s_leave_us     = esp_timer_get_time();
+        return true;
+    }
+    if (!press) return true;
+    switch (ev->args_navigation.key) {
+        case BSP_INPUT_NAVIGATION_KEY_F1:
+            if (esp_timer_get_time() - s_leave_us > 300000) leave_answer(true);  // not a held key's repeat
+            break;
+        case BSP_INPUT_NAVIGATION_KEY_RETURN:
+            leave_answer(s_leave_cursor == 1);
+            break;
+        case BSP_INPUT_NAVIGATION_KEY_ESC:
+        case BSP_INPUT_NAVIGATION_KEY_BACKSPACE:
+            leave_answer(false);
+            break;
+        case BSP_INPUT_NAVIGATION_KEY_UP:
+        case BSP_INPUT_NAVIGATION_KEY_DOWN:
+        case BSP_INPUT_NAVIGATION_KEY_LEFT:
+        case BSP_INPUT_NAVIGATION_KEY_RIGHT:
+            s_leave_cursor ^= 1;
+            break;
+        default:
+            break;
+    }
+    return true;
+}
+
+static void leave_draw(pax_buf_t* fb) {
+    if (!s_leave_ask) return;
+    se_menu_def_t const def = {
+        .title     = "PORTALS",
+        .subtitle  = "Back to the launcher. You sure?",
+        .rows      = s_leave_rows,
+        .row_count = 2,
+        .hint      = "F1 again: leave   Esc: stay",
+        .title_h   = 28.0f,
+        .row_h     = 30.0f,
+        .value_dx  = 120.0f,
+        .panel_w   = 0.56f,
+        .panel_h   = (40.0f + 28.0f + 14.0f + 34.0f + 2.0f * 30.0f + 24.0f) / (float)DISPLAY_LOG_H,
+    };
+    se_menu_t const m = {.def = &def, .cursor = s_leave_cursor};
+    se_menu_draw(&m, fb);
+}
+
 static void on_input(bsp_input_event_t const* ev, void* user) {
     (void)user;
-    // F1: back to the launcher, from anywhere -- here, not in the engine
-    // (f1_exits), so a recording is saved first.
-    if (ev->type == INPUT_EVENT_TYPE_NAVIGATION && ev->args_navigation.state &&
-        ev->args_navigation.key == BSP_INPUT_NAVIGATION_KEY_F1) {
-        quit();
-        return;
-    }
+    if (leave_event(ev)) return;
     if (s_mode == MODE_EDIT) {
         editor_event(ev);
         return;
@@ -1378,7 +1440,9 @@ static void update_frame(float dt) {
     render_set_time(clock);
     showtime_frame();
     devtest_update();
-    if (s_demo >= 0) {
+    if (s_leave_ask) {
+        // Back to the launcher, asked: nothing moves until it is answered.
+    } else if (s_demo >= 0) {
         demo_frame();
     } else if (watch_on()) {
         watch_update(dt);
@@ -1415,8 +1479,15 @@ static void on_backdrop(pax_buf_t* fb, void* user) {
     (void)user;  // every pixel is drawn by the passes; nothing to clear
 }
 
+static void draw_screen(pax_buf_t* fb);
+
 static void on_render(pax_buf_t* fb, void* user) {
     (void)user;
+    draw_screen(fb);
+    leave_draw(fb);  // over whatever is on the screen
+}
+
+static void draw_screen(pax_buf_t* fb) {
     if (s_mode == MODE_EDIT) {
         editor_draw(fb);
         return;
@@ -1525,7 +1596,7 @@ static void on_render(pax_buf_t* fb, void* user) {
 
 void app_main(void) {
     static se_app_config_t const cfg = {
-        .f1_exits      = false,  // on_input: F1 saves a recording first
+        .f1_exits      = false,  // on_input: F1 asks first, and saves a recording before it goes
         .backdrop_argb = 0xFF000000u,
     };
     static se_app_callbacks_t const cb = {
