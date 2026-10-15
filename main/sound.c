@@ -204,6 +204,12 @@ void sound_events(int ev) {
 // stepped to the mixer's rate: GLaDOS, and a turret, which talks over her
 // as turrets do. SAM reuses its one buffer, so each voice plays its own
 // copy; a voice's copy is only written once the mixer has dropped it.
+//
+// SAM takes 15-35 ms a sentence on the badge: a whole frame, every time
+// she starts one. So it renders on a task of its own, on the core the
+// mixer has (the frame runs on the other), into a job's buffer -- her
+// next sentence while she says this one -- and the frame only copies the
+// result into the voice. On the host, at once: the films sound as before.
 
 #define SAY_PIECES 8
 #define SAY_GAIN   180  // 8-bit to 16-bit, with room for the effects
@@ -221,10 +227,88 @@ typedef struct {
     volatile bool reaped;
 } say_t;
 
-static say_t s_say[2];
-static bool  s_voice_on = true;
-static char  s_pieces[SAY_PIECES][SPEECH_MAX];
-static int   s_n_pieces, s_next;
+// A piece to render, for a voice: the frame fills it in and wants it, the
+// task renders it, the frame takes it. Each side touches it only in its
+// own states.
+enum { JOB_FREE, JOB_WANTED, JOB_READY };
+
+typedef struct {
+    char     text[SPEECH_MAX];
+    uint32_t gen;  // the line it is for: one said since, and it is dropped
+    uint8_t* pcm;
+    size_t   cap;
+    int      n;
+    int      state;  // JOB_*, read and written atomically
+} job_t;
+
+static say_t    s_say[2];
+static job_t    s_job[2];
+static uint32_t s_gen[2];  // each voice's line: a new one, or hush, and older jobs are not played
+static bool     s_voice_on = true;
+static char     s_pieces[SAY_PIECES][SPEECH_MAX];
+static int      s_n_pieces;
+static int      s_asked;  // GLaDOS's pieces handed to the task ...
+static int      s_next;   // ... and to her voice
+
+static int job_state(int who) {
+    return __atomic_load_n(&s_job[who].state, __ATOMIC_ACQUIRE);
+}
+
+static void job_set(int who, int state) {
+    __atomic_store_n(&s_job[who].state, state, __ATOMIC_RELEASE);
+}
+
+// The task's part: the piece into the job's buffer, as SAM made it.
+static void job_render(int who) {
+    job_t* const         j   = &s_job[who];
+    int                  n   = 0;
+    uint8_t const* const pcm = speech_render(j->text, who == GLADOS ? SPEECH_GLADOS : SPEECH_TURRET, &n);
+    j->n                     = 0;
+    if (pcm != NULL && n > 0 && (size_t)n > j->cap) {
+        uint8_t* const grown = realloc(j->pcm, (size_t)n);
+        if (grown != NULL) {
+            j->pcm = grown;
+            j->cap = (size_t)n;
+        }
+    }
+    if (pcm != NULL && n > 0 && (size_t)n <= j->cap) {
+        memcpy(j->pcm, pcm, (size_t)n);
+        j->n = n;
+    }
+    speech_free();
+    job_set(who, JOB_READY);
+}
+
+#ifdef ESP_PLATFORM
+static TaskHandle_t s_speech_task;
+
+static void speech_task(void* arg) {
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (int who = 0; who < 2; who++)
+            if (job_state(who) == JOB_WANTED) job_render(who);
+    }
+}
+#endif
+
+// `piece` wanted in `who`'s voice; its job is free.
+static void job_ask(int who, char const* piece) {
+    job_t* const j = &s_job[who];
+    snprintf(j->text, sizeof(j->text), "%s", piece);
+    j->gen = s_gen[who];
+#ifdef ESP_PLATFORM
+    if (s_speech_task == NULL &&
+        xTaskCreatePinnedToCore(speech_task, "speech", 8192, NULL, 2, &s_speech_task, 1) != pdPASS)
+        s_speech_task = NULL;
+    if (s_speech_task != NULL) {
+        job_set(who, JOB_WANTED);
+        xTaskNotifyGive(s_speech_task);
+        return;
+    }
+#endif
+    job_render(who);  // the host, or no task: here and now
+}
 
 static void say_render(sfx_voice_t* self, int16_t* out, size_t frames) {
     say_t* v = (say_t*)self;
@@ -249,37 +333,57 @@ static bool say_busy(int who) {
     return s_say[who].used && !s_say[who].reaped;
 }
 
-// Say `piece` in `who`'s voice, which is not busy.
-static void speak(int who, char const* piece) {
-    int                  n   = 0;
-    uint8_t const* const pcm = speech_render(piece, who == GLADOS ? SPEECH_GLADOS : SPEECH_TURRET, &n);
-    if (pcm == NULL || n <= 0) return;
-    say_t* const v = &s_say[who];
-    if ((size_t)n > v->cap) {
-        uint8_t* const grown = realloc(v->pcm, (size_t)n);
-        if (grown == NULL) return;
-        v->pcm = grown;
-        v->cap = (size_t)n;
+// `who`'s rendered piece, if there is one for its line and its voice is
+// free: said. True if the job was taken (said, or dropped).
+static bool job_take(int who) {
+    if (job_state(who) != JOB_READY) return false;
+    job_t* const j = &s_job[who];
+    if (j->gen != s_gen[who]) {  // for a line no longer wanted
+        job_set(who, JOB_FREE);
+        return true;
     }
-    memcpy(v->pcm, pcm, (size_t)n);
-    speech_free();
-    uint8_t* const buf = v->pcm;
-    size_t const   cap = v->cap;
-    memset(v, 0, sizeof(*v));
-    v->pcm           = buf;
-    v->cap           = cap;
-    v->base.render   = say_render;
-    v->base.shutdown = say_reaped;
-    v->base.group    = GROUP_FX;
-    v->n             = (uint32_t)n;
-    v->step          = (uint32_t)((float)SPEECH_RATE / SR * 65536.0f);
-    v->used          = audio_mixer_register_voice(&v->base);
+    if (say_busy(who)) return false;
+    int const    n = j->n;
+    say_t* const v = &s_say[who];
+    if (n > 0 && (size_t)n > v->cap) {
+        uint8_t* const grown = realloc(v->pcm, (size_t)n);
+        if (grown != NULL) {
+            v->pcm = grown;
+            v->cap = (size_t)n;
+        }
+    }
+    if (n > 0 && (size_t)n <= v->cap) {
+        memcpy(v->pcm, j->pcm, (size_t)n);
+        uint8_t* const buf = v->pcm;
+        size_t const   cap = v->cap;
+        memset(v, 0, sizeof(*v));
+        v->pcm           = buf;
+        v->cap           = cap;
+        v->base.render   = say_render;
+        v->base.shutdown = say_reaped;
+        v->base.group    = GROUP_FX;
+        v->n             = (uint32_t)n;
+        v->step          = (uint32_t)((float)SPEECH_RATE / SR * 65536.0f);
+        v->used          = audio_mixer_register_voice(&v->base);
+    }
+    job_set(who, JOB_FREE);
+    return true;
+}
+
+// GLaDOS: her next piece said once it is ready and she is done with the
+// last, and the one after asked for while she says it.
+static void glados_pump(void) {
+    if (job_take(GLADOS) && s_job[GLADOS].gen == s_gen[GLADOS]) s_next++;
+    if (job_state(GLADOS) == JOB_FREE && s_asked < s_n_pieces) job_ask(GLADOS, s_pieces[s_asked++]);
 }
 
 void sound_say(char const* line) {
     if (say_busy(GLADOS)) audio_mixer_stop_voice(&s_say[GLADOS].base);
+    s_gen[GLADOS]++;
     s_n_pieces = line != NULL && s_voice_on ? speech_split(line, s_pieces, SAY_PIECES) : 0;
     s_next     = 0;
+    s_asked    = 0;
+    if (job_state(GLADOS) == JOB_FREE && s_n_pieces > 0) job_ask(GLADOS, s_pieces[s_asked++]);
 }
 
 // A turret's line, unless a turret is talking already. GLaDOS may be: it
@@ -289,10 +393,12 @@ static int         s_turret_lines;
 
 static void turret_says(char const* const lines[]) {
     static int k;
-    if (say_busy(TURRET)) return;
+    if (say_busy(TURRET) || job_state(TURRET) != JOB_FREE) return;
     s_turret_line = lines[k++ % SPEECH_TURRET_LINES];
     s_turret_lines++;
-    if (s_voice_on) speak(TURRET, s_turret_line);
+    if (!s_voice_on) return;
+    job_ask(TURRET, s_turret_line);
+    job_take(TURRET);  // at once, if it is rendered already
 }
 
 int sound_turret_said(char const** line) {
@@ -305,12 +411,14 @@ bool sound_saying(void) {
 }
 
 void sound_update(void) {
-    if (!say_busy(GLADOS) && s_next < s_n_pieces) speak(GLADOS, s_pieces[s_next++]);
+    glados_pump();
+    job_take(TURRET);
     music_frame();
 }
 
 void sound_hush(void) {
     sound_say(NULL);
+    s_gen[TURRET]++;
     if (say_busy(TURRET)) audio_mixer_stop_voice(&s_say[TURRET].base);
 }
 

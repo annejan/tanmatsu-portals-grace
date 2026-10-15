@@ -93,6 +93,7 @@ void Init()
     bufferpos = 0;
     // TODO, check for free the memory, 10 seconds of output should be more than enough
     buffer = malloc(SAM_BUFFER_BYTES); /* tanmatsu-portal: one size, checked in render.c */
+    if (buffer != NULL) memset(buffer, 128, SAM_BUFFER_BYTES); /* tanmatsu-portal: silence where Output() skips a sample, not the heap's leftovers */
 
     /*
     freq2data = &mem[45136];

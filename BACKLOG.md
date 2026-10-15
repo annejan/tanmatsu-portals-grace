@@ -15,20 +15,16 @@ up once the player is out, the play-test rides it, the editor shows both
 stations, and it dings and hums.
 
 - **A long exit's station goes by the way in**: the block of exit cells
-  nearest where walkable floor or a door meets the exit. An exit open on
-  every side (change-at-amersfoort's 15 x 3 platform) still gets its
-  middle; for such a chamber:
+  nearest where walkable floor or a door meets the exit; where floor is
+  all round it (change-at-amersfoort's 15 x 3 platform), the block
+  nearest a door. Every chamber's solution now ends within about 2 m of
+  its exit's station, so the car fitted where a run ends (more than 3 m
+  off) is not used by any of them.
 - **A header key to place them by hand**, `lift: exit X Z | exit none |
-  start none | none`, for chambers the automatic rule does badly, and a
-  station that comes to the player when the exit is far wider than a
-  station (change-at-amersfoort's 15 x 3 exit: the station stands in its
-  middle, a run ends at its door 6.8 m off, and a car is fitted there
-  instead -- the drawn station is not the one ridden).
-  Older builds reject unknown keys, so a chamber using it would need
+  start none | none`, if a chamber ever needs it: none does now. Older
+  builds reject unknown keys, so a chamber using it would need
   `chamber: needs-update` or older builds to skip unknown keys first.
 - **None in desk-story rounds**, by design: the desk comes next.
-- **The pause menu does not open while riding** (about 4 s): anything
-  that sends play elsewhere stops the ride, so it could.
 - **The ride takes longer than the old fade** (about 4 to 5.5 s from the
   exit to play, against 2.2 s); Jump, Use or a shot runs it three times
   as fast.
@@ -52,10 +48,10 @@ frame's passes and triangles). Left as they are, on purpose:
   pass of 80 triangles, so the floor is the engine's per-pixel work, not
   the scene. Each portal pass adds 5-15 ms. Faster would mean the engine's
   rasterizer (an upstream change, like SE_TRI_GLOW).
-- **GLaDOS's lines cost a frame each.** speak() renders a whole sentence
-  with SAM inside one update: 15-35 ms on the badge (0.3-0.55 ms on a PC),
-  the 13-52 ms update spikes. Could be rendered while the chamber loads
-  (hidden in the lift's dark), or on the other core; not felt much.
+- **GLaDOS's lines no longer cost a frame each**: SAM renders on
+  a task of its own on the mixer's core, her next sentence while she says
+  this one, and the frame only copies it in. It was 15-35 ms inside one
+  update, the 13-52 ms update spikes.
 - **Blended fizzlers are 07-the-grill's cost.** 45 % of its frames are
   blended pixels (100 % walking through), 35 ms renders against 28; glass
   elsewhere is 0-5 %. Cut-out fizzler streaks would be cheaper but look
