@@ -123,13 +123,6 @@ HOST_MOVIE_STEM=music). Ideas, not started:
 - **A tune per chamber**: a `music:` key in a chamber file, so a pack can
   change tune between chambers.
 
-## Engine
-
-- **The engine is a fork until upstream merges.** Light (`SE_TRI_GLOW`) is
-  offered as nullislandspace/synthengine3D#1; `.gitmodules` points at
-  annejan/synthengine3D, branch tri-glow, until it is merged. Then point it
-  back at nullislandspace and bump the submodule.
-
 ## Host renders
 
 - **Scratch render programs need setup to draw right.** A program that

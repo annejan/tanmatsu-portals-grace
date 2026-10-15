@@ -1,6 +1,3 @@
 [submodule "synthengine3D"]
 	path = synthengine3D
-	# The fork, with SE_TRI_GLOW (nullislandspace/synthengine3D#1): back to
-	# upstream once that is merged.
-	url = https://github.com/annejan/synthengine3D.git
-	branch = tri-glow
+	url = https://github.com/nullislandspace/synthengine3D.git
