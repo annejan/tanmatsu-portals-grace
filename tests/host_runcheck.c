@@ -8,9 +8,11 @@
 // FILE is a recording (main/recording.h): a run recorded on the badge,
 // frame by frame -- each frame stepped with its own time and input, the
 // clock its frames' (at most 0.1 s each, as watch.c counts) until the exit
-// -- or a script, a TAS, stepped at 30 frames a second as `make tas`
-// times it. PACKS_DIR holds story packs, as /sd/portals/dlc does, for runs
-// through their chambers ("pack/file", or the file alone).
+// -- or a script, a TAS, played at 30 frames a second as the badge's Watch
+// plays one: a player's inputs, rounded as a recording keeps them, each
+// shot, use and grab a frame of its own. PACKS_DIR holds story packs, as
+// /sd/portals/dlc does, for runs through their chambers ("pack/file", or
+// the file alone).
 //
 // Prints one JSON object: {"ok", "error", "name", "version", "physics",
 // "kind" ("frames", "script" or "mixed"), "complete", "total", "runs":
@@ -75,6 +77,17 @@ static char* slurp(char const* path, long* n) {
     fclose(f);
     t[*n] = '\0';
     return t;
+}
+
+// A script's frame, as Watch plays and keeps it: rounded, then played.
+static float s_clock;
+static int   play_rounded(game_t* g, game_input_t const* in, float dt, void* ctx) {
+    (void)ctx;
+    recording_frame_t const f = recording_frame(dt, in);
+    game_input_t            q;
+    float const             fd = recording_frame_input(&f, &q);
+    s_clock += fminf(fd, 0.1f);
+    return game_step(g, &q, fd);
 }
 
 int main(int argc, char** argv) {
@@ -146,13 +159,16 @@ int main(int argc, char** argv) {
                 t  += fminf(fd, 0.1f);
             }
         } else {
+            // As Watch plays a script on the badge (demo_player_play): a
+            // player's inputs, each rounded as a recording keeps it, each act
+            // a frame of its own -- here on frames of SCRIPT_DT.
             scripts++;
             static demo_player_t pl;
             demo_player_start(&pl, run->steps);
-            while (!(ev & (PL_EV_EXIT | PL_EV_DIED)) && t < GIVE_UP_S) {
-                ev |= demo_player_step(&pl, &g, SCRIPT_DT, 0.0f);
-                t  += SCRIPT_DT;
-            }
+            s_clock = 0.0f;
+            while (!(ev & (PL_EV_EXIT | PL_EV_DIED)) && s_clock < GIVE_UP_S)
+                ev |= demo_player_play(&pl, &g, SCRIPT_DT, play_rounded, NULL);
+            t = s_clock;
         }
         times[k] = t;
         exits[k] = (ev & PL_EV_EXIT) != 0;

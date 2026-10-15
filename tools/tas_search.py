@@ -105,17 +105,24 @@ def evaluate_rec(cid, steps, fps=(20, 35), seeds=TRAIN, work=None):
     if work is None:
         work = tempfile.mkdtemp(prefix="tas-")
     old = os.environ.get("TASREC_FPS")
-    os.environ["TASREC_FPS"] = "%g %g" % fps
+    fixed = {}
     try:
+        # The fixed rates in the band too (the board plays a script at 30 a second), then uneven frames.
+        for r in RATES:
+            if fps[0] - 0.01 <= 1 / float(r) <= fps[1] + 0.01:
+                os.environ["TASREC_FPS"] = "%r %r" % (1 / float(r), 1 / float(r))
+                fixed[r] = run_badge(cid, steps, "", 1, 1, work)[0]
+        os.environ["TASREC_FPS"] = "%g %g" % fps
         js = run_badge(cid, steps, "", seeds[0], len(seeds), work)
     finally:
         if old is None:
-            del os.environ["TASREC_FPS"]
+            os.environ.pop("TASREC_FPS", None)
         else:
             os.environ["TASREC_FPS"] = old
     ok = [x for x in js if x is not None]
-    return {"fails": sum(x is None for x in js), "jitter_fails": sum(x is None for x in js),
-            "mean": round(sum(ok) / len(ok), 4) if ok else None, "n": len(js)}
+    return {"fixed": fixed, "fails": sum(v is None for v in fixed.values()) + sum(x is None for x in js),
+            "jitter_fails": sum(x is None for x in js), "mean": round(sum(ok) / len(ok), 4) if ok else None,
+            "n": len(js)}
 
 
 def evaluate_badge(cid, steps, frames, seeds=TRAIN, work=None):

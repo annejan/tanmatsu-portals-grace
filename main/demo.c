@@ -74,10 +74,16 @@ bool demo_has_solution(int i) {
     return chamber_build(i - N_FIXED, level_scratch(), steps, &n) && n > 0;
 }
 
+// A pitch a player can look at: the view stops at PL_PITCH_MAX (game_step,
+// and so Watch, which plays a script as a player's inputs).
+static float playable_pitch(float pitch) {
+    return fmaxf(-PL_PITCH_MAX, fminf(PL_PITCH_MAX, pitch));
+}
+
 static void face_point(player_t* p, vec3_t target) {
     vec3_t const d = v3_sub(target, player_eye(p));
     p->yaw         = atan2f(d.x, d.z);
-    p->pitch       = -atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z));
+    p->pitch       = playable_pitch(-atan2f(d.y, sqrtf(d.x * d.x + d.z * d.z)));
 }
 
 void demo_eval(int i, float t, demo_state_t* s) {
@@ -229,7 +235,7 @@ int demo_player_step(demo_player_t* p, game_t* g, float dt, float pace) {
         }
         if (st->op == OP_FACE) {
             g->pl.yaw   = st->a;
-            g->pl.pitch = st->b;
+            g->pl.pitch = playable_pitch(st->b);
         } else if (st->op == OP_FACE_POINT) {
             face_point(&g->pl, v3(st->a, st->b, st->c));
         } else if (st->op == OP_SHOOT) {
