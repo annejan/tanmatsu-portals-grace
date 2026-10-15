@@ -480,7 +480,7 @@ static void submit_poly(cvert_t const* q, int nq, vec3_t n, cam_t const* cam, cl
         emit(q, nq, m, argb, flags);
         return;
     }
-    cvert_t   out[CLIP_MAX_VERTS];
+    static cvert_t out[CLIP_MAX_VERTS];  // static: off the task's stack
     int const k = clip_polygon(cs, q, nq, out);
     if (k >= 3) emit(out, k, m, argb, flags);
 }
@@ -749,7 +749,7 @@ static void portal_tri(portal_t const* p, vec3_t a, vec3_t b, vec3_t c, float li
         emit(v, 3, m, argb, flags);
         return;
     }
-    cvert_t   out[CLIP_MAX_VERTS];
+    static cvert_t out[CLIP_MAX_VERTS];  // static: off the task's stack
     int const k = clip_polygon(cs, v, 3, out);
     if (k >= 3) emit(out, k, m, argb, flags);
 }
@@ -949,7 +949,7 @@ static void submit_ball(vec3_t c, vec3_t u, vec3_t v, vec3_t w, uint32_t argb, u
         LAT = 8,
         LON = 12
     };
-    vec3_t p[LAT + 1][LON];
+    static vec3_t p[LAT + 1][LON];  // static: off the task's stack
     for (int i = 0; i <= LAT; i++)
         for (int j = 0; j < LON; j++) {
             float const a = ((float)i / LAT - 0.5f) * 3.14159265f, b = (float)j * (6.2831853f / LON);
@@ -1557,7 +1557,7 @@ static void limb(vec3_t a, vec3_t b, float w, float h, vec3_t hint, uint32_t arg
 // `lat` rings of `lon` faces.
 static void facet_ball(vec3_t c, vec3_t u, vec3_t v, vec3_t w, int lat, int lon, uint32_t argb, cam_t const* cam,
                        clipset_t const* cs) {
-    vec3_t p[9][12];
+    static vec3_t p[9][12];  // static: off the task's stack
     for (int i = 0; i <= lat; i++)
         for (int j = 0; j < lon; j++) {
             float const a = ((float)i / (float)lat - 0.5f) * 3.14159265f,
@@ -1794,7 +1794,7 @@ static bool portal_visible(portal_t const* p, cam_t const* cam, clipset_t const*
     vec3_t c[4];
     portal_corners(p, c);
     cvert_t const q[4] = {{c[0], 0, 0}, {c[1], 0, 0}, {c[2], 0, 0}, {c[3], 0, 0}};
-    cvert_t       out[CLIP_MAX_VERTS];
+    static cvert_t out[CLIP_MAX_VERTS];  // static: off the task's stack
     return clip_polygon(&all, q, 4, out) >= 3;
 }
 
