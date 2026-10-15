@@ -144,6 +144,8 @@ def main():
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
     ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
+    ap.add_argument("--keep-shots", action="store_true",
+                    help="keep the recorder's frames (WORK/shots, about 2 GB a minute of film) once the film is made")
     ap.add_argument("--title", help="the opening card's title: a story pack's name, say")
     ap.add_argument("--about", help="under it: what it is")
     ap.add_argument("--ending", help="the closing card's words")
@@ -426,6 +428,8 @@ def main():
     ff.stdin.close()
     if ff.wait() != 0:
         sys.exit("ffmpeg failed")
+    if not a.keep_shots:
+        shutil.rmtree(shots, ignore_errors=True)  # raw frames, about 2 GB a minute: the film has them now
     if a.gif:
         subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", mp4, "-vf",
                         "fps=%d,scale=360:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=64:stats_mode=diff[p];"
