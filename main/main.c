@@ -43,6 +43,7 @@
 #include "render.h"
 #include "review.h"
 #include "settings.h"
+#include "text.h"
 #include "splash.h"
 #include "sound.h"
 #include "story.h"
@@ -569,6 +570,7 @@ static void on_init(void* user) {
     snprintf(tex_dir, sizeof(tex_dir), "%s/textures", graceloader_get_install_basepath());
     render_init(tex_dir);
     settings_load();
+    text_set_large(settings_large_text());
     input_init();
     // The player's own chambers, after the built-in ones.
     int const own = chamber_load_dir(CHAMBER_DIR);
@@ -835,6 +837,7 @@ static bool desk_enter(int pk) {
         saved   = desk_load_save(text, &s_story, &s_desk_data, &read);
         if (!saved) ESP_LOGW(TAG, "%s does not read: the day from its start", path);
     }
+    deskview_size(&s_desk);  // the boot text wraps to it
     desk_begin(&s_desk, &s_desk_data, &s_story, p->n, true);
     // Its rounds' names, for TODO.
     static char names[PACK_CHAMBERS][32];
@@ -1492,6 +1495,7 @@ static void draw_screen(pax_buf_t* fb) {
         return;
     }
     if (s_mode == MODE_DESK) {
+        deskview_size(&s_desk);  // Large text may have changed in the menu
         deskview_draw(fb, &s_desk);
         return;
     }

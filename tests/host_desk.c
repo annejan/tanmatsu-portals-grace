@@ -27,6 +27,7 @@
 #include "se_text.h"  // the real PAX headers come in with it: struct pax_buf
 
 #include "../main/deskview.c"
+#include "../main/text.c"
 #include "../synthengine3D/src/rendertext.c"
 
 // --- The badge's framebuffer -------------------------------------------
@@ -96,6 +97,11 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
     *hl      = s_hl;
 }
 
+void desk_set_size(desk_t* k, int cols, int rows) {
+    k->cols = cols;
+    k->rows = rows;
+}
+
 // deskview_event's: no keys here.
 desk_action_t desk_key(desk_t* k, int key, char ch) {
     (void)k, (void)key, (void)ch;
@@ -155,6 +161,8 @@ int main(int argc, char** argv) {
     static desk_t      k;
     d.badge = strcmp(argv[1], "badge") == 0;
     k.d     = &d;
+    // DESK_LARGE=1: screens host_review wrote with it, drawn as Large text draws them.
+    if (getenv("DESK_LARGE") != NULL && getenv("DESK_LARGE")[0] == '1') desk_set_size(&k, 56, 18);
     DIR* dir = opendir(argv[2]);
     if (dir == NULL) {
         perror(argv[2]);

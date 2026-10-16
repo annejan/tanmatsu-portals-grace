@@ -1,4 +1,5 @@
 #include "editor.h"
+#include "text.h"
 #include "card.h"
 #include <math.h>
 #include <stdio.h>
@@ -768,13 +769,13 @@ void editor_draw(pax_buf_t* fb) {
     char        line[96];
     if (s_debug) {
         // The debugger's: its budget, and what it may change.
-        rendertext_draw(fb, 0xFF7CFF8Au, pax_font_sky_mono, 18, tx, 8, "DEBUGGER");
+        text_draw_firm(fb, 0xFF7CFF8Au, 18, tx, 8, "DEBUGGER");
         snprintf(line, sizeof(line), "layer %d of %d  (Q/E)", s_y, s_d.h - 1);
-        rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, tx, 32, line);
+        text_draw_firm(fb, 0xFFFFFFFFu, 12, tx, 32, line);
         snprintf(line, sizeof(line), "changes: %d of %d", s_n_changes, s_rules.debug_budget);
-        rendertext_draw(fb, s_n_changes < s_rules.debug_budget ? 0xFFFFFFFFu : 0xFFFF7A6Au, pax_font_sky_mono, 12, tx,
+        text_draw_firm(fb, s_n_changes < s_rules.debug_budget ? 0xFFFFFFFFu : 0xFFFF7A6Au, 12, tx,
                         50, line);
-        rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 74, "it may change:");
+        text_draw_firm(fb, 0xFFA0A0A8u, 12, tx, 74, "it may change:");
         for (int j = 0; j < s_rules.n_debug; j++) {
             char const  to = s_rules.debug[j][1];
             float const y  = 92.0f + (float)j * 16.0f;
@@ -787,7 +788,7 @@ void editor_draw(pax_buf_t* fb) {
             // panel, the swatches say what it was and the line what it becomes.
             snprintf(line, sizeof(line), "%c  %s to %s", key, brush_name(s_rules.debug[j][0]), brush_name(to));
             if (strlen(line) > 30) snprintf(line, sizeof(line), "%c  to %.24s", key, brush_name(to));
-            rendertext_draw(fb, s_brush == to ? 0xFFFFFF6Bu : 0xFFFFFFFFu, pax_font_sky_mono, 12, tx + 30, y, line);
+            text_draw_firm(fb, s_brush == to ? 0xFFFFFF6Bu : 0xFFFFFFFFu, 12, tx + 30, y, line);
         }
         // Changed cells, outlined.
         for (int k = 0; k < s_n_changes; k++)
@@ -798,8 +799,8 @@ void editor_draw(pax_buf_t* fb) {
             "arrows  move", "Space   change a cell", "Bksp    change it back", "P       play-test", "Esc     menu",
         };
         for (int i = 0; i < 5; i++)
-            rendertext_draw(fb, 0xFFA0A0A8u, pax_font_sky_mono, 12, tx, 300.0f + (float)i * 15.0f, dhelp[i]);
-        if (s_msg_t > 0.0f) rendertext_draw(fb, 0xFFFFFFFFu, pax_font_sky_mono, 12, 12, 4, s_msg);
+            text_draw_firm(fb, 0xFFA0A0A8u, 12, tx, 300.0f + (float)i * 15.0f, dhelp[i]);
+        if (s_msg_t > 0.0f) text_draw_firm(fb, 0xFFFFFFFFu, 12, 12, 4, s_msg);
         if (s_menu) {
             se_menu_def_t def;
             build_debug_menu(&def);

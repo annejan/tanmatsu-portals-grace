@@ -902,6 +902,8 @@ static int story_through(char const* dir, char const* film, char const* pick) {
     story_rounds_t const rr = {n, pk.n_routes > 0 ? pk.route_of : NULL};
     story_t              s;
     story_begin(&s, 0);
+    // DESK_LARGE=1: the desk as Large text has it (main/deskview.c), 56 by 18.
+    if (getenv("DESK_LARGE") != NULL && getenv("DESK_LARGE")[0] == '1') desk_set_size(&k, 56, 18);
     desk_begin(&k, &d, &s, n, true);
     desk_set_rounds(&k, &pk, names);
     // The day starts: the assignment read, the queue opened.

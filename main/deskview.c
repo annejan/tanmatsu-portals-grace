@@ -4,14 +4,19 @@
 #include "pax_fonts.h"
 #include "se_text.h"
 #include "synthengine3d.h"
+#include "text.h"
 
 // The engine's text is Hershey simplex, which is proportional ('m' is
 // nearly four times an 'i'): a terminal wants columns, so each character
 // is drawn on its own, centred in its cell. 80 cells of 10 px fill the
-// screen's 800, and at 12.5 the widest letter's ink still fits one.
+// screen's 800, and at 12.5 the widest letter's ink still fits one. Large
+// text (text.h): 56 cells of 14.3 px, 18 rows, the letters 17.5 high and
+// drawn twice, a pixel apart.
 #define TEXT_H    12.5f
 #define CELL_W    10.0f
 #define ROW_H     19.0f
+#define LARGE_COLS 56
+#define LARGE_ROWS 18
 #define GREEN     0xFF7CFF8Au
 #define DIM       0xFF2E6B38u
 #define SCREEN_BG 0xFF050806u
@@ -70,20 +75,33 @@ desk_action_t deskview_event(desk_t* k, bsp_input_event_t const* ev) {
     }
 }
 
-// A row of text, a character to a cell from `x0`.
-static void row_text(pax_buf_t* fb, pax_col_t col, float x0, float y, char const* text) {
-    static float adv[95];  // each printable character's advance at TEXT_H
-    if (adv[0] <= 0.0f)
+void deskview_size(desk_t* k) {
+    if (text_large())
+        desk_set_size(k, LARGE_COLS, LARGE_ROWS);
+    else
+        desk_set_size(k, DESK_COLS, DESK_ROWS);
+}
+
+// A row of text, a character to a cell of `cell` px from `x0`, `h` high;
+// `bold`: each twice, a pixel apart.
+static void row_text(pax_buf_t* fb, pax_col_t col, float x0, float y, char const* text, int cols, float cell, float h,
+                     bool bold) {
+    static float adv[95];  // each printable character's advance at `at`
+    static float at;
+    if (at != h) {
+        at = h;
         for (int c = 0; c < 95; c++) {
             char const s[2] = {(char)(32 + c), 0};
-            adv[c]          = rendertext_size(pax_font_sky_mono, TEXT_H, s).x;
+            adv[c]          = rendertext_size(pax_font_sky_mono, h, s).x;
         }
-    for (int i = 0; text[i] && i < DESK_COLS; i++) {
+    }
+    for (int i = 0; text[i] && i < cols; i++) {
         unsigned char const ch = (unsigned char)text[i];
         if (ch <= 32 || ch > 126) continue;
-        char const s[2] = {(char)ch, 0};
-        rendertext_draw(fb, col, pax_font_sky_mono, TEXT_H, x0 + CELL_W * (float)i + (CELL_W - adv[ch - 32]) * 0.5f,
-                        y, s);
+        char const  s[2] = {(char)ch, 0};
+        float const x    = x0 + cell * (float)i + (cell - adv[ch - 32] - (bold ? 1.0f : 0.0f)) * 0.5f;
+        rendertext_draw(fb, col, pax_font_sky_mono, h, x, y, s);
+        if (bold) rendertext_draw(fb, col, pax_font_sky_mono, h, x + 1.0f, y, s);
     }
 }
 
@@ -101,18 +119,22 @@ void deskview_draw(pax_buf_t* fb, desk_t const* k) {
     pax_col_t const bg = badge ? BADGE_BG : SCREEN_BG, fg = badge ? BADGE_TEXT : GREEN;
     pax_col_t const bar = badge ? BADGE_BAR : GREEN, dim = badge ? BADGE_DIM : DIM;
     pax_background(fb, bg);
-    float const x0 = ((float)DISPLAY_LOG_W - CELL_W * DESK_COLS) * 0.5f;
-    float const y0 = ((float)DISPLAY_LOG_H - ROW_H * DESK_ROWS) * 0.5f;
-    for (int r = 0; r < DESK_ROWS; r++) {
-        float const y = y0 + ROW_H * (float)r;
+    bool const  large = k->cols == LARGE_COLS;
+    int const   cols = large ? LARGE_COLS : DESK_COLS, n_rows = large ? LARGE_ROWS : DESK_ROWS;
+    float const cell = large ? (float)DISPLAY_LOG_W / LARGE_COLS : CELL_W;
+    float const rh = large ? 26.0f : ROW_H, th = large ? 17.5f : TEXT_H, pad = large ? 5.0f : 4.0f;
+    float const x0 = ((float)DISPLAY_LOG_W - cell * (float)cols) * 0.5f;
+    float const y0 = ((float)DISPLAY_LOG_H - rh * (float)n_rows) * 0.5f;
+    for (int r = 0; r < n_rows; r++) {
+        float const y = y0 + rh * (float)r;
         if (r == hl) {
-            pax_simple_rect(fb, bar, x0, y, CELL_W * DESK_COLS, ROW_H);
-            row_text(fb, badge ? BADGE_TEXT : bg, x0, y + 4, rows[r]);
+            pax_simple_rect(fb, bar, x0, y, cell * (float)cols, rh);
+            row_text(fb, badge ? BADGE_TEXT : bg, x0, y + pad, rows[r], cols, cell, th, large);
         } else if (rows[r][0]) {
-            row_text(fb, fg, x0, y + 4, rows[r]);
+            row_text(fb, fg, x0, y + pad, rows[r], cols, cell, th, large);
         }
     }
     // The cursor, blinking: a bar under its cell.
     if (cur_row >= 0 && (esp_timer_get_time() / 500000) % 2 == 0)
-        pax_simple_rect(fb, dim, x0 + CELL_W * (float)cur_col, y0 + ROW_H * (float)cur_row + ROW_H - 4, CELL_W, 3);
+        pax_simple_rect(fb, dim, x0 + cell * (float)cur_col, y0 + rh * (float)cur_row + rh - 4, cell, 3);
 }

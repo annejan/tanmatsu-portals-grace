@@ -152,6 +152,7 @@ typedef struct {
     int                page_lines, page_top;
     uint8_t            page_back;  // the view it goes back to
     int                mail_cur;
+    int                cols, rows;  // the screen's size (desk_set_size); 0: DESK_COLS by DESK_ROWS
 } desk_t;
 
 // At the desk, for story `s` of `n_rounds` round files: `fresh` for the
@@ -166,8 +167,12 @@ void          desk_after_round(desk_t* k, story_result_t const* r);
 int           desk_clock(desk_t const* k);
 // Whether the story's rounds are all approved.
 bool          desk_done(desk_t const* k);
-// The screen as it stands: 25 rows of text, where the cursor is (-1: none)
-// and which row is highlighted (-1: none).
+// The screen's size in characters: DESK_COLS by DESK_ROWS, or fewer for
+// larger letters (Large text: 56 by 18). Lines after this wrap to it.
+void          desk_set_size(desk_t* k, int cols, int rows);
+// The screen as it stands: its rows of text (desk_set_size; the rest
+// empty), where the cursor is (-1: none) and which row is highlighted
+// (-1: none).
 void          desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_row, int* cur_col, int* hl);
 
 // A save: the story where it is, and the mail read. Its length, or -1.

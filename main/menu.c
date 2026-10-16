@@ -9,6 +9,7 @@
 #include "level.h"
 #include "pack.h"
 #include "settings.h"
+#include "text.h"
 #include "sound.h"
 #include "synthengine3d.h"
 
@@ -340,6 +341,7 @@ static se_menu_row_t s_story_rows[3];
 static char          s_story_title[48];
 
 enum {
+    SET_TEXT,
     SET_GYRO,
     SET_HALF,
     SET_DEPTH,
@@ -427,6 +429,8 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
             return s_round ? ROUND_ROWS : PAUSE_ROWS;
         case SCR_SETTINGS:
             snprintf(s_depth_text, sizeof(s_depth_text), "%d", settings_portal_depth());
+            s_set_rows[SET_TEXT] =
+                (se_menu_row_t){.label = "Large text", .kind = SE_MENU_VAL_CHECK, .checked = settings_large_text()};
             s_set_rows[SET_GYRO] =
                 (se_menu_row_t){.label = "Gyroscope look", .kind = SE_MENU_VAL_CHECK, .checked = settings_gyro()};
             s_set_rows[SET_HALF] = (se_menu_row_t){
@@ -679,6 +683,9 @@ menu_cmd_t menu_update(void) {
             int const d = r == SE_MENU_RESULT_INCREMENT ? 10 : r == SE_MENU_RESULT_DECREMENT ? -10 : 0;
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == SET_BACK)) {
                 go(s_home);
+            } else if (cur == SET_TEXT && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
+                settings_set_large_text(!settings_large_text());
+                text_set_large(settings_large_text());
             } else if (cur == SET_GYRO && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
                 settings_set_gyro(!settings_gyro());
             } else if (cur == SET_HALF && (r == SE_MENU_RESULT_ACTIVATED || (act & (A_LEFT | A_RIGHT)))) {
@@ -823,7 +830,7 @@ static void draw_wrapped(pax_buf_t* fb, float x, float y, float w, float h, pax_
         }
         if (fit == 0) fit = strlen(p) < sizeof(line) - 1 ? strlen(p) : sizeof(line) - 1;  // one long word
         snprintf(line, sizeof(line), "%.*s", (int)fit, p);
-        rendertext_draw(fb, col, NULL, h, x, y + (float)n * h * 1.45f, line);
+        text_draw_firm(fb, col, h, x, y + (float)n * h * 1.45f, line);
         p += fit;
     }
 }

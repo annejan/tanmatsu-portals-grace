@@ -15,6 +15,7 @@ static bool s_fx    = true;
 static bool s_leds  = true;
 static bool s_voice = true;
 static bool s_ftime = false;
+static bool s_large = false;
 static bool s_ghost = true;
 static bool s_lifts = true;
 static bool s_mmusic = true;
@@ -50,6 +51,7 @@ void settings_load(void) {
         s_ghost  = get(h, "ghost", s_ghost) != 0;
         s_lifts  = get(h, "lifts", s_lifts) != 0;
         s_mmusic = get(h, "mmusic", s_mmusic) != 0;
+        s_large  = get(h, "large", s_large) != 0;
         size_t n = sizeof(s_chamber);
         if (nvs_get_str(h, "chamber", s_chamber, &n) != ESP_OK) s_chamber[0] = '\0';
         nvs_close(h);
@@ -119,6 +121,15 @@ bool settings_ghosts(void) {
 void settings_set_ghosts(bool on) {
     s_ghost = on;
     put("ghost", on);
+}
+
+bool settings_large_text(void) {
+    return s_large;
+}
+
+void settings_set_large_text(bool on) {
+    s_large = on;
+    put("large", on);
 }
 
 bool settings_frame_times(void) {

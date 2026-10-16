@@ -24,6 +24,7 @@
 #include "se_ui.h"    // editor.c's menus: there, not opened here
 
 #include "../main/editor.c"
+#include "../main/text.c"
 #include "../synthengine3D/src/rendertext.c"
 
 // --- The badge's framebuffer, as tests/movie_hud.c -----------------------

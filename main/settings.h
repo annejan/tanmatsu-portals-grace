@@ -28,6 +28,8 @@ bool        settings_lifts(void);  // a lift from one chamber to the next, no st
 void        settings_set_lifts(bool on);
 bool        settings_ghosts(void);  // race the ghost of each chamber's best run (ghost.h)
 void        settings_set_ghosts(bool on);
+bool        settings_large_text(void);  // the game's own text larger and bolder (text.h)
+void        settings_set_large_text(bool on);
 bool        settings_frame_times(void);  // a recording's summary shows the frame rate in each chamber
 void        settings_set_frame_times(bool on);
 // The chamber play was last in, by its id ("" if none yet): Continue, on

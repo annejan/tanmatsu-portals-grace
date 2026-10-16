@@ -316,20 +316,34 @@ static bool arrived(desk_t const* k, int i) {
     return holds(k, &k->d->mails[i].after);
 }
 
-// A line into the scrollback (cut at 80).
+static int cols_of(desk_t const* k) {
+    return k->cols > 0 && k->cols <= DESK_COLS ? k->cols : DESK_COLS;
+}
+
+static int rows_of(desk_t const* k) {
+    return k->rows > 0 && k->rows <= DESK_ROWS ? k->rows : DESK_ROWS;
+}
+
+void desk_set_size(desk_t* k, int cols, int rows) {
+    k->cols = cols;
+    k->rows = rows;
+}
+
+// A line into the scrollback (cut at the screen's width).
 static void out(desk_t* k, char const* fmt, ...) {
     char    buf[512];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
-    // Wrapped at 80, at a space where there is one.
-    char const* p = buf;
+    // Wrapped at the screen's width, at a space where there is one.
+    size_t const w = (size_t)cols_of(k);
+    char const*  p = buf;
     do {
         size_t len = strlen(p);
-        if (len > DESK_COLS) {
-            len = DESK_COLS;
-            for (size_t c = DESK_COLS; c > DESK_COLS / 2; c--)
+        if (len > w) {
+            len = w;
+            for (size_t c = w; c > w / 2; c--)
                 if (p[c] == ' ') {
                     len = c;
                     break;
@@ -372,7 +386,9 @@ static story_rounds_t rounds_of(desk_t const* k) {
 
 void desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_rounds, bool fresh) {
     if (fresh || k->d != d) {
+        int const cols = k->cols, rows = k->rows;  // the screen's size stays
         memset(k, 0, sizeof(*k));
+        desk_set_size(k, cols, rows);
         k->d        = d;
         k->s        = s;
         k->n_rounds = n_rounds;
@@ -412,14 +428,10 @@ void desk_after_round(desk_t* k, story_result_t const* r) {
 
 // --- Pages: TYPE, and a mail opened ------------------------------------------
 
-// `text` wrapped into the page, a line per 81 bytes.
-static void page_open(desk_t* k, char const* title, char const* text, uint8_t back) {
-    int       n                 = 0;
-    int const max               = (int)(sizeof(k->page) / (DESK_COLS + 1));
-    char (*rows)[DESK_COLS + 1] = (char (*)[DESK_COLS + 1]) k->page;
-    if (title && n < max) snprintf(rows[n++], DESK_COLS + 1, "%s", title);
-    if (title && n < max) rows[n++][0] = '\0';
-    for (char const* p = text; *p && n < max;) {
+// `text`'s lines into `rows` from row *n, each wrapped at `w`, at a space
+// where there is one.
+static void wrap_into(char (*rows)[DESK_COLS + 1], int* n, int max, char const* text, size_t w) {
+    for (char const* p = text; *p && *n < max;) {
         char const* e   = strchr(p, '\n');
         size_t      len = e ? (size_t)(e - p) : strlen(p);
         if (len > 0 && p[len - 1] == '\r') len--;
@@ -428,21 +440,31 @@ static void page_open(desk_t* k, char const* title, char const* text, uint8_t ba
         size_t      left = len;
         do {
             size_t take = left;
-            if (take > DESK_COLS) {
-                take = DESK_COLS;
-                for (size_t c = DESK_COLS; c > DESK_COLS / 2; c--)
+            if (take > w) {
+                take = w;
+                for (size_t c = w; c > w / 2; c--)
                     if (q[c] == ' ') {
                         take = c;
                         break;
                     }
             }
-            snprintf(rows[n++], DESK_COLS + 1, "%.*s", (int)take, q);
+            snprintf(rows[(*n)++], DESK_COLS + 1, "%.*s", (int)take, q);
             q    += take;
             left -= take;
             while (left > 0 && *q == ' ') q++, left--;
-        } while (left > 0 && n < max);
+        } while (left > 0 && *n < max);
         p = e ? e + 1 : p + strlen(p);
     }
+}
+
+// `title` and `text` wrapped into the page, a line per 81 bytes.
+static void page_open(desk_t* k, char const* title, char const* text, uint8_t back) {
+    int       n                 = 0;
+    int const max               = (int)(sizeof(k->page) / (DESK_COLS + 1));
+    char (*rows)[DESK_COLS + 1] = (char (*)[DESK_COLS + 1]) k->page;
+    if (title) wrap_into(rows, &n, max, title, (size_t)cols_of(k));
+    if (title && n < max) rows[n++][0] = '\0';
+    wrap_into(rows, &n, max, text, (size_t)cols_of(k));
     k->page_lines = n;
     k->page_top   = 0;
     k->page_back  = back;
@@ -509,8 +531,9 @@ static void cmd_type(desk_t* k, char const* arg) {
 
 static void cmd_cal(desk_t* k) {
     int const now = desk_clock(k);
-    out(k, "CALENDAR                                                      Today  %02d:%02d", now / 60, now % 60);
-    out(k, "------------------------------------------------------------------------------");
+    // Today's time short of the right edge, a rule under it two short of it.
+    out(k, "CALENDAR%*sToday  %02d:%02d", cols_of(k) - 26, "", now / 60, now % 60);
+    out(k, "%.*s", cols_of(k) - 2, "------------------------------------------------------------------------------");
     if (k->d->n_events == 0) out(k, "(nothing today)");
     for (int i = 0; i < k->d->n_events; i++) {
         desk_event_t const* ev = &k->d->events[i];
@@ -694,7 +717,7 @@ static int inbox_n(desk_t const* k) {
 
 desk_action_t desk_key(desk_t* k, int key, char ch) {
     if (k->view == DV_PAGE) {
-        int const room = DESK_ROWS - 1;
+        int const room = rows_of(k) - 1;
         if (key == DK_ESC || key == DK_BACK) {
             k->view = k->page_back;
         } else if (key == DK_UP) {
@@ -734,7 +757,7 @@ desk_action_t desk_key(desk_t* k, int key, char ch) {
     // The prompt.
     switch (key) {
         case DK_CHAR:
-            if (ch >= ' ' && ch < 0x7F && k->in_len < DESK_COLS - (int)strlen(k->d->prompt) - 1) {
+            if (ch >= ' ' && ch < 0x7F && k->in_len < cols_of(k) - (int)strlen(k->d->prompt) - 1) {
                 memmove(k->in + k->in_cur + 1, k->in + k->in_cur, (size_t)(k->in_len - k->in_cur + 1));
                 k->in[k->in_cur++] = ch;
                 k->in_len++;
@@ -793,31 +816,33 @@ desk_action_t desk_key(desk_t* k, int key, char ch) {
 void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_row, int* cur_col, int* hl) {
     for (int r = 0; r < DESK_ROWS; r++) rows[r][0] = '\0';
     *cur_row = *cur_col = *hl = -1;
+    int const R = rows_of(k), C = cols_of(k);
     if (k->view == DV_PAGE) {
         char const(*page)[DESK_COLS + 1] = (char const(*)[DESK_COLS + 1]) k->page;
-        for (int r = 0; r < DESK_ROWS - 1 && k->page_top + r < k->page_lines; r++)
-            snprintf(rows[r], DESK_COLS + 1, "%s", page[k->page_top + r]);
-        bool const more = k->page_top + DESK_ROWS - 1 < k->page_lines;
-        snprintf(rows[DESK_ROWS - 1], DESK_COLS + 1, "%s",
+        for (int r = 0; r < R - 1 && k->page_top + r < k->page_lines; r++)
+            snprintf(rows[r], C + 1, "%s", page[k->page_top + r]);
+        bool const more = k->page_top + R - 1 < k->page_lines;
+        snprintf(rows[R - 1], C + 1, "%s",
                  more ? "-- More --  (Space: on   Esc: back)" : "-- End --  (Space or Esc: back)");
-        *hl = DESK_ROWS - 1;
+        *hl = R - 1;
         return;
     }
     if (k->view == DV_MAIL) {
         int const n = inbox_n(k);
-        snprintf(rows[0], DESK_COLS + 1, "%s  %s@%s", k->d->badge ? "CHAT" : "MAIL", k->d->user, k->d->host);
-        snprintf(rows[1], DESK_COLS + 1,
+        snprintf(rows[0], C + 1, "%s  %s@%s", k->d->badge ? "CHAT" : "MAIL", k->d->user, k->d->host);
+        snprintf(rows[1], C + 1, "%.*s", C - 2,
                  "------------------------------------------------------------------------------");
-        if (n == 0) snprintf(rows[2], DESK_COLS + 1, "(no mail)");
-        int const top = k->mail_cur > DESK_ROWS - 6 ? k->mail_cur - (DESK_ROWS - 6) : 0;
-        for (int r = 0; r < DESK_ROWS - 4 && top + r < n; r++) {
+        if (n == 0) snprintf(rows[2], C + 1, "(no mail)");
+        int const top = k->mail_cur > R - 6 ? k->mail_cur - (R - 6) : 0;
+        for (int r = 0; r < R - 4 && top + r < n; r++) {
             int const          i = inbox(k, top + r);
             desk_mail_t const* m = &k->d->mails[i];
-            snprintf(rows[2 + r], DESK_COLS + 1, "%c %-20.20s %-.55s", (k->read & (1u << i)) ? ' ' : '*', m->from,
-                     m->subject);
+            int const          from = C >= 80 ? 20 : 14;  // the sender's column; the subject, the rest
+            snprintf(rows[2 + r], C + 1, "%c %-*.*s %-.*s", (k->read & (1u << i)) ? ' ' : '*', from, from, m->from,
+                     C - from - 3, m->subject);
             if (top + r == k->mail_cur) *hl = 2 + r;
         }
-        snprintf(rows[DESK_ROWS - 1], DESK_COLS + 1, "Up/Down: choose   Enter: read   Esc: back");
+        snprintf(rows[R - 1], C + 1, "Up/Down: choose   Enter: read   Esc: back");
         return;
     }
     // The prompt: the scrollback's last lines, then the input line -- under
@@ -837,16 +862,16 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
             else
                 snprintf(right, sizeof(right), "%.24s: now! ", k->d->countdown_what);
         }
-        int const w = DESK_COLS - (int)strlen(right);
-        snprintf(rows[0], DESK_COLS + 1, "%-*.*s%s", w, w, left, right);
+        int const w = C - (int)strlen(right);
+        snprintf(rows[0], C + 1, "%-*.*s%s", w, w, left, right);
         *hl = 0;
         top = 1;
     }
     int const shown = k->n_lines < DESK_LINES ? k->n_lines : DESK_LINES;
-    int const above = shown < DESK_ROWS - 1 - top ? shown : DESK_ROWS - 1 - top;
+    int const above = shown < R - 1 - top ? shown : R - 1 - top;
     for (int r = 0; r < above; r++)
-        snprintf(rows[top + r], DESK_COLS + 1, "%s", k->lines[(k->n_lines - above + r) % DESK_LINES]);
-    snprintf(rows[top + above], DESK_COLS + 1, "%.23s%.57s", k->d->prompt, k->in);
+        snprintf(rows[top + r], C + 1, "%s", k->lines[(k->n_lines - above + r) % DESK_LINES]);
+    snprintf(rows[top + above], C + 1, "%.23s%.57s", k->d->prompt, k->in);
     *cur_row = top + above;
     *cur_col = (int)strlen(k->d->prompt) + k->in_cur;
 }

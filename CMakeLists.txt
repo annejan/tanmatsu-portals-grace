@@ -42,6 +42,7 @@ set(APP_SOURCES
     main/settings.c
     main/sound.c
     main/speech.c
+    main/text.c
     main/watch.c
 )
 

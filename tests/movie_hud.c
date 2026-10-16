@@ -21,6 +21,7 @@
 #include "../main/hud.c"
 #include "../main/input.c"
 #include "../main/outro.c"
+#include "../main/text.c"
 #include "../synthengine3D/src/rendertext.c"
 
 #include "movie_hud.h"
@@ -135,6 +136,9 @@ esp_err_t bsp_orientation_get(bool* gr, bool* ar, float* gx, float* gy, float* g
 
 void movie_hud_init(void) {
     input_init();  // the bindings as they ship
+    // HOST_MOVIE_LARGE_TEXT=1: the HUD as Large text (settings.h) draws it.
+    char const* const large = getenv("HOST_MOVIE_LARGE_TEXT");
+    text_set_large(large != NULL && large[0] == '1');
 }
 
 // The framebuffer back out, as 8-bit channels.
