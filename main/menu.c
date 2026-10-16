@@ -58,7 +58,7 @@ static void list_recordings(void) {
     for (int p = 0; p < pack_count() && s_n_recs < RECORDINGS_MAX; p++) {
         pack_t const* const pk = pack_get(p);
         char                dir[96];
-        snprintf(dir, sizeof(dir), "%s/%s/replays", PACK_DIR, pk->id);
+        snprintf(dir, sizeof(dir), "%s/%s/replays", PACK_DIR, pk->folder);
         int const n = recording_list(dir, ids, names);
         for (int i = 0; i < n && s_n_recs < RECORDINGS_MAX; i++, s_n_recs++) {
             memcpy(s_rec_ids[s_n_recs], ids[i], CHAMBER_ID_N);
@@ -172,7 +172,7 @@ static void title(int continue_chamber, int story) {
     }
     s_title_n = 0;
     for (int t = cont ? T_CONTINUE : T_NEW; t < T_COUNT; t++) {
-        if (t == T_STORIES && pack_count() == 0) continue;  // none on the card
+        if (t == T_STORIES && pack_count() == 0 && pack_skipped_count() == 0) continue;  // none on the card
         s_title_of[s_title_n] = (title_row_t)t;
         s_title_rows[s_title_n] =
             t == T_CONTINUE
@@ -334,7 +334,7 @@ static char          s_t_label[RECORDING_MAX][32], s_t_value[RECORDING_MAX][TIME
 static int           s_t_n;
 static screen_t      s_t_back;  // what was up under it, or SCR_NONE
 static se_menu_row_t s_t_rows[RECORDING_MAX + 2];
-static se_menu_row_t s_st_rows[PACK_MAX + 1];  // the story packs
+static se_menu_row_t s_st_rows[PACK_MAX + PACK_SKIPPED + 1];  // the story packs, then what could not be played
 static char          s_st_sub[100];
 static se_menu_row_t s_story_rows[3];
 static char          s_story_title[48];
@@ -492,20 +492,29 @@ static int build_rows(screen_t s, se_menu_def_t* def) {
                 s_st_rows[i] = s_st_saved[i] ? (se_menu_row_t){.label = pack_get(i)->name, .kind = SE_MENU_VAL_TEXT,
                                                                .value = "in progress"}
                                              : (se_menu_row_t){.label = pack_get(i)->name};
-            s_st_rows[n]          = (se_menu_row_t){.label = "Back"};
+            // Folders and zips on the card that hold no story to play: listed,
+            // with why, so a pack that is not there says so.
+            int const sk = pack_skipped_count();
+            for (int i = 0; i < sk; i++)
+                s_st_rows[n + i] = (se_menu_row_t){.label = pack_skipped(i)->name, .kind = SE_MENU_VAL_TEXT,
+                                                   .value = pack_skipped(i)->why};
+            s_st_rows[n + sk]     = (se_menu_row_t){.label = "Back"};
             // The one the cursor is on: who made it (what it is goes under
             // the list, wrapped: menu_draw -- the subtitle is one line).
             pack_t const* const p = pack_get(s_cursor[SCR_STORIES]);
             if (p != NULL && p->author[0])
                 snprintf(s_st_sub, sizeof(s_st_sub), "by %.40s", p->author);
+            else if (p == NULL && s_cursor[SCR_STORIES] < n + sk)
+                snprintf(s_st_sub, sizeof(s_st_sub), "Not a story this build can play");
             else
                 snprintf(s_st_sub, sizeof(s_st_sub), "%s", p != NULL ? "" : "Story packs from the card");
             def->title     = "STORIES";
             def->subtitle  = s_st_sub;
             def->rows      = s_st_rows;
-            def->row_count = n + 1;
-            def->hint      = "Copy a pack's folder to " PACK_DIR;
-            return n + 1;
+            def->row_count = n + sk + 1;
+            def->hint      = sk > 0 ? "What is wrong: scene.rs/stories/check"
+                                    : "Copy a pack's folder to " PACK_DIR;
+            return n + sk + 1;
         }
         case SCR_STORY:
             s_story_rows[0] = (se_menu_row_t){.label = "Continue"};
@@ -741,6 +750,8 @@ menu_cmd_t menu_update(void) {
         case SCR_STORIES:
             if (r == SE_MENU_RESULT_BACK || (r == SE_MENU_RESULT_ACTIVATED && cur == def.row_count - 1)) {
                 go(s_home);
+            } else if (r == SE_MENU_RESULT_ACTIVATED && cur >= pack_count()) {
+                // A folder that holds no story: nothing to start.
             } else if (r == SE_MENU_RESULT_ACTIVATED && cur < PACK_MAX && s_st_saved[cur]) {
                 s_story_pick        = cur;  // part played: carry on, or start over?
                 s_cursor[SCR_STORY] = 0;

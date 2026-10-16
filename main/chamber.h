@@ -154,5 +154,7 @@ int         chamber_main_n(void);
 // The folders in `dir`, by name, at most `max`: names valid until the
 // next listing.
 int         chamber_list_subdirs(char const* dir, char const** names, int max);
+// The .zip files in `dir`, the same way.
+int         chamber_list_zips(char const* dir, char const** names, int max);
 // How many of the list are built in.
 int         chamber_builtin_n(void);

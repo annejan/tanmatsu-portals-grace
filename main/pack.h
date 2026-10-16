@@ -66,7 +66,8 @@ typedef struct {
 } pack_route_t;
 
 typedef struct {
-    char id[32];  // its folder's name
+    char id[32];      // its folder's name
+    char folder[64];  // where its files are, under PACK_DIR: the id, or id/id (unzipped into a folder of its own)
     char name[48];
     char author[32];
     char about[96];
@@ -88,6 +89,17 @@ typedef struct {
 // Read every pack in `dir`, adding their chambers to the chamber list
 // (packs read before are forgotten). Returns how many packs.
 int           pack_load(char const* dir);
+// What pack_load found in `dir` but could not play, so the Stories screen
+// can say: a folder with no chamber in it, or a zip not unzipped. `name` is
+// the folder's or the zip's, `why` a few words for the list; NULL past the
+// last.
+#define PACK_SKIPPED 8
+typedef struct {
+    char name[32];
+    char why[24];
+} pack_skip_t;
+int                pack_skipped_count(void);
+pack_skip_t const* pack_skipped(int i);
 int           pack_count(void);
 pack_t const* pack_get(int i);
 // The pack chamber `chamber` is in, and its place in it; -1 if none.

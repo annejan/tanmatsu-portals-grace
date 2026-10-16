@@ -1919,6 +1919,36 @@ static void test_packs(void) {
           "no music: line: after-hours its own (%s), another the game's (%s)", pack_get(0)->music,
           pack_get(1)->music);
 
+    // What a card gets wrong: a pack unzipped into a folder of its own
+    // (played from there), a folder with no chamber in it, a zip as it came.
+    char nest[300], e[300], f[300];
+    snprintf(dir, sizeof(dir), "%s/test_packs_card", build != NULL && build[0] ? build : "build");
+    snprintf(a, sizeof(a), "%s/hackfest", dir);
+    snprintf(nest, sizeof(nest), "%s/hackfest/hackfest", dir);
+    snprintf(e, sizeof(e), "%s/broken", dir);
+    snprintf(f, sizeof(f), "%s/broken/desk", dir);
+    mkdir(dir, 0755);
+    mkdir(a, 0755);
+    mkdir(nest, 0755);
+    mkdir(e, 0755);
+    mkdir(f, 0755);
+    snprintf(text, sizeof(text), "name: Reflow\n%s", room);
+    write_file(nest, "reflow.txt", text);
+    write_file(nest, "pack.txt", "name: Off to Hackfest\nchamber: reflow\n");
+    write_file(f, "day.txt", "start: 09:00\n");
+    write_file(dir, "after-hours.zip", "PK");
+    write_file(dir, "hackfest.zip", "PK");
+    CHECK(pack_load(dir) == 1 && strcmp(pack_get(0)->name, "Off to Hackfest") == 0 &&
+              strcmp(pack_get(0)->folder, "hackfest/hackfest") == 0 &&
+              strcmp(chamber_id(pack_get(0)->chamber[0]), "hackfest/reflow") == 0,
+          "a pack a folder down: played from there, its id its outer folder's");
+    CHECK(pack_skipped_count() == 2 && strcmp(pack_skipped(0)->name, "broken") == 0 &&
+              strcmp(pack_skipped(0)->why, "no chamber in it") == 0 &&
+              strcmp(pack_skipped(1)->name, "after-hours.zip") == 0 &&
+              strcmp(pack_skipped(1)->why, "unzip it first") == 0 && pack_skipped(2) == NULL,
+          "a folder with no chamber, a zip without its folder: said (%d), its desk/ not a pack",
+          pack_skipped_count());
+
     // A desk story: its rounds, not its "chamber:" lines (an older build's
     // room), and its outro.
     static pack_t d;

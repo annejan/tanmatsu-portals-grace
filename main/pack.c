@@ -13,8 +13,10 @@
 #define LOGI(...) ((void)0)
 #endif
 
-static pack_t s_packs[PACK_MAX];
-static int    s_n;
+static pack_t      s_packs[PACK_MAX];
+static int         s_n;
+static pack_skip_t s_skipped[PACK_SKIPPED];
+static int         s_n_skipped;
 
 int pack_count(void) {
     return s_n;
@@ -131,6 +133,42 @@ static char const* const s_own_music[][2] = {
     {"after-hours", "overtime"},
 };
 
+// Whether `folder` has a pack.txt.
+static bool has_pack_txt(char const* folder) {
+    char path[256];
+    snprintf(path, sizeof(path), "%s/pack.txt", folder);
+    FILE* const f = card_fopen(path, "rb");
+    if (f == NULL) return false;
+    fclose(f);
+    return true;
+}
+
+// Whether `folder` holds a pack: a pack.txt, or chamber files.
+static bool has_pack(char const* folder) {
+    char const* names[1];
+    return has_pack_txt(folder) || chamber_list_dir(folder, names, 1) > 0;
+}
+
+// Where pack `id`'s files are, under `dir`: its folder, or -- unzipped
+// into a folder of its own, dlc/hackfest/hackfest/ -- the one folder in
+// it, if that has a pack.txt (a pack's desk/ is not a pack). Into `rel`;
+// false if neither holds a pack.
+static bool find_folder(char const* dir, char const* id, char* rel, size_t n) {
+    char folder[240];
+    snprintf(rel, n, "%.31s", id);
+    snprintf(folder, sizeof(folder), "%.150s/%.31s", dir, id);
+    if (has_pack(folder)) return true;
+    char const* names[2];
+    if (chamber_list_subdirs(folder, names, 2) != 1 || strlen(names[0]) >= 32) return false;
+    char sub[32];
+    snprintf(sub, sizeof(sub), "%s", names[0]);  // names are overwritten by the next listing
+    snprintf(rel, n, "%.31s/%.31s", id, sub);
+    snprintf(folder, sizeof(folder), "%.150s/%s", dir, rel);
+    if (!has_pack_txt(folder)) return false;
+    LOGW("%s/%s: the pack is a folder down, in %s", dir, id, sub);
+    return true;
+}
+
 // The pack in folder `dir`/`id`: its pack.txt, and its chambers added.
 static bool load_one(char const* dir, char const* id, pack_t* p) {
     memset(p, 0, sizeof(*p));
@@ -138,10 +176,14 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
     snprintf(p->id, sizeof(p->id), "%.31s", id);
     snprintf(p->name, sizeof(p->name), "%.47s", id);
     char        path[320];
-    char        folder[200];
+    char        folder[220];
     static char files[PACK_CHAMBERS][CHAMBER_ID_N];
     int         n = 0;
-    snprintf(folder, sizeof(folder), "%.150s/%.31s", dir, id);
+    if (!find_folder(dir, id, p->folder, sizeof(p->folder))) {
+        LOGW("%s/%s: no chamber in it", dir, id);
+        return false;
+    }
+    snprintf(folder, sizeof(folder), "%.150s/%s", dir, p->folder);
     // pack.txt, if there is one.
     snprintf(path, sizeof(path), "%s/pack.txt", folder);
     FILE* f = card_fopen(path, "rb");
@@ -195,20 +237,52 @@ static bool load_one(char const* dir, char const* id, pack_t* p) {
     return p->n > 0;
 }
 
+static void skip(char const* name, char const* why) {
+    if (s_n_skipped >= PACK_SKIPPED) return;
+    snprintf(s_skipped[s_n_skipped].name, sizeof(s_skipped[0].name), "%.31s", name);
+    snprintf(s_skipped[s_n_skipped].why, sizeof(s_skipped[0].why), "%s", why);
+    s_n_skipped++;
+}
+
+int pack_skipped_count(void) {
+    return s_n_skipped;
+}
+
+pack_skip_t const* pack_skipped(int i) {
+    return i >= 0 && i < s_n_skipped ? &s_skipped[i] : NULL;
+}
+
 int pack_load(char const* dir) {
-    s_n = 0;
+    s_n         = 0;
+    s_n_skipped = 0;
     char const* names[PACK_MAX];
-    static char ids[PACK_MAX][32];
+    static char ids[PACK_MAX][64];
     int const   n = chamber_list_subdirs(dir, names, PACK_MAX);
     for (int i = 0; i < n; i++)
         snprintf(ids[i], sizeof(ids[i]), "%s", names[i]);  // names are overwritten as packs load
     for (int i = 0; i < n && s_n < PACK_MAX; i++)
-        if (strlen(names[i]) >= sizeof(ids[i]))
-            LOGW("%s/%s: folder name too long -- skipped", dir, names[i]);
-        else if (load_one(dir, ids[i], &s_packs[s_n])) {
+        if (strlen(ids[i]) >= sizeof(s_packs[0].id)) {
+            LOGW("%s/%s: folder name too long -- skipped", dir, ids[i]);
+            skip(ids[i], "name too long");
+        } else if (load_one(dir, ids[i], &s_packs[s_n])) {
             LOGI("%s: %s, %d chambers", ids[i], s_packs[s_n].name, s_packs[s_n].n);
             s_n++;
+        } else {
+            skip(ids[i], "no chamber in it");
         }
+    // A zip copied as it is: the game reads folders, not zips. Unless its
+    // folder is there too.
+    int const z = chamber_list_zips(dir, names, PACK_MAX);
+    for (int i = 0; i < z; i++) snprintf(ids[i], sizeof(ids[i]), "%s", names[i]);
+    for (int i = 0; i < z; i++) {
+        size_t const len = strlen(ids[i]) - 4;
+        bool         got = false;
+        for (int k = 0; k < s_n; k++) got |= strlen(s_packs[k].id) == len && strncmp(s_packs[k].id, ids[i], len) == 0;
+        if (!got) {
+            LOGW("%s/%s: a zip -- unzip it into %s", dir, ids[i], dir);
+            skip(ids[i], "unzip it first");
+        }
+    }
     return s_n;
 }
 

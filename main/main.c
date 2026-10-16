@@ -810,7 +810,7 @@ static void desk_save(void) {
 static bool desk_enter(int pk) {
     pack_t const* const p = pack_get(pk);
     char                dir[160], err[96];
-    snprintf(dir, sizeof(dir), "%s/%.40s", PACK_DIR, p->id);
+    snprintf(dir, sizeof(dir), "%s/%.63s", PACK_DIR, p->folder);
     if (!desk_load(&s_desk_data, dir, err, sizeof(err))) {
         ESP_LOGW(TAG, "%s: %s", dir, err);
         char msg[HUD_MESSAGE_N];

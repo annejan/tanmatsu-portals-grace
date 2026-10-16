@@ -1022,11 +1022,21 @@ static int by_name(void const* a, void const* b) {
     return strcmp(*(char const* const*)a, *(char const* const*)b);
 }
 
-static bool ends_txt(char const* name, size_t len) {
-    if (len < 5) return false;
-    char const* e = name + len - 4;
-    return e[0] == '.' && tolower((unsigned char)e[1]) == 't' && tolower((unsigned char)e[2]) == 'x' &&
-           tolower((unsigned char)e[3]) == 't';
+// Whether `name` ends in `ext` (".txt"), in any case, with a name before it.
+static bool ends_ext(char const* name, size_t len, char const* ext) {
+    size_t const k = strlen(ext);
+    if (len <= k) return false;
+    for (size_t i = 0; i < k; i++)
+        if (tolower((unsigned char)name[len - k + i]) != ext[i]) return false;
+    return true;
+}
+
+// What a listing keeps: chamber files, folders, or zips.
+typedef enum { LIST_TXT, LIST_DIRS, LIST_ZIPS } list_what_t;
+
+static bool list_keeps(list_what_t what, bool sub, char const* name, size_t len) {
+    if (what == LIST_DIRS) return sub;
+    return !sub && ends_ext(name, len, what == LIST_ZIPS ? ".zip" : ".txt");
 }
 
 static char s_found[CHAMBER_MAX][64];  // file names in the directory
@@ -1054,7 +1064,7 @@ static void keep_name(int* n, char const* name, size_t len) {
 // paths are volume-relative. Try the plausible spellings of the VFS path
 // and keep whichever opens (as SynthMiner's vfs_compat.c and the
 // engine's se_mp3.c do, for the same reason).
-static int list_dir_of(char const* dir, bool dirs) {
+static int list_dir_of(char const* dir, list_what_t what) {
     char const* rel = dir;
     if (strncmp(dir, "/sd", 3) == 0)
         rel = dir + 3;
@@ -1088,7 +1098,7 @@ static int list_dir_of(char const* dir, bool dirs) {
         size_t const len = strlen(info.fname);
         bool const   sub = (info.fattrib & AM_DIR) != 0;
         if (len >= sizeof(s_found[0]) || info.fname[0] == '.') continue;
-        if (dirs ? !sub : (sub || !ends_txt(info.fname, len))) continue;
+        if (!list_keeps(what, sub, info.fname, len)) continue;
         keep_name(&n, info.fname, len);
     }
     f_closedir(&d);
@@ -1097,7 +1107,7 @@ static int list_dir_of(char const* dir, bool dirs) {
 #else
 #include <dirent.h>
 #include <sys/stat.h>
-static int list_dir_of(char const* dir, bool dirs) {
+static int list_dir_of(char const* dir, list_what_t what) {
     s_listed = 0;
     DIR* d   = opendir(dir);
     if (d == NULL) return 0;
@@ -1110,7 +1120,7 @@ static int list_dir_of(char const* dir, bool dirs) {
         struct stat st;
         snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
         bool const sub = stat(path, &st) == 0 && S_ISDIR(st.st_mode);
-        if (dirs ? !sub : (sub || !ends_txt(e->d_name, len))) continue;
+        if (!list_keeps(what, sub, e->d_name, len)) continue;
         keep_name(&n, e->d_name, len);
     }
     closedir(d);
@@ -1120,7 +1130,7 @@ static int list_dir_of(char const* dir, bool dirs) {
 
 // The .txt files in `dir`, into s_found.
 static int list_dir(char const* dir) {
-    return list_dir_of(dir, false);
+    return list_dir_of(dir, LIST_TXT);
 }
 
 #ifdef ESP_PLATFORM
@@ -1222,13 +1232,21 @@ int chamber_main_n(void) {
     return s_main > 0 ? s_main : s_n;
 }
 
-int chamber_list_subdirs(char const* dir, char const** names, int max) {
+static int list_sorted(char const* dir, list_what_t what, char const** names, int max) {
     init();
-    int const   n = list_dir_of(dir, true);
+    int const   n = list_dir_of(dir, what);
     char const* all[CHAMBER_MAX];
     for (int i = 0; i < n; i++) all[i] = s_found[i];
     qsort(all, (size_t)n, sizeof(all[0]), by_name);
     int k = 0;
     for (; k < n && k < max; k++) names[k] = all[k];
     return k;
+}
+
+int chamber_list_subdirs(char const* dir, char const** names, int max) {
+    return list_sorted(dir, LIST_DIRS, names, max);
+}
+
+int chamber_list_zips(char const* dir, char const** names, int max) {
+    return list_sorted(dir, LIST_ZIPS, names, max);
 }
