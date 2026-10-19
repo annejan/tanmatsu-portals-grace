@@ -175,6 +175,7 @@ static void personalise(char* story, size_t n) {
 static story_t  s_story;
 static bool     s_story_on;  // the chamber in play is s_story's round
 static review_t s_review;    // its file's review keys
+static int      s_turret_told = -1;  // the chamber told how to set a turret down
 static draft_t* s_round_draft;
 static char*    s_round_text;
 
@@ -1241,6 +1242,17 @@ static void play_frame(float dt) {
     int const ev = game_step(&s_game, &step_in, st);
     if (s_ghost_live && s_mode == MODE_PLAY) ghost_frame(&s_ghost, &f);
     sound_events(ev);
+    // A turret picked up: how to put it down standing. It is held at eye
+    // height, and let go there it lands hard enough to fall over (game.h,
+    // TURRET_KNOCK). Once a chamber.
+    if ((ev & GAME_EV_PICKUP) && s_game.held >= 0 && s_game.lv.cube_turret[s_game.held] &&
+        s_turret_told != s_game.chamber) {
+        s_turret_told = s_game.chamber;
+        hud_message("Look down as you let go, or it falls over");
+    }
+    // A round that wants its turret standing: one knocked over stays down.
+    if ((ev & GAME_EV_TOPPLE) && s_story_on && review_forbids(&s_review.intended, "topple"))
+        hud_message("Knocked over for good. Esc: Restart");
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     // Out of the start's lift: its car goes back up.
     if (settings_lifts() && !s_story_on) lift_sounds(lift_depart_step(&s_depart, &sites_now()->start, s_game.pl.pos, dt));

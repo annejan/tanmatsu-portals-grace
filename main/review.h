@@ -94,6 +94,9 @@ bool review_parse(char const* text, review_t* r, char* err, size_t err_n);
 
 // A condition, after a run: all its terms held.
 bool review_holds(review_cond_t const* c, level_t const* lv, track_t const* t);
+// Whether condition `c` asks for `no <term>` ("topple"): something done that
+// way can no longer meet it, and the player may as well be told.
+bool review_forbids(review_cond_t const* c, char const* term);
 
 typedef struct {
     bool     intended;  // the meant way

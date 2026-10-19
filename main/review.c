@@ -372,6 +372,12 @@ static bool term_holds(review_term_t const* t, level_t const* lv, track_t const*
     return false;
 }
 
+bool review_forbids(review_cond_t const* c, char const* term) {
+    for (int i = 0; i < c->n; i++)
+        if (c->t[i].no && c->t[i].what < N_TERMS && strcmp(s_terms[c->t[i].what].word, term) == 0) return true;
+    return false;
+}
+
 bool review_holds(review_cond_t const* c, level_t const* lv, track_t const* t) {
     for (int i = 0; i < c->n; i++)
         if (term_holds(&c->t[i], lv, t) == c->t[i].no) return false;

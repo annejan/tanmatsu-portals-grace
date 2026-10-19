@@ -395,6 +395,9 @@ static void test_parse_errors(void) {
     CHECK(r.fixes[0].x0 == 0 && r.fixes[0].x1 == 2 && r.fixes[0].z1 == 1 && r.fixes[0].from == '.' &&
               r.fixes[0].to == '#',
           "a fix's range read wrong");
+    CHECK(review_forbids(&r.flaws[1].when, "portal") && !review_forbids(&r.flaws[1].when, "bridge") &&
+              !review_forbids(&r.flaws[0].when, "topple"),
+          "no portal forbidden, bridge and topple asked for, not forbidden");
     // No review keys: not a round.
     CHECK(review_parse("name: x\nsize: 3 3 3\n", &r, err, sizeof(err)) && r.kind == REVIEW_NONE, "plain chamber");
 }
