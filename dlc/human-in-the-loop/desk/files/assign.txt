@@ -21,3 +21,6 @@ debugger instead (DEBUG.TXT, once you have one).
 
 The queue must be empty by the end of the day. Type STATUS to see where
 it stands. See HANDBOOK.TXT for the scoring.
+
+Stuck? HINT asks her where to look, for a point. DEFER sends a draft
+back unreviewed, once you have loaded it twice. She will remember.

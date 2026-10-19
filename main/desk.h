@@ -20,6 +20,14 @@
 //   calendar.txt     event: / at: HH:MM / moves: <when> HH:MM|never, per event
 //   outro.txt        card: a line, typed on black, one card each
 //                    reveal: the last card, big; coda: lines under it
+//   hints.txt        pressure a: Stand on the third button yourself.
+//                    a hint per flaw: the round's file, the flaw's letter,
+//                    at most DESK_HINT_N characters. HINT says the one for
+//                    the next flaw not found (a point, once); GLaDOS says it
+//                    free after the draft is solved as meant twice. In its
+//                    own file, not the chamber's header: builds before
+//                    0.13.5 refuse a header key they do not know, and never
+//                    open this one.
 //
 // <when> is `round N` (N rounds played), `done N` (N chambers approved),
 // `mail ID` (that mail read) or `time HH:MM` (the clock that far on).
@@ -39,6 +47,8 @@
 #define DESK_LINES  160  // the prompt's scrollback
 #define DESK_ARENA  (64 * 1024)
 #define DESK_CARDS  12
+#define DESK_HINTS  32
+#define DESK_HINT_N 100
 
 typedef enum {
     WHEN_ALWAYS,
@@ -77,6 +87,12 @@ typedef struct {
 } desk_event_t;
 
 typedef struct {
+    char        file[32];  // the round's file id: "pressure"
+    char        flaw;      // its letter
+    char const* text;
+} desk_hint_t;
+
+typedef struct {
     char         user[16], host[24], prompt[24];
     int16_t      start, step;  // minutes
     bool         badge;        // style: badge -- a launcher, with TODO, ROUTE, GO and CHAT
@@ -95,6 +111,8 @@ typedef struct {
     char const*  reveal;  // its last card, or NULL
     char const*  coda[4];
     int          n_coda;
+    desk_hint_t  hints[DESK_HINTS];  // hints.txt
+    int          n_hints;
     char         arena[DESK_ARENA];  // the texts
     size_t       used;
 } desk_data_t;
@@ -115,6 +133,7 @@ typedef enum {
     DESK_LEAVE,  // the day done, and out of the door
     DESK_TITLE,  // Esc at an empty prompt: back to the title, saved
     DESK_RESTART,  // RESTART YES: the story from its start, its save gone
+    DESK_DEFER,    // DEFER: a draft sent back, the story moved on (to save)
 } desk_action_t;
 
 // Keys, as deskview.c turns the badge's into them.
@@ -132,6 +151,13 @@ enum {
     DK_TAB
 };
 
+// What HINT and DEFER need to know of a round (desk_set_round).
+typedef struct {
+    uint8_t kind;                    // review_kind_t
+    char    flaws[REVIEW_FLAWS + 1];  // its flaws' letters, in order: bit i of story_t.found
+    char    file[32];                // its file id, the pack's folder left off
+} desk_round_t;
+
 typedef struct {
     desk_data_t const* d;
     story_t*           s;
@@ -147,6 +173,7 @@ typedef struct {
     uint8_t            view;                  // desk_view_t
     pack_t const*      pack;  // its rounds, their routes (desk_set_rounds), or NULL
     char               names[PACK_CHAMBERS][32];
+    desk_round_t       rounds[PACK_CHAMBERS];
     int                playing;  // the round GO started
     char               page[DESK_ARENA / 4];  // a page's text, wrapped: TYPE, a mail
     int                page_lines, page_top;
@@ -161,6 +188,11 @@ void          desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_roun
 desk_action_t desk_key(desk_t* k, int key, char ch);
 // The story's rounds, for TODO and ROUTE: pack `p`, its rounds' names.
 void          desk_set_rounds(desk_t* k, pack_t const* p, char const names[][32]);
+// Round `i`'s file (its chamber id: "pack/file" or "file") and review
+// keys, for HINT and DEFER. After desk_set_rounds.
+void          desk_set_round(desk_t* k, int i, char const* id, review_t const* r);
+// The hint for the next flaw not yet found in the round in play, or NULL.
+char const*   desk_next_hint(desk_t const* k);
 // Back from a round's exit: its verdict in the log, and new mail told.
 void          desk_after_round(desk_t* k, story_result_t const* r);
 // The clock, minutes since midnight.

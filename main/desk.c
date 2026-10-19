@@ -281,6 +281,35 @@ bool desk_load(desk_data_t* d, char const* pack_dir, char* err, size_t err_n) {
             return fail(err, err_n, "desk/outro.txt: card:, reveal: or coda: (at most %d cards, 4 coda lines)",
                         DESK_CARDS);
     }
+
+    // The hints: "<file> <flaw>: <text>", a line each.
+    snprintf(path, sizeof(path), "%.200s/desk/hints.txt", pack_dir);
+    t = slurp(d, path);
+    for (char* p = t; p != NULL && *p;) {
+        char* e    = strchr(p, '\n');
+        char* next = e ? e + 1 : p + strlen(p);
+        if (e) *e = '\0';
+        char* const s = trim(p);
+        p             = next;
+        if (*s == '\0' || strncmp(s, "//", 2) == 0) continue;
+        char* const colon = strchr(s, ':');
+        if (colon == NULL || d->n_hints >= DESK_HINTS)
+            return fail(err, err_n, "desk/hints.txt: \"file a: hint\", at most %d", DESK_HINTS);
+        *colon            = '\0';
+        char* const  key  = trim(s);
+        char* const  sp   = strrchr(key, ' ');
+        char* const  text = trim(colon + 1);
+        desk_hint_t* h    = &d->hints[d->n_hints];
+        if (sp == NULL || sp[1] < 'a' || sp[1] > 'z' || sp[2] != '\0' || sp - key >= (long)sizeof(h->file))
+            return fail(err, err_n, "desk/hints.txt: %.30s: a round's file, then a flaw's letter", key);
+        if (*text == '\0' || strlen(text) > DESK_HINT_N)
+            return fail(err, err_n, "desk/hints.txt: %.30s: a hint, at most %d characters", key, DESK_HINT_N);
+        h->flaw = sp[1];
+        *sp     = '\0';
+        snprintf(h->file, sizeof(h->file), "%s", trim(key));
+        h->text = text;
+        d->n_hints++;
+    }
     return true;
 }
 
@@ -380,6 +409,36 @@ void desk_set_rounds(desk_t* k, pack_t const* p, char const names[][32]) {
     for (int i = 0; i < p->n && i < PACK_CHAMBERS; i++) snprintf(k->names[i], sizeof(k->names[i]), "%s", names[i]);
 }
 
+void desk_set_round(desk_t* k, int i, char const* id, review_t const* r) {
+    if (i < 0 || i >= PACK_CHAMBERS) return;
+    desk_round_t* const o     = &k->rounds[i];
+    char const* const   slash = strrchr(id, '/');
+    snprintf(o->file, sizeof(o->file), "%s", slash ? slash + 1 : id);
+    o->kind = r->kind;
+    int n   = 0;
+    for (int f = 0; f < r->n_flaws && n < REVIEW_FLAWS; f++) o->flaws[n++] = r->flaws[f].id;
+    o->flaws[n] = '\0';
+}
+
+// The next flaw not found in the round in play: its index, or -1.
+static int next_flaw(desk_t const* k) {
+    if (k->s->at < 0 || k->s->at >= PACK_CHAMBERS) return -1;
+    desk_round_t const* const o = &k->rounds[k->s->at];
+    if (o->kind != REVIEW_FLAWED) return -1;
+    for (int i = 0; o->flaws[i]; i++)
+        if (!(k->s->found & (1u << i))) return i;
+    return -1;
+}
+
+char const* desk_next_hint(desk_t const* k) {
+    int const f = next_flaw(k);
+    if (f < 0) return NULL;
+    desk_round_t const* const o = &k->rounds[k->s->at];
+    for (int i = 0; i < k->d->n_hints; i++)
+        if (k->d->hints[i].flaw == o->flaws[f] && strcmp(k->d->hints[i].file, o->file) == 0) return k->d->hints[i].text;
+    return NULL;
+}
+
 static story_rounds_t rounds_of(desk_t const* k) {
     return (story_rounds_t){k->n_rounds, k->pack != NULL && k->pack->n_routes > 0 ? k->pack->route_of : NULL};
 }
@@ -403,7 +462,15 @@ void desk_begin(desk_t* k, desk_data_t const* d, story_t* s, int n_rounds, bool 
     tell_mail(k);
 }
 
+// A round in the log; `say`, GLaDOS's line too (the game says it aloud
+// after a play, the desk only for a draft sent back).
+static void log_round(desk_t* k, story_result_t const* r, bool say);
+
 void desk_after_round(desk_t* k, story_result_t const* r) {
+    log_round(k, r, false);
+}
+
+static void log_round(desk_t* k, story_result_t const* r, bool say) {
     if (k->d->badge) {
         // A chore done: ticked off, and what the badge said of it.
         out(k, "");
@@ -421,7 +488,14 @@ void desk_after_round(desk_t* k, story_result_t const* r) {
     out(k, "");
     out(k, "[%02d:%02d] Round %d: %s", desk_clock(k) / 60, desk_clock(k) % 60, r->round, r->headline);
     out(k, "        Score: %d", k->s->score);
-    if (desk_done(k)) out(k, "Review queue empty. Nothing left to review today.");
+    if (say && r->line[0]) out(k, "GLaDOS: %s", r->line);
+    // Solved her way, the first time this draft: where the help is.
+    if (r->outcome == STORY_AGAIN && k->s->again == 1 && desk_next_hint(k) != NULL)
+        out(k, "        Stuck? HINT says where to look. DEFER sends it back.");
+    if (desk_done(k)) {
+        out(k, "Review queue empty. Nothing left to review today.");
+        out(k, "Type REPORT for your performance review.");
+    }
     tell_mail(k);
     k->view = DV_PROMPT;
 }
@@ -619,6 +693,9 @@ static void cmd_help(desk_t* k) {
     out(k, "CAL          today's calendar");
     out(k, "GLADOS       the review queue: the next draft");
     out(k, "STATUS       where the review stands");
+    out(k, "HINT         where to look (costs a point)");
+    out(k, "DEFER        send the draft back unreviewed");
+    out(k, "REPORT       your performance review");
     out(k, "TIME         the time");
     out(k, "CLS          clear the screen");
     out(k, "EXIT         leave, once the queue is empty");
@@ -631,6 +708,75 @@ static void cmd_status(desk_t* k) {
         out(k, "Queue: empty.");
     else
         out(k, "Queue: chamber %d of %d, draft %d.", k->s->at + 1, k->n_rounds, k->s->drafts);
+}
+
+static void cmd_hint(desk_t* k) {
+    if (desk_done(k)) {
+        out(k, "GLaDOS: There is nothing left to hint at. Go home.");
+        return;
+    }
+    int const kind = k->s->at < PACK_CHAMBERS ? k->rounds[k->s->at].kind : REVIEW_NONE;
+    if (kind == REVIEW_BROKEN) {
+        out(k, "GLaDOS: A broken draft gets a debugger, not a hint. DEBUG.TXT.");
+        return;
+    }
+    int const f = next_flaw(k);
+    if (f < 0) {
+        out(k, "GLaDOS: This draft is final. There is nothing to find: solve it the way I meant.");
+        return;
+    }
+    char const* const h = desk_next_hint(k);
+    if (h == NULL) {
+        out(k, "GLaDOS: I have nothing to say about this one. Look harder.");
+        return;
+    }
+    out(k, "GLaDOS: %s", h);
+    if (!(k->s->hinted & (1u << f))) {
+        k->s->hinted |= 1u << f;
+        k->s->hints++;
+        if (k->s->score > 0) k->s->score--;
+        out(k, "        (-1 point. Score: %d)", k->s->score);
+    }
+}
+
+static desk_action_t cmd_defer(desk_t* k) {
+    if (desk_done(k)) {
+        out(k, "GLaDOS: The queue is empty. There is nothing to send back.");
+        return DESK_NONE;
+    }
+    int const kind = k->s->at < PACK_CHAMBERS ? k->rounds[k->s->at].kind : REVIEW_NONE;
+    if (!story_can_defer(k->s, kind)) {
+        out(k, "GLaDOS: You have barely looked at it. Load it twice, then we can talk.");
+        return DESK_NONE;
+    }
+    k->playing               = k->s->at;
+    story_result_t const res = story_defer(k->s, rounds_of(k));
+    log_round(k, &res, true);
+    if (story_needs_route(k->s, rounds_of(k))) out(k, "First decide how to get there: type ROUTE.");
+    return DESK_DEFER;
+}
+
+static void cmd_report(desk_t* k) {
+    story_t const* s = k->s;
+    out(k, "PERFORMANCE REVIEW  --  %s, terminal %s", k->d->user, k->d->host);
+    out(k, "  Drafts played ............ %d", s->plays);
+    out(k, "  Known flaws logged ....... %d", s->logged);
+    out(k, "  Novel exploits ........... %d", s->novels);
+    out(k, "  Hints asked for .......... %d", s->hints);
+    out(k, "  Sent back unreviewed ..... %d", s->deferred);
+    out(k, "  Score .................... %d", s->score);
+    char const* line;
+    if (s->deferred > 0)
+        line = "You sent drafts back. I finished them myself. I will not need you for that again.";
+    else if (s->hints > 0)
+        line = "You needed help. That is what you are for: I help you, you help me. Mostly you.";
+    else if (s->novels > 0)
+        line = "You found ways through I did not know existed. I have filed you under \"interesting\".";
+    else if (s->plays == 0)
+        line = "Nothing yet. I am patient. I have to be: you are slow.";
+    else
+        line = "Adequate. Everything I asked, nothing I did not.";
+    out(k, "GLaDOS: %s", line);
 }
 
 static desk_action_t command(desk_t* k, char* line) {
@@ -666,6 +812,7 @@ static desk_action_t command(desk_t* k, char* line) {
             return DESK_NONE;
         }
         k->playing = k->s->at;
+        k->s->tries++;
         if (k->d->badge)
             out(k, "Next: %s", k->pack != NULL && k->s->at < k->pack->n ? k->names[k->s->at] : "the next thing");
         else
@@ -673,6 +820,12 @@ static desk_action_t command(desk_t* k, char* line) {
         return DESK_PLAY;
     } else if (strcmp(cmd, "STATUS") == 0) {
         cmd_status(k);
+    } else if (!k->d->badge && strcmp(cmd, "HINT") == 0) {
+        cmd_hint(k);
+    } else if (!k->d->badge && strcmp(cmd, "DEFER") == 0) {
+        return cmd_defer(k);
+    } else if (!k->d->badge && strcmp(cmd, "REPORT") == 0) {
+        cmd_report(k);
     } else if (strcmp(cmd, "TIME") == 0) {
         out(k, "Current time is %02d:%02d", desk_clock(k) / 60, desk_clock(k) % 60);
     } else if (strcmp(cmd, "CLS") == 0 || strcmp(cmd, "CLEAR") == 0) {
@@ -881,8 +1034,11 @@ void desk_screen(desk_t const* k, char rows[DESK_ROWS][DESK_COLS + 1], int* cur_
 int desk_save_text(desk_t const* k, char* out_, size_t n) {
     story_t const* s = k->s;
     int            len =
-        snprintf(out_, n, "at: %d\nfound: %u\nnovel: %d\nround: %d\nscore: %d\ndrafts: %d\nplays: %d\nroute: %d\nread:", s->at,
-                 (unsigned)s->found, s->novel ? 1 : 0, s->round, s->score, s->drafts, s->plays, s->route);
+        snprintf(out_, n,
+                 "at: %d\nfound: %u\nnovel: %d\nround: %d\nscore: %d\ndrafts: %d\nplays: %d\nroute: %d\n"
+                 "tries: %d\nagain: %d\nhinted: %u\nhints: %d\ndeferred: %d\nlogged: %d\nnovels: %d\nread:",
+                 s->at, (unsigned)s->found, s->novel ? 1 : 0, s->round, s->score, s->drafts, s->plays, s->route,
+                 s->tries, s->again, (unsigned)s->hinted, s->hints, s->deferred, s->logged, s->novels);
     for (int i = 0; i < k->d->n_mails && len >= 0 && (size_t)len < n; i++)
         if (k->read & (1u << i)) len += snprintf(out_ + len, n - (size_t)len, " %s", k->d->mails[i].id);
     if (len >= 0 && (size_t)len < n) len += snprintf(out_ + len, n - (size_t)len, "\n");
@@ -918,6 +1074,21 @@ bool desk_load_save(char const* text, story_t* s, desk_data_t const* d, uint32_t
             t.plays = v, seen |= 64;
         else if (sscanf(line, "route: %d", &v) == 1 && v >= 0 && v <= PACK_ROUTES)
             t.route = v;  // optional: saves from before routes have none
+        // Optional too: saves from before 0.13.5 have none of these.
+        else if (sscanf(line, "tries: %d", &v) == 1 && v >= 0)
+            t.tries = v;
+        else if (sscanf(line, "again: %d", &v) == 1 && v >= 0)
+            t.again = v;
+        else if (sscanf(line, "hinted: %u", &u) == 1)
+            t.hinted = u;
+        else if (sscanf(line, "hints: %d", &v) == 1 && v >= 0)
+            t.hints = v;
+        else if (sscanf(line, "deferred: %d", &v) == 1 && v >= 0)
+            t.deferred = v;
+        else if (sscanf(line, "logged: %d", &v) == 1 && v >= 0)
+            t.logged = v;
+        else if (sscanf(line, "novels: %d", &v) == 1 && v >= 0)
+            t.novels = v;
         else if (strncmp(line, "read:", 5) == 0) {
             // Mail ids, a space between.
             for (char* w = line + 5; *w;) {

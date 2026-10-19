@@ -27,6 +27,14 @@ typedef struct {
     int      drafts;  // drafts of this file so far, from 1
     int      plays;   // exits judged: the desk's clock goes by these
     int      route;   // the route picked (pack.h), 1 + its index; 0: none yet
+    // For the help a stuck player gets (desk.h: HINT, DEFER, REPORT).
+    int      tries;     // times the draft in play was loaded (GLADOS)
+    int      again;     // ... of those, solved as she meant (no feedback)
+    uint32_t hinted;    // its file's flaws a hint was asked for (bit i: flaws[i])
+    int      hints;     // hints asked for, all day
+    int      deferred;  // drafts sent back unreviewed, all day
+    int      logged;    // known flaws logged, all day
+    int      novels;    // novel exploits logged, all day
 } story_t;
 
 typedef enum {
@@ -61,6 +69,11 @@ typedef struct {
 // did: what that means, and the story moved on accordingly -- past the
 // rounds of routes not taken.
 story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, story_rounds_t rounds);
+// The draft in play sent back unreviewed: no points, on to the next
+// file's round, and remembered (story_t.deferred). Only once it has been
+// loaded twice (story_can_defer), or a broken one at once.
+story_result_t story_defer(story_t* s, story_rounds_t rounds);
+bool           story_can_defer(story_t const* s, int kind);  // kind: review_kind_t
 // Whether the round in play waits for a route to be picked.
 bool           story_needs_route(story_t const* s, story_rounds_t rounds);
 // Route `route` (1 + its index) picked: on to its first round.

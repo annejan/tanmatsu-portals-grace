@@ -546,6 +546,8 @@ static void test_story(void) {
         CHECK(s.score == steps[i].score && s.round == steps[i].round && s.at == steps[i].at,
               "story step %zu (%s): score %d round %d at %d", i, steps[i].route, s.score, s.round, s.at);
         if (i == 6) CHECK(story_final(&s, &r), "every known flaw patched: final");
+        if (i == 0) CHECK(s.again == 1, "the meant way counted (%d)", s.again);
+        if (i == 3) CHECK(s.again == 0 && s.logged == 1 && s.novels == 1, "a new draft: again from 0 (%d)", s.again);
         if (i == 0) CHECK(!story_final(&s, &r), "a flawed draft is not final");
     }
     // The next file starts afresh.
@@ -707,6 +709,82 @@ static void test_desk(void) {
     CHECK(type(&k, "Restart yes") == DESK_RESTART, "restart yes: from the start");
 }
 
+// A player stuck: HINT, DEFER, REPORT, and the hints they read.
+static void test_help(void) {
+    static desk_data_t d;
+    static desk_t      k;
+    char               err[160];
+    CHECK(desk_load(&d, "tests/review/desk-pack", err, sizeof(err)), "desk: %s", err);
+    CHECK(d.n_hints == 2 && d.hints[1].flaw == 'c' && strcmp(d.hints[1].file, "pressure") == 0 &&
+              strcmp(d.hints[0].text, "Stand on the third button yourself.") == 0,
+          "hints read: %d", d.n_hints);
+    static desk_data_t bad;
+    CHECK(!desk_load(&bad, "tests/review/bad-hints", err, sizeof(err)) && strstr(err, "hints.txt"),
+          "a hint without its flaw's letter: %s", err);
+    char* const     t = slurp("tests/review/pressure.txt");
+    static review_t r, fin;
+    CHECK(t != NULL && review_parse(t, &r, err, sizeof(err)), "pressure: %s", err);
+    CHECK(review_parse("review: final\nintended: door a\nsize: 3 3 3\n", &fin, err, sizeof(err)), "final: %s", err);
+    free(t);
+    story_t s;
+    story_begin(&s, 0);
+    s.score = 1;
+    desk_begin(&k, &d, &s, 2, true);
+    desk_set_round(&k, 0, "human-in-the-loop/pressure", &r);
+    desk_set_round(&k, 1, "final", &fin);
+    // HINT: the next flaw's, a point the first time only.
+    type(&k, "hint");
+    CHECK(strstr(screen_text(&k), "GLaDOS: Stand on the third button") && s.score == 0 && s.hints == 1 && s.hinted == 1,
+          "hint:\n%s", screen_text(&k));
+    type(&k, "hint");
+    CHECK(s.hints == 1 && s.score == 0, "the same hint again: free");
+    s.found = 1;
+    CHECK(desk_next_hint(&k) != NULL && strcmp(desk_next_hint(&k), "Ride the ferry with something in your hands.") == 0,
+          "flaw a found: flaw c's hint");
+    // Solved her way once: the desk says where the help is.
+    s.again                  = 1;
+    story_result_t const nof = {.outcome = STORY_AGAIN, .round = 2, .headline = "No feedback"};
+    desk_after_round(&k, &nof);
+    CHECK(strstr(screen_text(&k), "Stuck? HINT says where to look") != NULL, "the tip:\n%s", screen_text(&k));
+    s.again = 0;
+    // DEFER: not before it has been loaded twice.
+    CHECK(type(&k, "defer") == DESK_NONE && strstr(screen_text(&k), "Load it twice"), "defer refused:\n%s",
+          screen_text(&k));
+    CHECK(type(&k, "glados") == DESK_PLAY && s.tries == 1, "glados: a try");
+    CHECK(type(&k, "glados") == DESK_PLAY && s.tries == 2, "glados: two");
+    CHECK(type(&k, "defer") == DESK_DEFER && s.at == 1 && s.deferred == 1 && s.tries == 0 && s.hinted == 0 &&
+              s.found == 0 && s.plays == 1 && strstr(screen_text(&k), "Sent back unreviewed"),
+          "defer:\n%s", screen_text(&k));
+    CHECK(desk_next_hint(&k) == NULL, "a final draft: no hint");
+    type(&k, "hint");
+    CHECK(strstr(screen_text(&k), "This draft is final") && s.hints == 1, "hint on a final:\n%s", screen_text(&k));
+    // A broken one may go back at once.
+    CHECK(story_can_defer(&(story_t){0}, REVIEW_BROKEN) && !story_can_defer(&(story_t){.tries = 1}, REVIEW_FLAWED),
+          "broken: at once; flawed: loaded twice");
+    type(&k, "report");
+    CHECK(strstr(screen_text(&k), "Sent back unreviewed ..... 1") && strstr(screen_text(&k), "I finished them myself"),
+          "report:\n%s", screen_text(&k));
+    // The last sent back: done.
+    s.tries                  = 2;
+    story_result_t const res = story_defer(&s, (story_rounds_t){2, NULL});
+    CHECK(res.outcome == STORY_DONE && s.at == 2 && s.deferred == 2, "the last sent back: done (%d)", res.outcome);
+    // Saved, and read back, counters and all; an old save still reads.
+    s.again  = 1;
+    s.logged = 3;
+    s.novels = 1;
+    char save[768];
+    CHECK(desk_save_text(&k, save, sizeof(save)) > 0, "save");
+    story_t  back;
+    uint32_t read;
+    story_begin(&back, 0);
+    CHECK(desk_load_save(save, &back, &d, &read) && memcmp(&back, &s, sizeof(s)) == 0, "read back:\n%s", save);
+    story_begin(&back, 0);
+    CHECK(desk_load_save("at: 1\nfound: 0\nnovel: 0\nround: 3\nscore: 2\ndrafts: 1\nplays: 2\nread:\n", &back, &d,
+                         &read) &&
+              back.at == 1 && back.hints == 0 && back.deferred == 0,
+          "a save from before 0.13.5");
+}
+
 // Routes: a story that branches, and the desk that picks one.
 static void test_routes(void) {
     static pack_t p;
@@ -779,6 +857,7 @@ static void test_routes(void) {
 
 static int selftest(void) {
     test_routes();
+    test_help();
     test_desk();
     test_story();
     test_parse_errors();

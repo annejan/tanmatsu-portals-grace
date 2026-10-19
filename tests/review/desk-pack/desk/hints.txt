@@ -1,0 +1,3 @@
+// A hint per flaw: the round's file, the flaw's letter.
+pressure a: Stand on the third button yourself.
+pressure c: Ride the ferry with something in your hands.

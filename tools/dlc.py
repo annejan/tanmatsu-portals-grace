@@ -111,6 +111,33 @@ def judge(path, seed, patch="", repair=False, routes=()):
     return got
 
 
+def check_hints(folder, order):
+    """desk/hints.txt against the rounds: (what is wrong, flaws with no hint)."""
+    path = os.path.join(folder, "desk", "hints.txt")
+    flaws = {cid: review_of(os.path.join(folder, cid + ".txt"))[1] for cid in order}
+    have, why = set(), []
+    if os.path.exists(path):
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("//"):
+                    continue
+                key, _, text = line.partition(":")
+                parts = key.split()
+                if len(parts) != 2 or len(parts[1]) != 1 or not text.strip():
+                    why.append("%r: a round's file, a flaw's letter, then the hint" % line[:30])
+                elif parts[0] not in flaws:
+                    why.append("%s: not a round of this pack" % parts[0])
+                elif parts[1] not in flaws[parts[0]]:
+                    why.append("%s %s: no such flaw" % tuple(parts))
+                elif len(text.strip()) > 100:
+                    why.append("%s %s: longer than 100 characters" % tuple(parts))
+                else:
+                    have.add((parts[0], parts[1]))
+    missing = ["%s %s" % (cid, x) for cid in order for x in flaws[cid] if (cid, x) not in have]
+    return why, missing
+
+
 def check_round(path):
     """A round, judged as the game would, at a dozen frame rates: what is
     wrong with it, or [] if nothing. Flawed: the solution is the meant way,
@@ -210,6 +237,13 @@ def check():
                                        "FAIL: " + out.stderr.strip()))
             if out.returncode != 0:
                 bad.append("%s/desk" % os.path.basename(folder))
+            # The hints: each names a round and one of its flaws; a flaw
+            # without one is said, not failed.
+            why, missing = check_hints(folder, order)
+            print("  %-22s %-8s %s" % ("desk/hints.txt", "hints", "FAIL: " + "; ".join(why) if why else
+                                       "ok" + (" (no hint for %s)" % ", ".join(missing) if missing else "")))
+            if why:
+                bad.append("%s/hints" % os.path.basename(folder))
             # The whole day, played through as a player would -- each route.
             for route in info.get("routes") or [None]:
                 cmd = [os.path.join(ROOT, "build", "host_review"), "story", folder]

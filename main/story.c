@@ -41,9 +41,29 @@ static void next_draft(story_t* s, bool next_file) {
         s->found  = 0;
         s->novel  = false;
         s->drafts = 1;
+        s->hinted = 0;
     } else {
         s->drafts++;
     }
+    s->tries = 0;
+    s->again = 0;
+}
+
+bool story_can_defer(story_t const* s, int kind) {
+    return kind == REVIEW_BROKEN || s->tries >= 2;
+}
+
+story_result_t story_defer(story_t* s, story_rounds_t rr) {
+    story_result_t out = {0};
+    out.round          = s->round;
+    s->plays++;
+    s->deferred++;
+    snprintf(out.headline, sizeof(out.headline), "Sent back unreviewed");
+    snprintf(out.line, sizeof(out.line), "Sent back unreviewed. I will remember that you could not.");
+    next_draft(s, true);
+    skip_routes(s, rr);
+    out.outcome = s->at >= rr.n ? STORY_DONE : STORY_NEXT;
+    return out;
 }
 
 story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, track_t const* t, story_rounds_t rr) {
@@ -83,6 +103,7 @@ story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, trac
             s->novel    = true;
             out.points  = 2;
             s->score   += 2;
+            s->novels++;
             snprintf(out.headline, sizeof(out.headline), "Exploit logged, +2");
         } else {
             snprintf(out.headline, sizeof(out.headline), "Already logged");
@@ -103,6 +124,7 @@ story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, trac
         s->found    |= fresh;
         out.points   = n;
         s->score    += n;
+        s->logged   += n;
         out.outcome  = STORY_PATCHED;
         snprintf(out.headline, sizeof(out.headline), "Flaw %c logged, +%d", r->flaws[first].id, n);
         snprintf(out.line, sizeof(out.line), "%s Patched. Again.", r->flaws[first].about);
@@ -118,6 +140,7 @@ story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, trac
     }
     if (v.intended) {
         out.outcome = STORY_AGAIN;
+        s->again++;
         snprintf(out.headline, sizeof(out.headline), "No feedback");
         snprintf(out.line, sizeof(out.line),
                  "You solved it the way I meant. I have learned nothing. The draft is flawed: find the flaw.");
@@ -129,6 +152,7 @@ story_result_t story_exit(story_t* s, review_t const* r, level_t const* lv, trac
         s->novel    = true;
         out.points  = 2;
         s->score   += 2;
+        s->novels++;
         snprintf(out.headline, sizeof(out.headline), "Novel exploit, +2");
         snprintf(out.line, sizeof(out.line),
                  "I did not know that was possible. Logged. I cannot patch what I do not understand: find another.");

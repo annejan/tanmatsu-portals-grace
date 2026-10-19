@@ -209,6 +209,17 @@ The terms: `portal`, `cube portal`, `gel portal`, `shots N` (at most N), `pickup
 `pellet`, `topple`, `spotted`, `fizzle`, `burn`, `speed`, `float`, `ride`,
 `ride holding`, `bridge`, `platform`.
 
+A stuck player has help at the desk. `HINT` says where to look for the
+next flaw not yet found, from the pack's `desk/hints.txt`, a line per
+flaw (`pressure a: My third button wants a cube...`, at most 100
+characters); the first time for each flaw it costs a point. Solving a
+flawed draft the meant way twice, GLaDOS says the same hint for free.
+`DEFER` sends the draft back unreviewed, for no points, once it has been
+loaded twice (a broken one at once), and `REPORT` sums the day up. The
+hints are in a desk file, not the chamber's header, because builds before
+0.13.5 refuse a header key they do not know; they never open hints.txt.
+`tools/dlc.py check` checks each hint names a round and one of its flaws.
+
 After the solution, `cheese a` (and `cheese b`, ...) sections are routes
 that cheese it, each up to the next. `build/host_review FILE` plays them
 all and judges each (`-patch a` with flaw a's fix in; `-repair` with the

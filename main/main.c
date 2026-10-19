@@ -795,7 +795,7 @@ static void save_path(char* out, size_t n) {
 
 // The story where it stands, on the card: Continue comes back to it.
 static void desk_save(void) {
-    char text[512], path[96];
+    char text[768], path[96];
     if (desk_save_text(&s_desk, text, sizeof(text)) < 0) return;
     mkdir("/sd/portals", 0755);
     mkdir(PACK_SAVE_DIR, 0755);
@@ -831,7 +831,7 @@ static bool desk_enter(int pk) {
     save_path(path, sizeof(path));
     FILE* f = card_fopen(path, "r");
     if (f != NULL) {
-        char         text[512];
+        char         text[768];
         size_t const n = fread(text, 1, sizeof(text) - 1, f);
         fclose(f);
         text[n] = '\0';
@@ -844,6 +844,13 @@ static bool desk_enter(int pk) {
     static char names[PACK_CHAMBERS][32];
     for (int i = 0; i < p->n; i++) chamber_name(p->chamber[i], names[i], sizeof(names[i]));
     desk_set_rounds(&s_desk, p, names);
+    // ... and what HINT and DEFER need of each: its review keys.
+    static review_t r;
+    for (int i = 0; i < p->n; i++) {
+        char err[96];
+        if (review_parse(chamber_text(p->chamber[i]), &r, err, sizeof(err)))
+            desk_set_round(&s_desk, i, chamber_id(p->chamber[i]), &r);
+    }
     if (saved) {
         s_desk.read = read;
         desk_print(&s_desk, "Session restored.");
@@ -900,6 +907,12 @@ static void desk_frame(float dt) {
         case DESK_TITLE:
             desk_save();
             to_title();
+            break;
+        case DESK_DEFER:
+            // A draft sent back: the story moved on, the next file's chamber
+            // tells its own story.
+            s_story_of = -2;
+            desk_save();
             break;
         case DESK_RESTART: {
             // From its start: the save gone, the desk as it first was.
@@ -1125,7 +1138,12 @@ static void story_ending(int pk) {
 // next round waiting until she is done.
 static void round_exit(void) {
     pack_t const* const  p   = pack_get(s_story.pack);
-    story_result_t const res = story_exit(&s_story, &s_review, &s_game.lv, &s_game.track, (story_rounds_t){p->n, p->route_of});
+    story_result_t res = story_exit(&s_story, &s_review, &s_game.lv, &s_game.track, (story_rounds_t){p->n, p->route_of});
+    // Solved as she meant, twice now: she says where to look (free; HINT at
+    // the desk costs a point).
+    char const* const hint = desk_next_hint(&s_desk);
+    if (res.outcome == STORY_AGAIN && s_story.again >= 2 && hint != NULL)
+        snprintf(res.line, sizeof(res.line), "Again the way I meant. %s", hint);
     char                 terms[160];
     review_describe(&s_game.lv, &s_game.track, terms, sizeof(terms));
     ESP_LOGI(TAG, "round %d: %s (%s); score %d", s_story.round, res.headline, terms, s_story.score);
@@ -1252,7 +1270,7 @@ static void play_frame(float dt) {
     }
     // A round that wants its turret standing: one knocked over stays down.
     if ((ev & GAME_EV_TOPPLE) && s_story_on && review_forbids(&s_review.intended, "topple"))
-        hud_message("Knocked over for good. Esc: Restart");
+        hud_message("Knocked over for good. A fallen turret still weighs something.");
     if (ev & (GAME_EV_PORTAL | GAME_EV_PAINT)) render_set_level(&s_game.lv, s_game.portals);
     // Out of the start's lift: its car goes back up.
     if (settings_lifts() && !s_story_on) lift_sounds(lift_depart_step(&s_depart, &sites_now()->start, s_game.pl.pos, dt));
