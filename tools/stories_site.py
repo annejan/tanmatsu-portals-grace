@@ -13,6 +13,8 @@ and their zips), OUT_DIR/packs/ gets
     <pack>/       the card folder's files as they are, with files.txt
                   listing them (`<bytes>\t<path>` a line): what the Portals
                   Stories launcher plugin fetches over WiFi
+    <pack>.txt    those files one after another, in files.txt's order: the
+                  plugin gets a pack in one request, not one a file
 plus trailer.mp4 and trailer.jpg, a silent montage of the films for the
 page's top, and OUT_DIR/index.json lists the packs -- name, author, blurb,
 music, rounds, its chambers in order, sizes, when it last changed -- with a
@@ -163,12 +165,14 @@ SAFE_PATH = re.compile(r"^(?!/)(?!.*\.\.)[A-Za-z0-9._/-]+$")
 
 
 def raw(folder, files, out):
-    """The card folder's files as they are, under `out`, with files.txt. The
-    plugin reads each as text and checks its length, so a NUL in one would
-    read short: refused here."""
+    """The card folder's files as they are, under `out`, with files.txt, and
+    all of them one after another in `out`.txt, so the plugin can get a pack
+    in one request. The plugin reads each as text and checks its length, so a
+    NUL in one would read short: refused here."""
     if os.path.isdir(out):
         shutil.rmtree(out)
     lines = []
+    whole = []
     for f in files:
         if not SAFE_PATH.match(f["path"]):
             sys.exit("%s: %s -- a path the plugin will not take" % (folder, f["path"]))
@@ -180,8 +184,11 @@ def raw(folder, files, out):
         with open(dest, "wb") as g:
             g.write(data)
         lines.append("%d\t%s\n" % (len(data), f["path"]))
+        whole.append(data)
     with open(os.path.join(out, "files.txt"), "w") as g:
         g.write("".join(lines))
+    with open(out + ".txt", "wb") as g:
+        g.write(b"".join(whole))
 
 
 def main():
@@ -240,7 +247,7 @@ def main():
         f.write("\n")
     with open(os.path.join(out, "index.txt"), "w") as f:
         f.write("# Portals stories, for the Portals Stories launcher plugin. Tab-separated:\n"
-                "# id, sha256, bytes, files, name, about. Each pack's files: packs/<id>/files.txt\n")
+                "# id, sha256, bytes, files, name, about. Each pack's files: packs/<id>/files.txt, all in one: packs/<id>.txt\n")
         for p in index:
             f.write("\t".join([p["id"], p["sha256"], str(p["bytes"]), str(p["files"]),
                                 one_line(p["name"]), one_line(p["about"])]) + "\n")
