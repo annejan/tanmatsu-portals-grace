@@ -10,11 +10,16 @@ and their zips), OUT_DIR/packs/ gets
                   write onto a badge over WebUSB (BadgeLink)
     <pack>.jpg    a still from the pack's film, if build/dlc has one
     <pack>.mp4    a few silent seconds of that film, to loop on its card
+    <pack>/       the card folder's files as they are, with files.txt
+                  listing them (`<bytes>\t<path>` a line): what the Portals
+                  Stories launcher plugin fetches over WiFi
 plus trailer.mp4 and trailer.jpg, a silent montage of the films for the
 page's top, and OUT_DIR/index.json lists the packs -- name, author, blurb,
 music, rounds, its chambers in order, sizes, when it last changed -- with a
 hash of each bundle, so a page (or, one day, the game) can tell what
-changed. The game reads packs from /sd/portals/dlc/<pack>/
+changed. OUT_DIR/index.txt is that list for the plugin, plain text: a
+pack a line, tab-separated -- id, sha256, bytes, files, name, about. The
+game reads packs from /sd/portals/dlc/<pack>/
 (main/pack.h); dlc/README.md says what is in one.
 """
 
@@ -22,6 +27,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -148,6 +154,36 @@ def trailer(out_dir):
     return True
 
 
+def one_line(text):
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+# The paths the plugin takes: no spaces, no "..", nothing to quote in a URL.
+SAFE_PATH = re.compile(r"^(?!/)(?!.*\.\.)[A-Za-z0-9._/-]+$")
+
+
+def raw(folder, files, out):
+    """The card folder's files as they are, under `out`, with files.txt. The
+    plugin reads each as text and checks its length, so a NUL in one would
+    read short: refused here."""
+    if os.path.isdir(out):
+        shutil.rmtree(out)
+    lines = []
+    for f in files:
+        if not SAFE_PATH.match(f["path"]):
+            sys.exit("%s: %s -- a path the plugin will not take" % (folder, f["path"]))
+        data = base64.b64decode(f["data"])
+        if b"\0" in data:
+            sys.exit("%s: %s has a NUL byte in it" % (folder, f["path"]))
+        dest = os.path.join(out, f["path"])
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with open(dest, "wb") as g:
+            g.write(data)
+        lines.append("%d\t%s\n" % (len(data), f["path"]))
+    with open(os.path.join(out, "files.txt"), "w") as g:
+        g.write("".join(lines))
+
+
 def main():
     if len(sys.argv) != 2:
         sys.exit(__doc__)
@@ -168,6 +204,7 @@ def main():
         with open(os.path.join(packs_dir, pid + ".json"), "w") as f:
             f.write(body)
         shutil.copy(zipped, os.path.join(packs_dir, pid + ".zip"))
+        raw(folder, files, os.path.join(packs_dir, pid))
         has_still = still(pid, os.path.join(packs_dir, pid + ".jpg"))
         has_clip = clip(pid, os.path.join(packs_dir, pid + ".mp4"))
         index.append({
@@ -201,6 +238,12 @@ def main():
                    "poster": "packs/trailer.jpg" if has_trailer else None,
                    "packs": index}, f, indent=1)
         f.write("\n")
+    with open(os.path.join(out, "index.txt"), "w") as f:
+        f.write("# Portals stories, for the Portals Stories launcher plugin. Tab-separated:\n"
+                "# id, sha256, bytes, files, name, about. Each pack's files: packs/<id>/files.txt\n")
+        for p in index:
+            f.write("\t".join([p["id"], p["sha256"], str(p["bytes"]), str(p["files"]),
+                                one_line(p["name"]), one_line(p["about"])]) + "\n")
     print("%d packs: %s" % (len(index), os.path.join(out, "index.json")))
 
 
