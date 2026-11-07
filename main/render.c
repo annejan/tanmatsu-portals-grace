@@ -42,12 +42,14 @@ static material_info_t s_mat[MAT_COUNT] = {
     [MAT_FIELD]        = {"field.png", 0xFFFF4030u, SE_TRI_BLEND | SE_TRI_EMISSIVE, NULL},
     [MAT_CUP]          = {NULL, 0xFF2E4A5Cu, 0, NULL},
     [MAT_FUNNEL]       = {NULL, 0xFF2A3E5Cu, 0, NULL},
+    [MAT_INCINERATOR]  = {NULL, 0xFF3C3632u, 0, NULL},
     [MAT_PAINT_BLUE]   = {NULL, 0xFF2E7BFFu, 0, NULL},
     [MAT_PAINT_ORANGE] = {NULL, 0xFFFF8A1Cu, 0, NULL},
     [MAT_PAINT_WHITE]  = {"white.png", 0xFFE8E8E2u, 0, NULL},
 };
 
-static material_info_t s_cube = {"cube.png", 0xFF969AA0u, 0, NULL};
+static material_info_t s_cube      = {"cube.png", 0xFF969AA0u, 0, NULL};
+static material_info_t s_companion = {"companion.png", 0xFFB49AA4u, 0, NULL};
 
 static uint32_t const s_rim[2]  = {0xFF2C8CFFu, 0xFFFF8A1Cu};
 static uint32_t const s_shut[2] = {0xFF0C2850u, 0xFF502808u};  // one portal, nothing through it
@@ -85,6 +87,8 @@ void render_init(char const* texture_dir) {
     }
     snprintf(path, sizeof(path), "%s/%s", texture_dir, s_cube.file);
     s_cube.tex = se_texture_load(path, SE_TEXTURE_INTERNAL);
+    snprintf(path, sizeof(path), "%s/%s", texture_dir, s_companion.file);
+    s_companion.tex = se_texture_load(path, SE_TEXTURE_INTERNAL);
     scene_set_options(&(se_scene_options_t){.frustum_cull = true, .depth_order = false});
 }
 
@@ -533,6 +537,11 @@ static void glow_gather(game_t const* g) {
         emitter_t const* L = &g->lv.launchers[k];
         vec3_t const     n = dir_vec(L->dir);
         if (!p->done) glow_add(v3_mad(v3((float)L->x + 0.5f, (float)L->y + 0.5f, (float)L->z + 0.5f), n, 0.75f), 2.5f, 20.0f);
+    }
+    // An incinerator burning.
+    if (g->flame_t > 0.0f) {
+        float const k = g->flame_t / FLAME_S;
+        glow_add(v3(g->flame_at.x, g->flame_at.y + 0.4f, g->flame_at.z), 3.0f + 2.0f * k, 50.0f * k);
     }
     // Receivers that have caught theirs: a lit lens on each open side.
     for (int i = 0; i < g->lv.n_buttons; i++) {
@@ -1083,7 +1092,7 @@ static bool sphere_home(game_t const* g, int i) {
     return false;
 }
 
-// Cube i: a cube, a reflection cube, a sphere or a turret.
+// Cube i: a cube, a Companion Cube, a reflection cube, a sphere or a turret.
 static void submit_body(game_t const* g, int i, cam_t const* cam, clipset_t const* cs) {
     aabb_t const b = cube_aabb(&g->cubes[i]);
     if (g->lv.cube_turret[i])
@@ -1091,6 +1100,8 @@ static void submit_body(game_t const* g, int i, cam_t const* cam, clipset_t cons
     else if (g->lv.cube_sphere[i])
         submit_sphere(body_center(&g->cubes[i].body), CUBE_HALF, g->cubes[i].spin[0], g->cubes[i].spin[1],
                       sphere_home(g, i), cam, cs);
+    else if (g->lv.cube_companion[i])
+        submit_cube(&b, 0.07f, cam, cs, &s_companion, s_companion.argb, 0xFF8A6E7Cu);
     else if (!g->lv.cube_reflect[i])
         submit_cube(&b, 0.07f, cam, cs, &s_cube, s_cube.argb, 0xFF6E7278u);
     else {
@@ -1276,6 +1287,40 @@ static void submit_lift_glass(cam_t const* cam, clipset_t const* cs) {
     }
 }
 
+// Incinerators: a dark hatch on top with a grille in it, warm once it has
+// burnt a Companion Cube; and flames while one burns what it was given.
+static void submit_incinerators(game_t const* g, cam_t const* cam, clipset_t const* cs) {
+    for (int i = 0; i < g->lv.n_incinerators; i++) {
+        int const* const k   = g->lv.incinerators[i];
+        float const      x   = (float)k[0], z = (float)k[2], top = (float)k[1] + 1.0f;
+        bool             lit = false;
+        for (int b = 0; b < g->lv.n_buttons; b++) {
+            button_t const* bt = &g->lv.buttons[b];
+            if (bt->incinerator && bt->pressed && bt->x == k[0] && bt->y == k[1] && bt->z == k[2]) lit = true;
+        }
+        submit_box(v3(x + 0.1f, top, z + 0.1f), v3(x + 0.9f, top + 0.012f, z + 0.9f), cam, cs, NULL, 0xFF141210u, 0);
+        for (int j = 0; j < 4; j++) {
+            float const u = x + 0.2f + 0.18f * (float)j;
+            submit_box(v3(u, top, z + 0.16f), v3(u + 0.06f, top + 0.024f, z + 0.84f), cam, cs, NULL,
+                       lit ? 0xFFFF7A1Cu : 0xFF4A2E22u, lit ? SE_TRI_EMISSIVE : 0);
+        }
+    }
+    if (g->flame_t <= 0.0f) return;
+    float const  k = g->flame_t / FLAME_S;  // 1 as it starts, down to 0
+    vec3_t const c = g->flame_at;
+    // Five tongues, each three pieces that narrow as they rise: red, orange, yellow.
+    static uint32_t const hue[3] = {0xFFE8401Cu, 0xFFFF8A1Cu, 0xFFFFD050u};
+    for (int j = 0; j < 5; j++) {
+        float const  a = (float)j * 1.2566f + s_time * 3.0f;
+        float const  h = (0.3f + 0.7f * k) * (0.8f + 0.2f * sinf(s_time * 17.0f + (float)j * 2.1f)) / 3.0f;
+        vec3_t const p = v3(c.x + cosf(a) * 0.2f, c.y, c.z + sinf(a) * 0.2f);
+        for (int q = 0; q < 3; q++) {
+            float const r = 0.09f - 0.025f * (float)q, y = p.y + h * (float)q;
+            submit_box(v3(p.x - r, y, p.z - r), v3(p.x + r, y + h, p.z + r), cam, cs, NULL, hue[q], SE_TRI_EMISSIVE);
+        }
+    }
+}
+
 static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs) {
     for (int i = 0; i < g->n_cubes; i++) {
         if (g->cubes[i].gone || i == s_lift_view.hide_cube) continue;
@@ -1318,6 +1363,7 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
             submit_pedestal(bt, g->lv.timer, cam, cs);
             continue;
         }
+        if (bt->incinerator) continue;  // its hatch is drawn instead (submit_incinerators)
         // A relay's button sits on its slim post: a smaller plate.
         float const rim = bt->relay ? 0.25f : 0.05f;
         submit_box(v3(x + rim, top, z + rim), v3(x + 1.0f - rim, top + 0.04f, z + 1.0f - rim), cam, cs, NULL,
@@ -1478,6 +1524,7 @@ static void submit_things(game_t const* g, cam_t const* cam, clipset_t const* cs
                     (bt->pressed ? SE_TRI_EMISSIVE : 0) | DECAL(2), cam, cs);
         }
     }
+    submit_incinerators(g, cam, cs);
     // Droppers: a dark hatch under the ceiling cell, with a light round
     // its edge where the cube comes out.
     for (int i = 0; i < g->lv.n_cubes; i++) {

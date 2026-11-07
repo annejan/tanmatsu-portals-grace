@@ -176,6 +176,7 @@ static story_t  s_story;
 static bool     s_story_on;  // the chamber in play is s_story's round
 static review_t s_review;    // its file's review keys
 static int      s_turret_told = -1;  // the chamber told how to set a turret down
+static uint32_t s_cube_mourned;      // the load whose Companion Cube she has had her word about
 static draft_t* s_round_draft;
 static char*    s_round_text;
 
@@ -1267,6 +1268,19 @@ static void play_frame(float dt) {
         s_turret_told != s_game.chamber) {
         s_turret_told = s_game.chamber;
         hud_message("Look down as you let go, or it falls over");
+    }
+    // The Companion Cube burnt: she has a word about it, typed out and said
+    // in the story line's place. Once a load.
+    if ((ev & GAME_EV_INCINERATE) && s_cube_mourned != s_game.loaded) {
+        for (int i = 0; i < s_game.n_cubes; i++) {
+            if (!s_game.lv.cube_companion[i] || !s_game.cubes[i].gone) continue;
+            s_cube_mourned = s_game.loaded;
+            snprintf(s_game.lv.story, sizeof(s_game.lv.story), "%s",
+                     "The Companion Cube has been incinerated. It never complained. Not once. You could learn from it.");
+            hud_story_start();
+            sound_say(s_game.lv.story);
+            break;
+        }
     }
     // A round that wants its turret standing: one knocked over stays down.
     if ((ev & GAME_EV_TOPPLE) && s_story_on && review_forbids(&s_review.intended, "topple"))

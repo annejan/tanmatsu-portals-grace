@@ -5,7 +5,7 @@ Portal puzzles for the [Tanmatsu](https://nicolaielectronics.nl/), built on
 [Graceloader](https://github.com/nullislandspace/tanmatsu-graceloader).
 
 Shoot two holes in the white panels of a test chamber. Walk into one and come
-out of the other, keeping your momentum. Twenty chambers are included:
+out of the other, keeping your momentum. Twenty-one chambers are included:
 
 1. **The gap**: get across a pit of goo.
 2. **The ledge**: get up onto a ledge that no jump reaches.
@@ -38,12 +38,16 @@ out of the other, keeping your momentum. Twenty chambers are included:
 19. **Sentry**: a turret guards the exit. It cannot see straight up.
 20. **Excursion**: a tractor beam along the floor, and a ledge across the
     goo, high up.
+21. **Companion**: a Weighted Companion Cube up on a ledge, a door that
+    holds for six seconds, and an incinerator at the end that wants it.
 
 Cubes can be picked up, stood on and carried through portals. A cube
 that falls in the goo comes back where it started. A sphere is carried
 the same way, and rolls when you walk into it. A turret shoots you if it
 sees you for long enough; drop something on it to knock it over. An
-excursion funnel carries you, and cubes, along it, through portals too. A door stays open while
+excursion funnel carries you, and cubes, along it, through portals too. A
+Companion Cube is a cube with hearts on it; an incinerator burns any cube
+put on it, and a Companion Cube does not come back. A door stays open while
 all of its buttons are pressed, and does not shut on anything standing in
 it. Look through a portal at the other one and you see yourself.
 

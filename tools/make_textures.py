@@ -99,6 +99,28 @@ def cube(rng):
     return img
 
 
+def companion(rng):
+    """Weighted Companion Cube face: the cube's grey plate, a pink heart in
+    the ring, and pink corner plates."""
+    img = panel((150, 154, 160), (60, 62, 68), 3, rng)
+    px = img.load()
+    c = (N - 1) / 2
+    for y in range(N):
+        for x in range(N):
+            d = ((x - c) ** 2 + (y - c) ** 2) ** 0.5
+            if 9 <= d <= 11:
+                px[x, y] = (205, 210, 215)
+            elif d < 9:
+                px[x, y] = (196, 198, 204)
+                # A heart: (u^2 + v^2 - 1)^3 <= u^2 v^3, point up on screen.
+                u, v = (x - c) / 6.0, (c - y) / 6.0 + 0.25
+                if (u * u + v * v - 1) ** 3 <= u * u * v ** 3:
+                    px[x, y] = (232, 96, 160)
+            if (x < 7 or x > N - 8) and (y < 7 or y > N - 8) and min(x, y, N - 1 - x, N - 1 - y) > 0:
+                px[x, y] = (214, 128, 170)
+    return img
+
+
 def glass(rng):
     """Pale blue glass with a frame and one diagonal glint. Drawn half
     transparent, so it only tints what is behind it."""
@@ -166,6 +188,7 @@ def main():
         "fizz.png": fizz(rng),
         "jump.png": jump(rng),
         "field.png": field(rng),
+        "companion.png": companion(rng),  # last: the others keep their bytes
     }
     for name, img in textures.items():
         img.save(os.path.join(OUT, name), optimize=True)

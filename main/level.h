@@ -50,6 +50,7 @@ typedef enum {
     MAT_CRUSHER,   // while parsing only: a crusher's cells (then crusher_t, and air)
     MAT_CUP,       // a floor a sphere button stands on: only a sphere presses it, and it holds the sphere
     MAT_FUNNEL,    // an excursion funnel emitter: a tractor beam out of its one open side
+    MAT_INCINERATOR,  // a block with a hatch on top: a cube put on it burns
     // Never in a cell: what a painted face is meshed and drawn as.
     MAT_PAINT_BLUE,
     MAT_PAINT_ORANGE,
@@ -89,6 +90,7 @@ static inline void dir_step(int d, int* dx, int* dy, int* dz) {
 #define LV_MAX_PELLETS  2
 #define LV_MAX_CRUSHERS 4
 #define LV_MAX_FUNNELS  2
+#define LV_MAX_INCINERATORS 4
 
 // A crusher: a block hanging in the ceiling, [lo, hi), that slams down
 // `drop` metres onto the floor under it and rises again, over and over.
@@ -133,7 +135,8 @@ typedef struct {
 // under it) it is pressed with Use, and stays down for the level's
 // `timer` seconds. On a cube base (MAT_CUBEBASE) only a cube presses it.
 // On a laser catcher (MAT_CATCHER) it is down while a beam hits the block.
-// On a cup (MAT_CUP) only a sphere presses it.
+// On a cup (MAT_CUP) only a sphere presses it. On an incinerator
+// (MAT_INCINERATOR) it goes down for good once a Companion Cube burns there.
 typedef struct {
     int   x, y, z;
     int   link;
@@ -144,6 +147,7 @@ typedef struct {
     bool  laser;        // on a laser catcher: down while a beam hits it
     bool  receiver;     // on a pellet receiver: down for good once a pellet arrives
     bool  relay;        // on a laser relay: down while a beam passes through it
+    bool  incinerator;  // on an incinerator: down for good once a Companion Cube burns in it
     float timer_left;   // state: a pedestal button's seconds still to go
 } button_t;
 
@@ -183,6 +187,7 @@ typedef struct {
     bool      cube_reflect[LV_MAX_CUBES];  // a reflection cube: sends a laser on
     bool      cube_sphere[LV_MAX_CUBES];   // a sphere: it rolls, and walking into it pushes it
     bool      cube_turret[LV_MAX_CUBES];   // a turret: it shoots the player it sees
+    bool      cube_companion[LV_MAX_CUBES];  // a Companion Cube: a cube, with hearts; the incinerator wants it
     float     cube_yaw[LV_MAX_CUBES];      // the way a turret faces at the start: towards the player's
     int       n_cubes;
     char      story[160];  // shown as the chamber starts
@@ -199,6 +204,8 @@ typedef struct {
     crusher_t  crushers[LV_MAX_CRUSHERS];
     int        n_crushers;
     emitter_t  launchers[LV_MAX_PELLETS];  // energy pellet launchers
+    int        incinerators[LV_MAX_INCINERATORS][3];  // each incinerator's cell: x, y, z
+    int        n_incinerators;
     int        n_launchers;
     gel_src_t  gels[LV_MAX_GELS];
     int        n_gels;

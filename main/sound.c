@@ -63,6 +63,7 @@ static recipe_t const s_recipe[SND_COUNT] = {
     [SND_TOPPLE]      = {W_SAW, 520, 110, 0.35f, 0.005f, 0.30f, 1500, {0}},
     [SND_DING]        = {W_SINE, 0, 0, 0.32f, 0.003f, 0.20f, 0, {1318.5f, 1046.5f, 0, 0}},
     [SND_HUM]         = {W_SAW, 52, 74, 1.80f, 0.25f, 0.22f, 380, {0}},
+    [SND_INCINERATE]  = {W_NOISE, 1800, 260, 1.60f, 0.08f, 0.40f, 1400, {0}},
 };
 
 typedef struct {
@@ -187,6 +188,7 @@ void sound_events(int ev) {
     if (ev & GAME_EV_PELLET) sound_play(SND_PELLET);
     if (ev & GAME_EV_CAUGHT) sound_play(SND_CAUGHT);
     if (ev & GAME_EV_CRUSH) sound_play(SND_CRUSH);
+    if (ev & GAME_EV_INCINERATE) sound_play(SND_INCINERATE);
     if (ev & GAME_EV_SHOOT) sound_play(SND_TURRET_SHOT);
     if (ev & GAME_EV_SPOTTED) {
         sound_play(SND_TURRET_SPOT);

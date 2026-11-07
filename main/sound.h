@@ -40,6 +40,7 @@ typedef enum {
     SND_TOPPLE,       // a turret knocked over
     SND_DING,         // a lift's doors open: it is there
     SND_HUM,          // a lift on the move
+    SND_INCINERATE,   // an incinerator takes a cube
     SND_COUNT,
 } sound_t;
 

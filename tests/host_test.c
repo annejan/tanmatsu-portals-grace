@@ -2580,6 +2580,70 @@ static void test_faith_plate_fps(void) {
 }
 
 // Odds and ends the fixes are about.
+// The Companion Cube and the incinerator: a plain cube put in burns and
+// comes back; the Companion Cube burns for good and holds the button down;
+// standing on it does nothing.
+static void test_incinerator(void) {
+    static game_t      g;
+    static level_t     lv;
+    game_input_t const idle = {0};
+    char               err[96];
+    char const* const  text = "size: 7 4 4\n"
+                              "layer 0\n#######\n#######\n#######\n#######\n"
+                              "layer 1\n#######\n#a.^..#\n#S&.C.#\n#######\n"
+                              "layer 2\n#######\n#a.1..#\n#.....#\n#######\n";
+    CHECK(chamber_parse(text, &lv, NULL, NULL, err, sizeof(err)), "a chamber with an incinerator: %s", err);
+    CHECK(lv.n_incinerators == 1 && lv.incinerators[0][0] == 3 && lv.incinerators[0][1] == 1 &&
+              lv.incinerators[0][2] == 2 && lv.buttons[0].incinerator,
+          "its cell is known, and its button is an incinerator's");
+    CHECK(lv.n_cubes == 2 && lv.cube_companion[0] && !lv.cube_companion[1], "a Companion Cube and a cube");
+    CHECK(chamber_cell_char(&lv, 2, 1, 1) == '&' && chamber_cell_char(&lv, 3, 1, 2) == '^',
+          "both written back as they were read");
+
+    // A plain cube put in: it burns, and comes back where it started.
+    game_load_level(&g, &lv);
+    g.cubes[1].body.pos = v3(3.5f, 2.0f, 2.5f);
+    int ev              = 0;
+    for (int i = 0; i < 30; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_INCINERATE) && !g.cubes[1].gone && fabsf(g.cubes[1].body.pos.x - 4.5f) < 0.1f &&
+              !g.lv.buttons[0].pressed,
+          "a cube burns, comes back, and presses nothing");
+    // Standing on it does nothing.
+    game_load_level(&g, &lv);
+    g.pl.pos = v3(3.5f, 2.0f, 2.5f);
+    ev       = 0;
+    for (int i = 0; i < 30; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK(!(ev & (GAME_EV_INCINERATE | PL_EV_DIED)) && !g.lv.buttons[0].pressed, "the player stands on it unharmed");
+    // Carried over it: nothing.
+    game_load_level(&g, &lv);
+    g.held              = 0;
+    g.cubes[0].body.pos = v3(3.5f, 2.05f, 2.5f);
+    ev                  = game_step(&g, &idle, 0.02f);
+    CHECK(!(ev & GAME_EV_INCINERATE) && !g.cubes[0].gone, "a cube carried over it does not burn");
+    // The Companion Cube put in: gone for good, the button down, the door open.
+    game_load_level(&g, &lv);
+    g.cubes[0].body.pos = v3(3.5f, 2.0f, 2.5f);
+    ev                  = 0;
+    for (int i = 0; i < 30; i++) ev |= game_step(&g, &idle, 0.02f);
+    CHECK((ev & GAME_EV_INCINERATE) && g.cubes[0].gone && g.lv.buttons[0].pressed && g.flame_t > 0.0f,
+          "the Companion Cube burns for good, and the button goes down");
+    for (int i = 0; i < 150; i++) game_step(&g, &idle, 0.02f);
+    CHECK(g.cubes[0].gone && g.lv.buttons[0].pressed && g.lv.doors[0].open == 1.0f && g.flame_t == 0.0f,
+          "it stays down, the door opens, the flames die");
+    // A restart brings it back.
+    game_load_level(&g, &lv);
+    CHECK(!g.cubes[0].gone && !g.lv.buttons[0].pressed, "a restart brings it back");
+
+    CHECK(!chamber_parse("size: 5 3 3\nlayer 1\n#####\n#S^.#\n#####\nlayer 2\n#####\n##W##\n#####\n", &lv, NULL, NULL,
+                         err, sizeof(err)) &&
+              strstr(err, "air on top") != NULL,
+          "an incinerator with no air on top is refused: %s", err);
+    CHECK(!chamber_parse("size: 8 3 3\nlayer 1\n########\n#S^^^^^#\n########\n"
+                         "layer 2\n########\n#......#\n########\n", &lv, NULL, NULL, err, sizeof(err)) &&
+              strstr(err, "incinerators") != NULL,
+          "five incinerators are refused: %s", err);
+}
+
 static void test_more_things(void) {
     static game_t      g;
     game_input_t const idle = {0};
@@ -2745,6 +2809,7 @@ int main(void) {
     test_bridges();
     test_gel();
     test_pellets();
+    test_incinerator();
     test_relays();
     test_crushers();
     test_spheres();

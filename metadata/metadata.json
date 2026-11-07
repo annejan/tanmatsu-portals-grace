@@ -1,6 +1,6 @@
 {
   "name": "Portals",
-  "description": "Portal puzzles in twenty test chambers and stories",
+  "description": "Portal puzzles in twenty-one test chambers and stories",
   "categories": [
     "games"
   ],
@@ -62,6 +62,10 @@
         {
           "source_file": "textures/field.png",
           "target_file": "textures/field.png"
+        },
+        {
+          "source_file": "textures/companion.png",
+          "target_file": "textures/companion.png"
         }
       ]
     }

@@ -56,6 +56,7 @@
 #define TURRET_KNOCK   3.0f   // m/s: landing this fast on a turret, or as one, knocks it over
 #define TURRET_BURST   0.1f   // s between bursts of fire
 #define GEL_DRIP       0.25f  // a dispenser lets a blob go this often (s)
+#define FLAME_S        2.0f   // seconds an incinerator burns what it was given
 
 #define FUNNEL_SPEED 3.0f  // m/s an excursion funnel carries things along it
 #define FUNNEL_PULL  3.0f  // per second: how hard it draws them to its middle
@@ -153,6 +154,8 @@ typedef struct {
     int        funnel_n[LV_MAX_FUNNELS];
     float      shot_t;   // seconds the player has been under a turret's fire
     float      burst_t;  // the turrets' fire: its clock
+    float      flame_t;   // seconds an incinerator still burns (FLAME_S down to 0)
+    vec3_t     flame_at;  // ... the middle of its hatch
     track_t    track;    // what this run has done (review.h)
     uint32_t   loaded;   // which load this is, for what is worked out once a load (lift.h); never played
 } game_t;
@@ -167,6 +170,7 @@ typedef struct {
 
 // Events, on top of player_event_t's.
 enum {
+    GAME_EV_INCINERATE  = 1 << 5,  // an incinerator took a cube (player_event_t's end at 1 << 4)
     GAME_EV_PORTAL      = 1 << 8,  // a portal moved: re-mesh
     GAME_EV_PICKUP      = 1 << 9,
     GAME_EV_DROP        = 1 << 10,

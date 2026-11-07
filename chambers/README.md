@@ -136,6 +136,8 @@ cells are metal.
 | `%` | an excursion funnel emitter: a block that projects a tractor beam a cell across out of its one open side, through portals, any way -- up and down too. The player, cubes and turrets in it float along it at 3 m/s with no gravity, drawn to its middle; the player can steer out of it sideways. With `funnel: N`, it pulls back towards its emitter while button N's group is down. |
 | `V` | a cube dropper, in the ceiling: it brings its own cube, which drops out at the start and again whenever the cube is lost. The cell under it must be air. |
 | `N` | where the platform goes: the cell its lowest corner travels to, outside the `M` box. It glides there and back at 1.5 m/s and pauses for a second at each end. It does not move into you. One platform per chamber. |
+| `&` | a Weighted Companion Cube: a cube in every way, with a heart on each side. Put it in the air cell where it starts. |
+| `^` | an incinerator: a block, waist high, with a hatch on top. A cube put down on it, or dropped onto it, burns. A Companion Cube does not come back, and a button digit on top of the incinerator goes down for good; any other cube comes back where it started, as from the goo, and presses nothing. Standing on it does nothing. Each needs air on top; at most 4. |
 
 Every character has exactly one meaning; `make check` tests this. Older
 chamber files wrote buttons as `A`, `B` and `D`; they still load, as

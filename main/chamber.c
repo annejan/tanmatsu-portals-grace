@@ -72,6 +72,8 @@ chamber_glyph_t const chamber_legend[] = {
     {'@', "sphere cup", GLYPH_CELL, MAT_CUP, 0, '\'', 0xFF2E5A70u},
     {'t', "turret", GLYPH_TURRET, MAT_AIR, 0, ',', 0xFFF0F0F0u},
     {'%', "funnel emitter", GLYPH_CELL, MAT_FUNNEL, 0, '.', 0xFF2A5A9Au},
+    {'&', "Companion Cube", GLYPH_COMPANION, MAT_AIR, 0, '/', 0xFFE890B8u},
+    {'^', "incinerator", GLYPH_CELL, MAT_INCINERATOR, 0, '\\', 0xFF5A2A1Au},
     // How older files wrote buttons 1, 2 and 4: read, never written.
     {'A', "old button 1", GLYPH_BUTTON, MAT_AIR, 0, 0, 0xFFC03020u},
     {'B', "old button 2", GLYPH_BUTTON, MAT_AIR, 1, 0, 0xFFC03020u},
@@ -331,10 +333,12 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
                     case GLYPH_REFLECT:
                     case GLYPH_SPHERE:
                     case GLYPH_TURRET:
+                    case GLYPH_COMPANION:
                         if (lv->n_cubes >= LV_MAX_CUBES) return fail(&c, "more than %d cubes", LV_MAX_CUBES);
-                        lv->cube_reflect[lv->n_cubes] = gl->kind == GLYPH_REFLECT;
-                        lv->cube_sphere[lv->n_cubes]  = gl->kind == GLYPH_SPHERE;
-                        lv->cube_turret[lv->n_cubes]  = gl->kind == GLYPH_TURRET;
+                        lv->cube_reflect[lv->n_cubes]   = gl->kind == GLYPH_REFLECT;
+                        lv->cube_sphere[lv->n_cubes]    = gl->kind == GLYPH_SPHERE;
+                        lv->cube_turret[lv->n_cubes]    = gl->kind == GLYPH_TURRET;
+                        lv->cube_companion[lv->n_cubes] = gl->kind == GLYPH_COMPANION;
                         lv->cubes[lv->n_cubes++]      = v3((float)x + 0.5f, (float)layer, (float)z + 0.5f);
                         break;
                     case GLYPH_DROPPER:
@@ -537,10 +541,24 @@ bool chamber_parse(char const* text, level_t* lv, step_t* steps, int* n_steps, c
         lv->buttons[i].laser       = m == MAT_CATCHER;
         lv->buttons[i].receiver    = m == MAT_RECEIVER;
         lv->buttons[i].relay       = m == MAT_RELAY;
+        lv->buttons[i].incinerator = m == MAT_INCINERATOR;
         if (b->link != lv->platform_link && b->link != lv->funnel_link &&
             (b->link >= lv->n_doors || lv->doors[b->link].x1 == 0))
             return fail(&c, "button '%c' has no door '%c'", chamber_button_char(b->link), chamber_door_char(b->link));
     }
+    // Incinerators: each with room on top to put a cube.
+    lv->n_incinerators = 0;
+    for (int y = 0; y < lv->h; y++)
+        for (int z = 0; z < lv->d; z++)
+            for (int x = 0; x < lv->w; x++) {
+                if (level_get(lv, x, y, z) != MAT_INCINERATOR) continue;
+                if (lv->n_incinerators >= LV_MAX_INCINERATORS)
+                    return fail(&c, "more than %d incinerators", LV_MAX_INCINERATORS);
+                if (y + 1 >= lv->h || level_get(lv, x, y + 1, z) != MAT_AIR)
+                    return fail(&c, "an incinerator needs air on top");
+                int* const k = lv->incinerators[lv->n_incinerators++];
+                k[0] = x, k[1] = y, k[2] = z;
+            }
     // Emitters: each emits out of its one open side; a bridge sideways.
     for (int y = 0; y < lv->h; y++)
         for (int z = 0; z < lv->d; z++)
@@ -700,10 +718,11 @@ char chamber_cell_char(level_t const* lv, int x, int y, int z) {
     for (int i = 0; i < lv->n_cubes; i++)
         if (!lv->cube_drop[i] && (int)floorf(lv->cubes[i].x) == x && (int)floorf(lv->cubes[i].y) == y &&
             (int)floorf(lv->cubes[i].z) == z)
-            return char_of(lv->cube_reflect[i]  ? GLYPH_REFLECT
-                           : lv->cube_sphere[i] ? GLYPH_SPHERE
-                           : lv->cube_turret[i] ? GLYPH_TURRET
-                                                : GLYPH_CUBE,
+            return char_of(lv->cube_reflect[i]     ? GLYPH_REFLECT
+                           : lv->cube_sphere[i]    ? GLYPH_SPHERE
+                           : lv->cube_turret[i]    ? GLYPH_TURRET
+                           : lv->cube_companion[i] ? GLYPH_COMPANION
+                                                   : GLYPH_CUBE,
                            0, 0);
     if ((int)floorf(lv->spawn.x) == x && (int)floorf(lv->spawn.y) == y && (int)floorf(lv->spawn.z) == z)
         return char_of(GLYPH_START, 0, 0);

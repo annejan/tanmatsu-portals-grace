@@ -46,19 +46,38 @@ static void roll(cube_t* c, vec3_t from) {
     c->spin[1]     = v;
 }
 
+// Cube i out of the way, for good.
+static void cube_gone(game_t* g, int i) {
+    cube_t* const c = &g->cubes[i];
+    c->gone         = true;
+    c->body.pos     = v3(-100.0f, -100.0f, -100.0f);
+    c->body.vel     = v3(0, 0, 0);
+}
+
 // A cube lost: a new one where it started -- out of its dropper, if it
-// came from one.
+// came from one. A turret does not come back.
 static int cube_respawn(game_t* g, int i) {
     if (g->lv.cube_turret[i]) {
-        // A turret does not come back: it is put out of the way, for good.
-        cube_t* const c = &g->cubes[i];
-        c->gone         = true;
-        c->body.pos     = v3(-100.0f, -100.0f, -100.0f);
-        c->body.vel     = v3(0, 0, 0);
+        cube_gone(g, i);
         return 0;
     }
     cube_spawn(g, i);
     return g->lv.cube_drop[i] ? GAME_EV_DROPPER : 0;
+}
+
+// Cube i put down on the incinerator in cell (x, y, z): it burns. A
+// Companion Cube does not come back, and holds that incinerator's buttons
+// down for good; any other cube is lost as in the goo.
+static int cube_burn(game_t* g, int i, int x, int y, int z) {
+    g->flame_t  = FLAME_S;
+    g->flame_at = v3((float)x + 0.5f, (float)y + 1.0f, (float)z + 0.5f);
+    if (!g->lv.cube_companion[i]) return cube_respawn(g, i) | GAME_EV_INCINERATE;
+    cube_gone(g, i);
+    for (int b = 0; b < g->lv.n_buttons; b++) {
+        button_t* const bt = &g->lv.buttons[b];
+        if (bt->incinerator && bt->x == x && bt->y == y && bt->z == z) bt->pressed = true;
+    }
+    return GAME_EV_INCINERATE;
 }
 
 // Where a pedestal button can be pressed: its pad, and a little above.
@@ -481,6 +500,9 @@ static int step_cube(game_t* g, int i, float dt) {
         if (fizz) ev |= GAME_EV_FIZZLE;
         return ev;
     }
+    // Put down on an incinerator, or dropped onto one: it burns.
+    if (i != g->held && b->on_ground && under == MAT_INCINERATOR)
+        return ev | cube_burn(g, i, (int)floorf(b->pos.x), (int)floorf(b->pos.y - 0.05f), (int)floorf(b->pos.z));
     // A faith plate throws a cube that is not being carried.
     jump_t const* j = i != g->held && b->on_ground ? plate_under(&g->lv, b->pos) : NULL;
     if (j != NULL) {
@@ -1040,6 +1062,7 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
     }
     if (in->use) ev |= game_use(g);
 
+    g->flame_t = fmaxf(0.0f, g->flame_t - dt);
     move_platform(g, dt);
     // Crushers: down on whoever is under them.
     if (g->lv.n_crushers) {
@@ -1157,6 +1180,9 @@ int game_step(game_t* g, game_input_t const* in, float dt) {
         } else if (bt->receiver) {
             down = bt->pressed;  // latched by step_pellets()
             if (down) g->track.by[b] |= BY_PELLET;
+        } else if (bt->incinerator) {
+            down = bt->pressed;  // latched by cube_burn()
+            if (down) g->track.by[b] |= BY_CUBE;
         } else if (bt->laser) {
             down = lit[b];
         } else if (bt->pedestal) {

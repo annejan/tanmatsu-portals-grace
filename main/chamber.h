@@ -86,6 +86,7 @@ typedef enum {
     GLYPH_REFLECT,       // a reflection cube, in the cell where it starts
     GLYPH_SPHERE,        // a sphere, in the cell where it starts
     GLYPH_TURRET,        // a turret, in the cell where it starts, facing the player's start
+    GLYPH_COMPANION,     // a Companion Cube, in the cell where it starts
 } glyph_kind_t;
 
 typedef struct {
