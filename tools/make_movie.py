@@ -480,12 +480,15 @@ def main():
                                     for c, n in enumerate(names) if c in at]}, fo)
 
     mp4 = a.mp4 or os.path.join(build, "film.mp4")
+    # The pictures first, on their own, and the sound added after: fed the
+    # sound too, with -shortest, ffmpeg 7 takes in hundreds of raw frames at a
+    # time (7 GB more at 4K) where on its own it holds steady.
+    video = mp4 + ".video.mp4"
     ff = subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s",
-                           "%dx%d" % (w, h), "-framerate", str(FPS), "-i", "-", "-i",
-                           wav, "-c:v", "libx264", "-preset", a.preset, "-crf", str(a.crf)] +
+                           "%dx%d" % (w, h), "-framerate", str(FPS), "-i", "-",
+                           "-c:v", "libx264", "-preset", a.preset, "-crf", str(a.crf)] +
                           (["-tune", a.tune] if a.tune else []) +
-                          ["-pix_fmt", "yuv420p", "-r", str(max(30, FPS)), "-c:a", "aac", "-b:a", "160k", "-shortest",
-                           "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
+                          ["-pix_fmt", "yuv420p", "-r", str(max(30, FPS)), video], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
     seq = [(kind, f, j, len(run)) for kind, run in runs(frames) for j, f in enumerate(run)]
 
@@ -510,6 +513,10 @@ def main():
     ff.stdin.close()
     if ff.wait() != 0:
         sys.exit("ffmpeg failed")
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", video, "-i", wav, "-map", "0:v", "-map", "1:a",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", mp4],
+                   check=True)
+    os.remove(video)
     if not a.keep_shots:
         shutil.rmtree(shots, ignore_errors=True)  # raw frames, about 2 GB a minute: the film has them now
     if a.gif:
