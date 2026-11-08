@@ -415,13 +415,13 @@ static void way_there_and_back(float u, float y0, float p0, float y1, float p1, 
     *pitch        = p0 + (p1 - p0) * k;
 }
 
-// The look round from the start: from well to one side, slowly round to
-// where the player faces, a little up and level again.
+// The look round from the start: across what lies ahead, a good way to
+// one side, over to the other and back, a little up meanwhile -- not back
+// at the wall behind.
 static void way_round(float u, float y0, float p0, float y1, float p1, float* yaw, float* pitch) {
     (void)y1, (void)p1;
-    float const k = ease(u);
-    *yaw          = y0 - 2.4f * (1.0f - k);
-    *pitch        = p0 + (-0.18f - p0) * sinf(3.14159265f * u) * 0.8f;
+    *yaw   = y0 - 1.0f * sinf(6.2831853f * u);
+    *pitch = p0 + (-0.15f - p0) * sinf(3.14159265f * u) * 0.8f;
 }
 
 // Doors as they start to open, the incinerator as it burns, and the
@@ -1092,9 +1092,10 @@ int main(int argc, char** argv) {
             hud_story_start();
             hud_message(g.lv.name);
         }
-        if (r.lifts && (j > 0 || r.badge) && !(s_recorded && j > 0 && !by_lift)) {
-            // Down into it, from the last one's lift -- on the badge the
-            // first too, as Continue arrives (main.c's arrive_by_lift).
+        if (r.lifts && (j > 0 || r.badge || s_scenic) && !(s_recorded && j > 0 && !by_lift)) {
+            // Down into it, from the last one's lift -- on the badge and in
+            // the scenic tour the first too, as Continue arrives (main.c's
+            // arrive_by_lift).
             // Watch a recording after a run that did not leave by lift
             // (watch.c's hold, then next_run): straight into it.
             static game_t ride;
