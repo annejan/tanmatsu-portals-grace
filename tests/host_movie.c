@@ -111,6 +111,17 @@ static float s_pace = 0.8f;  // PACE_S, or HOST_MOVIE_PACE
 #define SCENIC_EXIT_S 3.5f  // the chamber, looked back over from its exit
 static bool s_scenic;
 
+// HOST_MOVIE_PART=K/N: one of N recorders filming the same film side by
+// side (tools/make_movie.py --jobs). Each plays all of it -- the game is
+// cheap, the pictures are not -- and draws and saves only every Nth
+// picture, from the Kth; the others' movie.txt and movie.wav are K's own
+// (movie.K.txt, movie.K.wav), the film's from part 0.
+static int s_part_k, s_part_n = 1;
+
+static bool mine(int pic) {
+    return pic % s_part_n == s_part_k;
+}
+
 // --- The mixer --------------------------------------------------------------
 
 #define SLOTS 8
@@ -347,11 +358,11 @@ static void picture(rec_t* r, game_t const* g, float yaw, float pitch, float now
     render_set_level(&shot.lv, shot.portals);
     render_set_time(seen);
     ghost_to(now);
-    render_frame(NULL, &shot);
+    if (mine(r->pic)) render_frame(NULL, &shot);
     if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
     char name[32];
     snprintf(name, sizeof(name), "movie_%05d", r->pic);
-    save(name);
+    if (mine(r->pic)) save(name);
     // The HUD: how much of the story is typed (-1: gone), a turret's words,
     // and the message in the middle.
     int const   len   = (int)strlen(r->story);
@@ -588,7 +599,7 @@ static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float tim
             render_set_lift(&v);
             for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
             render_set_level(&g->lv, g->portals);
-            render_frame(NULL, g);
+            if (mine(r->pic)) render_frame(NULL, g);
             // Dark at the top of the shaft: on the badge, hud_fade's, with
             // the HUD over it.
             uint32_t const lit = (uint32_t)(256.0f * lift_lit(l));
@@ -603,7 +614,7 @@ static void film_ride(rec_t* r, game_t* g, lift_t* l, char const* msg, float tim
             }
             char name[32];
             snprintf(name, sizeof(name), "movie_%05d", r->pic);
-            save(name);
+            if (mine(r->pic)) save(name);
             fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, msg, (double)time, (double)exit_t);
             r->pic++;
             r->frame++;
@@ -650,11 +661,11 @@ static void film_verdict(rec_t* r) {
         for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
         render_set_level(&shot.lv, shot.portals);
         render_set_time(r->exit_t + t);
-        render_frame(NULL, &shot);
+        if (mine(r->pic)) render_frame(NULL, &shot);
         movie_hud_frame(s_px, 1.0f, &shot);
         char name[32];
         snprintf(name, sizeof(name), "movie_%05d", r->pic);
-        save(name);
+        if (mine(r->pic)) save(name);
         fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, r->headline, (double)(r->exit_t + t),
                 (double)r->exit_t);
         r->pic++;
@@ -692,11 +703,11 @@ static void film_hold(rec_t* r, game_t const* g, char const* msg, float time, fl
         }
         render_set_level(&shot.lv, shot.portals);
         render_set_time(r->last + t);
-        render_frame(NULL, &shot);
+        if (mine(r->pic)) render_frame(NULL, &shot);
         if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
         char name[32];
         snprintf(name, sizeof(name), "movie_%05d", r->pic);
-        save(name);
+        if (mine(r->pic)) save(name);
         fprintf(r->txt, "P\t%d\t-1\t\t%s\t%.3f\t%.3f\n", r->pic, msg != NULL ? msg : r->done, (double)time,
                 (double)r->exit_t);
         r->pic++;
@@ -740,14 +751,14 @@ static void film_outro(rec_t* r, int chamber, desk_data_t const* d, char const* 
             for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
             render_set_level(&g.lv, g.portals);
             render_set_time(t);
-            render_frame(NULL, &g);
+            if (mine(r->pic)) render_frame(NULL, &g);
             movie_hud_frame(s_px, outro_lit(), &g);
         } else {
             movie_outro_cards(s_px);
         }
         char name[32];
         snprintf(name, sizeof(name), "movie_%05d", r->pic);
-        save(name);
+        if (mine(r->pic)) save(name);
         fprintf(r->txt, "P\t%d\t-1\t\t\t%.3f\t-1\n", r->pic, (double)t);
         r->pic++;
         r->frame++;
@@ -956,11 +967,18 @@ int main(int argc, char** argv) {
             return 1;
         }
     char const* build = getenv("BUILD");
-    char        path[256];
-    snprintf(path, sizeof(path), "%s/movie.wav", build != NULL && build[0] ? build : "build");
+    char        path[256], part[16] = "";
+    char const* parts = getenv("HOST_MOVIE_PART");
+    if (parts != NULL && sscanf(parts, "%d/%d", &s_part_k, &s_part_n) == 2 && s_part_n > 1 && s_part_k >= 0 &&
+        s_part_k < s_part_n) {
+        if (s_part_k > 0) snprintf(part, sizeof(part), ".%d", s_part_k);
+    } else {
+        s_part_k = 0, s_part_n = 1;
+    }
+    snprintf(path, sizeof(path), "%s/movie%s.wav", build != NULL && build[0] ? build : "build", part);
     static rec_t r;
     r.wav = fopen(path, "wb");
-    snprintf(path, sizeof(path), "%s/movie.txt", build != NULL && build[0] ? build : "build");
+    snprintf(path, sizeof(path), "%s/movie%s.txt", build != NULL && build[0] ? build : "build", part);
     r.txt = fopen(path, "w");
     if (r.wav == NULL || r.txt == NULL) {
         perror(path);

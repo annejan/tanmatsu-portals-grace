@@ -26,6 +26,7 @@ recorder (tests/host_movie.c) first.
 import argparse
 import json
 import glob
+import multiprocessing
 import os
 import shutil
 import subprocess
@@ -39,6 +40,15 @@ SCALE = 2  # 800 x 480 drawn at 1600 x 960, so the text stays sharp
 STORY_W, STORY_LINES = 70, 3  # as hud.c lays the story line out
 FADE_S = 0.6  # cards and chambers fade in and out this fast
 YELLOW, RED = (0xFF, 0xE0, 0x8A), (0xFF, 0x7A, 0x6A)
+
+
+# --jobs: the frame being composed, by its number in the film (set before
+# the workers fork, so they share it).
+_COMPOSE = None
+
+
+def _compose(i):
+    return _COMPOSE(i)
 
 
 def font(names, size):
@@ -147,6 +157,9 @@ def main():
                     "standing --pace seconds before each act, the set pieces lingered on")
     ap.add_argument("--pace", type=float, default=1.6, help="with --scenic: seconds before each shot and Use")
     ap.add_argument("--fps", type=int, default=FPS, help="pictures a second (30 steps the game at 1/30 s too)")
+    ap.add_argument("--jobs", type=int, default=1,
+                    help="recorders side by side (host_movie HOST_MOVIE_PART), each drawing every Nth picture, and "
+                    "as many processes putting the HUD on the frames")
     ap.add_argument("--size", help="the film's size, WxH (as a 4K recorder draws: 3840x2160); the HUD scales "
                     "with the height")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
@@ -243,7 +256,15 @@ def main():
         # The desks between a story's rounds: on the badge its tune plays on
         # there, so the recorder plays it on through each (HOST_MOVIE_DESKS).
         env["HOST_MOVIE_DESKS"] = ",".join(str(frames_of(str(k))) for k in range(len(a.demos)))
-    subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
+    if a.jobs > 1:
+        # The same run N times over, each drawing its share of the pictures;
+        # part 0's movie.txt and movie.wav are the film's.
+        procs = [subprocess.Popen([recorder, str(a.seconds)] + a.demos, stdout=subprocess.DEVNULL,
+                                  env=dict(env, HOST_MOVIE_PART="%d/%d" % (k, a.jobs))) for k in range(a.jobs)]
+        if any(p.wait() != 0 for p in procs):
+            sys.exit("a recorder failed")
+    else:
+        subprocess.run([recorder, str(a.seconds)] + a.demos, env=env, check=True, stdout=subprocess.DEVNULL)
 
     with open(os.path.join(build, "movie.txt")) as f:
         lines = [line.rstrip("\n").split("\t") for line in f]
@@ -455,10 +476,24 @@ def main():
                           ["-pix_fmt", "yuv420p", "-r", str(max(30, FPS)), "-c:a", "aac", "-b:a", "160k", "-shortest",
                            "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
-    for kind, run in runs(frames):
-        for j, f in enumerate(run):
-            im = opening if kind == "C" else closing if kind == "E" else picture(f) if kind == "I" else hud(f)
-            ff.stdin.write((im if a.badge else fade(im, min(j, len(run) - 1 - j) / fade_n)).tobytes())
+    seq = [(kind, f, j, len(run)) for kind, run in runs(frames) for j, f in enumerate(run)]
+
+    def compose(i):
+        kind, f, j, length = seq[i]
+        im = opening if kind == "C" else closing if kind == "E" else picture(f) if kind == "I" else hud(f)
+        return (im if a.badge else fade(im, min(j, length - 1 - j) / fade_n)).tobytes()
+    if a.jobs > 1:
+        # In batches: the frames come back in order, and only so many wait at once.
+        global _COMPOSE
+        _COMPOSE = compose
+        with multiprocessing.get_context("fork").Pool(a.jobs) as pool:
+            for b in range(0, len(seq), 4 * a.jobs):
+                for data in pool.map(_compose, range(b, min(b + 4 * a.jobs, len(seq)))):
+                    ff.stdin.write(data)
+                    n += 1
+    else:
+        for i in range(len(seq)):
+            ff.stdin.write(compose(i))
             n += 1
     ff.stdin.close()
     if ff.wait() != 0:
