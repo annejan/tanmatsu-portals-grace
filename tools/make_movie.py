@@ -157,6 +157,11 @@ def main():
                     "standing --pace seconds before each act, the set pieces lingered on")
     ap.add_argument("--pace", type=float, default=1.6, help="with --scenic: seconds before each shot and Use")
     ap.add_argument("--fps", type=int, default=FPS, help="pictures a second (30 steps the game at 1/30 s too)")
+    ap.add_argument("--reuse", action="store_true",
+                    help="the pictures, movie.txt and movie.wav already in --work, from a run stopped after the "
+                    "recorder (a 4K film's pictures take an hour): only the HUD and the encoding again")
+    ap.add_argument("--batch", type=int, default=4,
+                    help="with --jobs: frames waiting for the encoder, per job (each 25 MB at 4K)")
     ap.add_argument("--jobs", type=int, default=1,
                     help="recorders side by side (host_movie HOST_MOVIE_PART), each drawing every Nth picture, and "
                     "as many processes putting the HUD on the frames")
@@ -214,8 +219,12 @@ def main():
     build = os.path.abspath(a.work) if a.work else os.path.join(root, "build", "movie")
     shots = os.path.join(build, "shots")
     tex = os.path.join(build, "tex")
-    shutil.rmtree(shots, ignore_errors=True)
-    os.makedirs(shots)
+    if a.reuse:
+        if not os.path.exists(os.path.join(build, "movie.txt")):
+            sys.exit("--reuse: no movie.txt in " + build)
+    else:
+        shutil.rmtree(shots, ignore_errors=True)
+        os.makedirs(shots)
     os.makedirs(tex, exist_ok=True)
     for f in glob.glob(os.path.join(root, "textures", "*.png")):
         Image.open(f).convert("RGB").save(os.path.join(tex, os.path.basename(f)[:-4] + ".ppm"))
@@ -256,7 +265,9 @@ def main():
         # The desks between a story's rounds: on the badge its tune plays on
         # there, so the recorder plays it on through each (HOST_MOVIE_DESKS).
         env["HOST_MOVIE_DESKS"] = ",".join(str(frames_of(str(k))) for k in range(len(a.demos)))
-    if a.jobs > 1:
+    if a.reuse:
+        pass  # the recorder's work is there already
+    elif a.jobs > 1:
         # The same run N times over, each drawing its share of the pictures;
         # part 0's movie.txt and movie.wav are the film's.
         procs = [subprocess.Popen([recorder, str(a.seconds)] + a.demos, stdout=subprocess.DEVNULL,
@@ -487,8 +498,9 @@ def main():
         global _COMPOSE
         _COMPOSE = compose
         with multiprocessing.get_context("fork").Pool(a.jobs) as pool:
-            for b in range(0, len(seq), 4 * a.jobs):
-                for data in pool.map(_compose, range(b, min(b + 4 * a.jobs, len(seq)))):
+            step = max(1, a.batch * a.jobs)
+            for b in range(0, len(seq), step):
+                for data in pool.map(_compose, range(b, min(b + step, len(seq)))):
                     ff.stdin.write(data)
                     n += 1
     else:
