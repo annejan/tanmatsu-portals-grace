@@ -72,7 +72,7 @@ HOST_SRCS   := main/level.c main/portal.c main/physics.c main/player.c main/game
 ENGINE_DEFS := $(shell sed -n 's/^add_compile_definitions(\([A-Z_0-9]*=[0-9.f]*\))/-D\1/p' CMakeLists.txt)
 HOST_ENGINE := -Isynthengine3D/host/shims -Isynthengine3D/host -Isynthengine3D/include
 
-.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_tas tas host_review host_runcheck board-tools
+.PHONY: check shots textures icons chambers_c host_shot host_movie movie host_movie_4k host_tas tas host_review host_runcheck board-tools
 # The built-in chambers, as C (the badge build makes its own copy, CMakeLists.txt).
 chambers_c:
 	python3 tools/embed_chambers.py chambers $(BUILD)/generated/chambers_builtin.c
@@ -127,6 +127,23 @@ host_movie: chambers_c
 		synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
 		third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
 		-lm -o $(BUILD)/movie/host_movie
+
+# The recorder at 4K: 3840 x 2160, the badge's vertical view (a wider one
+# across), its pictures PNGs -- 25 MB each as PPM. A scenic tour of every
+# chamber, at 60 frames a second:
+#   tools/make_movie.py 01-gap ... 21-companion --scenic --fps 60 --size 3840x2160 \
+#     --recorder build/movie4k/host_movie --work build/movie4k --mp4 build/scenic-4k.mp4
+MOVIE_4K := -DDISPLAY_LOG_W=3840 -DDISPLAY_LOG_H=2160 -DRENDER_HORIZON_Y=1080.0f -DRENDER_FOCAL_LEN=2025.0f -DHOST_SHOT_PNG
+host_movie_4k: chambers_c
+	mkdir -p $(BUILD)/movie4k
+	$(HOSTCC) -O2 -Wall -Wextra -c -Imain -Itests/shims $(HOST_ENGINE) -Isynthengine3D/src/internal -idirafter include \
+		$(filter-out -DRENDER_HORIZON_Y=%,$(ENGINE_DEFS)) $(MOVIE_4K) tests/movie_hud.c -o $(BUILD)/movie4k/movie_hud.o
+	$(HOSTCC) -O2 -fcommon -w -Imain -Itests/movie_shims $(HOST_ENGINE) -Itests/shims \
+		$(filter-out -DRENDER_HORIZON_Y=%,$(ENGINE_DEFS)) $(MOVIE_4K) \
+		tests/host_movie.c $(BUILD)/movie4k/movie_hud.o main/render.c main/sound.c main/speech.c $(HOST_SRCS) \
+		synthengine3D/src/music_procedural.c synthengine3D/src/se_voice.c synthengine3D/src/audio_dsp.c \
+		third_party/sam/sam.c third_party/sam/render.c third_party/sam/reciter.c third_party/sam/debug.c \
+		-lm -lz -o $(BUILD)/movie4k/host_movie
 
 movie: host_movie
 	python3 tools/make_movie.py $(DEMO) --mp4 $(MOVIE) $(if $(CHAMBERS),--chambers $(CHAMBERS)) $(if $(GIF),--gif $(GIF))

@@ -419,9 +419,73 @@ void scene_line(float x0, float y0, float z0, float x1, float y1, float z1, uint
 
 // --- Shots ----------------------------------------------------------------
 
+#ifdef HOST_SHOT_PNG
+// A picture as a PNG, compressed fast: a 4K film's frames (tests/host_movie.c
+// built with -DHOST_SHOT_PNG -lz) are 25 MB each as PPM, and a few hundred
+// KB as this.
+#include <zlib.h>
+
+static void png_chunk(FILE* f, char const* type, uint8_t const* data, uint32_t n) {
+    uint8_t len[4] = {(uint8_t)(n >> 24), (uint8_t)(n >> 16), (uint8_t)(n >> 8), (uint8_t)n};
+    fwrite(len, 1, 4, f);
+    fwrite(type, 1, 4, f);
+    if (n > 0) fwrite(data, 1, n, f);
+    uLong crc = crc32(0L, (Bytef const*)type, 4);
+    if (n > 0) crc = crc32(crc, data, n);
+    uint8_t const c[4] = {(uint8_t)(crc >> 24), (uint8_t)(crc >> 16), (uint8_t)(crc >> 8), (uint8_t)crc};
+    fwrite(c, 1, 4, f);
+}
+
+static void save_png(FILE* f) {
+    size_t const     row  = 1 + (size_t)W * 3;  // each line: filter type 0, then RGB
+    static uint8_t   raw[(1 + W * 3) * H];
+    static uint8_t   packed[(1 + W * 3) * H + (1 + W * 3) * H / 100 + 1024];
+    for (int y = 0; y < H; y++) {
+        uint8_t* const o = raw + (size_t)y * row;
+        o[0]             = 0;
+        for (int x = 0; x < W; x++) {
+            int const i = y * W + x;
+            int const j = s_quarter > 0 ? (i / W / 2) * W + (i % W) / 2 : i;
+            o[1 + 3 * x] = (uint8_t)(s_px[j] >> 16), o[2 + 3 * x] = (uint8_t)(s_px[j] >> 8), o[3 + 3 * x] = (uint8_t)s_px[j];
+        }
+    }
+    uLongf n = sizeof(packed);
+    if (compress2(packed, &n, raw, row * H, 1) != Z_OK) {
+        fprintf(stderr, "png: compress failed\n");
+        exit(1);
+    }
+    static uint8_t const sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+    uint8_t const        ihdr[13] = {(uint8_t)(W >> 24), (uint8_t)(W >> 16), (uint8_t)(W >> 8), (uint8_t)W,
+                                     (uint8_t)(H >> 24), (uint8_t)(H >> 16), (uint8_t)(H >> 8), (uint8_t)H,
+                                     8, 2, 0, 0, 0};  // 8 bits, RGB
+    fwrite(sig, 1, 8, f);
+    png_chunk(f, "IHDR", ihdr, 13);
+    png_chunk(f, "IDAT", packed, (uint32_t)n);
+    png_chunk(f, "IEND", NULL, 0);
+}
+#endif
+
 static void save(char const* name) {
     char        path[256];
     char const* build = getenv("BUILD");  // the Makefile's $(BUILD)
+#ifdef HOST_SHOT_PNG
+    {
+        snprintf(path, sizeof(path), "%s/shots/%s.png", build != NULL && build[0] ? build : "build", name);
+        FILE* png = fopen(path, "wb");
+        if (png == NULL) {
+            perror(path);
+            exit(1);
+        }
+        save_png(png);
+        fclose(png);
+        if (getenv("HOST_SHOT_QUIET") == NULL) {
+            int passes, tris;
+            render_stats(&passes, &tris);
+            printf("%-22s %d passes, %4d triangles\n", name, passes, tris);
+        }
+        return;
+    }
+#endif
     snprintf(path, sizeof(path), "%s/shots/%s.ppm", build != NULL && build[0] ? build : "build", name);
     FILE* f = fopen(path, "wb");
     if (f == NULL) {

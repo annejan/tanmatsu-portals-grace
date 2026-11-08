@@ -54,6 +54,17 @@
 //
 // HOST_MOVIE_NICK: the badge owner's nickname for "[Subject-Name-here]",
 // as main.c's personalise; unset, the joke stands as written.
+//
+// HOST_MOVIE_SCENIC=1: the scenic tour, the opposite of a speedrun. Each
+// chamber opens with a long look round it from the start; the player
+// stands longer before each act (HOST_MOVIE_PACE, seconds); and the film
+// lingers on the set pieces -- a door as it opens, the incinerator as it
+// burns, the chamber looked back over from its exit -- the game held still
+// meanwhile (the camera turns, the textures and flames go on moving, the
+// sound plays on), so every run plays exactly as its script does.
+// HOST_MOVIE_FPS: pictures a second (10 unless given); with
+// HOST_MOVIE_TICK=0.033333 one a step at 30. Built with -DHOST_SHOT_PNG
+// the pictures are PNGs (a 4K film: tools/make_movie.py --size).
 // The frames come from host_shot's rasterizer, included below, through a
 // camera of their own (below); the sound is the game's own -- sound.c,
 // speech.c with SAM, the engine's music -- mixed here offline as the
@@ -75,7 +86,7 @@
 #include "sound.h"
 #include "story.h"
 
-#define FPS        10
+#define FPS        s_fps   // pictures a second: 10, or HOST_MOVIE_FPS
 #define TICK       s_tick  // a step: 1/50 s, or HOST_MOVIE_TICK -- a TAS's, the badge's 0.1
 #define STORY_CPS  30.0f   // as hud.c types the story line ...
 #define STORY_HOLD 5.0f    // ... and holds it
@@ -90,6 +101,15 @@
 #define MAX_TICKS  (200 * 50)
 
 static float s_tick = 1.0f / 50.0f;
+static int   s_fps  = 10;
+static float s_pace = 0.8f;  // PACE_S, or HOST_MOVIE_PACE
+
+// HOST_MOVIE_SCENIC (above): how long it looks round, at what, and back.
+#define SCENIC_OPEN_S 7.0f  // the look round a chamber from its start
+#define SCENIC_DOOR_S 2.2f  // a door, as it opens
+#define SCENIC_BURN_S 5.0f  // the incinerator, burning what it was given
+#define SCENIC_EXIT_S 3.5f  // the chamber, looked back over from its exit
+static bool s_scenic;
 
 // --- The mixer --------------------------------------------------------------
 
@@ -169,7 +189,7 @@ static void mix(int16_t* out, size_t frames) {
 //
 // Worked out ahead, from a first run of each (main/cine.h).
 
-#define PACE_S 0.8f  // the player stands this long before each act, looking
+#define PACE_S s_pace  // the player stands this long before each act, looking
 
 static cine_view_t s_log[MAX_TICKS];
 static float       s_cam[MAX_TICKS][2];
@@ -224,6 +244,11 @@ typedef struct {
     char const* headline;  // ... what the game says at its exit
     char const* line;      // ... and GLaDOS
     char const* said;      // her line, once the exit is reached: the story line's place
+    float       hold;      // HOST_MOVIE_SCENIC: film held still in this run so far, seconds
+    float       story_at;  // ... and when the story line in play began, on the run's clock plus hold
+    bool        looked[LV_MAX_DOORS];  // ... the doors lingered on as they opened
+    bool        burnt, left;           // ... the incinerator lingered on; the exit looked back from
+    bool        opened;                // ... the chamber looked round
 } rec_t;
 
 // With lifts: the chamber's stations, drawn all along, and the game as it
@@ -304,6 +329,153 @@ static void ghost_to(float now) {
     render_set_ghosts(&s_gh.pl, &tint, 1);
 }
 
+// A picture of `g` seen at yaw, pitch from the player's eye, `now` into
+// the run, and its line in movie.txt.
+static void picture(rec_t* r, game_t const* g, float yaw, float pitch, float now) {
+    static game_t shot;
+    float const   seen = now + r->hold;  // the HUD's clock: the film's, held time and all
+    shot               = *g;
+    shot.pl.yaw        = yaw;
+    shot.pl.pitch      = pitch;
+    snprintf(shot.lv.story, sizeof(shot.lv.story), "%s", r->said != NULL ? r->said : r->story);
+    for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
+    if (r->lifts) {
+        lift_view_t v;
+        lift_view(NULL, &s_sites, &s_depart, &v);
+        render_set_lift(&v);
+    }
+    render_set_level(&shot.lv, shot.portals);
+    render_set_time(seen);
+    ghost_to(now);
+    render_frame(NULL, &shot);
+    if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
+    char name[32];
+    snprintf(name, sizeof(name), "movie_%05d", r->pic);
+    save(name);
+    // The HUD: how much of the story is typed (-1: gone), a turret's words,
+    // and the message in the middle.
+    int const   len   = (int)strlen(r->story);
+    float const typed = seen - r->story_at;
+    int         shown = (int)(typed * STORY_CPS);
+    if (shown > len) shown = len;
+    if (len == 0 || (typed > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) shown = -1;
+    char const* msg = r->exit_t >= 0.0f ? r->done : seen < MESSAGE_S ? g->lv.name : "";
+    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\t%.3f\t%.3f\n", r->pic, shown,
+            r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "", msg, (double)now, (double)r->exit_t);
+    r->pic++;
+    r->frame++;
+}
+
+// --- HOST_MOVIE_SCENIC --------------------------------------------------------
+
+static float wrap_pi(float a) {
+    while (a > 3.14159265f) a -= 6.2831853f;
+    while (a < -3.14159265f) a += 6.2831853f;
+    return a;
+}
+
+static float ease(float t) {
+    t = fminf(1.0f, fmaxf(0.0f, t));
+    return t * t * (3.0f - 2.0f * t);
+}
+
+// The yaw and pitch that look from the player's eye at `at`.
+static void look_at(game_t const* g, vec3_t at, float* yaw, float* pitch) {
+    vec3_t const d = v3_sub(at, player_eye(&g->pl));
+    *yaw           = atan2f(d.x, d.z);
+    *pitch         = atan2f(-d.y, sqrtf(d.x * d.x + d.z * d.z));
+}
+
+// The game held still `seconds` while the film goes on: the camera's way
+// is `way(u, &yaw, &pitch)` for u from 0 to 1, the sound and the textures
+// moving on with the film's clock.
+typedef void (*way_fn)(float u, float y0, float p0, float y1, float p1, float* yaw, float* pitch);
+
+static void hold_still(rec_t* r, game_t const* g, float now, float seconds, way_fn way, float y0, float p0, float y1,
+                       float p1) {
+    float const start = r->hold;
+    for (float t = 0.0f; t < seconds - 1e-4f; t += TICK) {
+        r->hold = start + t + TICK;
+        sound_update();
+        sound_music_mood(r->exit_t >= 0.0f ? SOUND_MOOD_DESK : SOUND_MOOD_PLAY);
+        float const film = r->t0 + now + r->hold;
+        sound_to(r, film);
+        if (film + 1e-4f < (float)r->frame / FPS) continue;
+        float yaw, pitch;
+        way((t + TICK) / seconds, y0, p0, y1, p1, &yaw, &pitch);
+        picture(r, g, yaw, pitch, now);
+    }
+    r->hold = start + seconds;
+}
+
+// Turn to look at (y1, p1), stay, and turn back.
+static void way_there_and_back(float u, float y0, float p0, float y1, float p1, float* yaw, float* pitch) {
+    float const k = u < 0.35f ? ease(u / 0.35f) : u < 0.7f ? 1.0f : 1.0f - ease((u - 0.7f) / 0.3f);
+    *yaw          = y0 + wrap_pi(y1 - y0) * k;
+    *pitch        = p0 + (p1 - p0) * k;
+}
+
+// The look round from the start: from well to one side, slowly round to
+// where the player faces, a little up and level again.
+static void way_round(float u, float y0, float p0, float y1, float p1, float* yaw, float* pitch) {
+    (void)y1, (void)p1;
+    float const k = ease(u);
+    *yaw          = y0 - 2.4f * (1.0f - k);
+    *pitch        = p0 + (-0.18f - p0) * sinf(3.14159265f * u) * 0.8f;
+}
+
+// Doors as they start to open, the incinerator as it burns, and the
+// chamber from its exit: lingered on, once each.
+static void scenic_tick(rec_t* r, game_t const* g, int k, int ev, float now) {
+    float const y0 = k < s_n ? s_cam[k][0] : g->pl.yaw, p0 = k < s_n ? s_cam[k][1] : g->pl.pitch;
+    float       y1, p1;
+    if (k == 0) {
+        r->story_at = 0.0f;
+        memset(r->looked, 0, sizeof(r->looked));
+        r->burnt = r->left = r->opened = false;
+    }
+    // The look round: from the start -- or, arrived by lift, once out of
+    // the car, which would fill the picture.
+    if (!r->opened && (!r->lifts || v3_len(v3_sub(g->pl.pos, g->lv.spawn)) > 2.0f)) {
+        r->opened = true;
+        hold_still(r, g, now, SCENIC_OPEN_S, way_round, y0, p0, y0, p0);
+        return;
+    }
+    if (ev & GAME_EV_DOOR) {
+        for (int d = 0; d < g->lv.n_doors; d++) {
+            door_t const* dr = &g->lv.doors[d];
+            if (r->looked[d] || dr->open <= 0.0f || dr->open >= 1.0f) continue;
+            r->looked[d] = true;
+            look_at(g, v3((float)(dr->x0 + dr->x1) * 0.5f, (float)(dr->y0 + dr->y1) * 0.5f, (float)(dr->z0 + dr->z1) * 0.5f),
+                    &y1, &p1);
+            hold_still(r, g, now, SCENIC_DOOR_S, way_there_and_back, y0, p0, y1, p1);
+            return;
+        }
+    }
+    if ((ev & GAME_EV_INCINERATE) && !r->burnt) {
+        r->burnt = true;
+        for (int i = 0; i < g->n_cubes; i++) {
+            if (!g->lv.cube_companion[i] || !g->cubes[i].gone) continue;
+            // main.c's word about it, typed in the story line's place.
+            static char const line[] =
+                "The Companion Cube has been incinerated. It never complained. Not once. You could learn from it.";
+            r->story    = line;
+            r->story_at = now + r->hold;
+            fprintf(r->txt, "T\t%s\n", line);
+            sound_say(line);
+        }
+        look_at(g, v3(g->flame_at.x, g->flame_at.y + 0.3f, g->flame_at.z), &y1, &p1);
+        hold_still(r, g, now, SCENIC_BURN_S, way_there_and_back, y0, p0, y1, p1);
+        return;
+    }
+    if ((ev & PL_EV_EXIT) && !r->left) {
+        r->left = true;
+        // Back over the chamber: its middle, at eye height.
+        look_at(g, v3((float)g->lv.w * 0.5f, g->pl.pos.y + 1.2f, (float)g->lv.d * 0.5f), &y1, &p1);
+        hold_still(r, g, now, SCENIC_EXIT_S, way_there_and_back, y0, p0, y1, p1);
+    }
+}
+
 static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     rec_t*    r = ctx;
     int const k = r->step++;
@@ -345,7 +517,7 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
     // main.c's music_mood: play, and calm once the exit is reached -- a
     // verdict, "Chamber complete".
     sound_music_mood(r->exit_t >= 0.0f ? SOUND_MOOD_DESK : SOUND_MOOD_PLAY);
-    float const film = r->t0 + now;
+    float film = r->t0 + now + r->hold;
     sound_to(r, film);
     // Stopped at the exit, as watch.c's; a recorded run's, its frames' clock.
     s_timer.run   = r->exit_t >= 0.0f ? r->exit_t : fminf(now, s_frame_end);
@@ -373,37 +545,10 @@ static void film_tick(game_t const* g, int ev, float now, void* ctx) {
         r->sub_t    = now;
     }
 
+    if (s_scenic) scenic_tick(r, g, k, ev, now);
+    film = r->t0 + now + r->hold;
     if (film + 1e-4f < (float)r->frame / FPS) return;
-    static game_t shot;
-    shot          = *g;
-    shot.pl.yaw   = k < s_n ? s_cam[k][0] : g->pl.yaw;
-    shot.pl.pitch = k < s_n ? s_cam[k][1] : g->pl.pitch;
-    snprintf(shot.lv.story, sizeof(shot.lv.story), "%s", r->said != NULL ? r->said : r->story);
-    for (int p = 0; p < W * H; p++) s_px[p] = 0xFF000000u;
-    if (r->lifts) {
-        lift_view_t v;
-        lift_view(NULL, &s_sites, &s_depart, &v);
-        render_set_lift(&v);
-    }
-    render_set_level(&shot.lv, shot.portals);
-    render_set_time(now);
-    ghost_to(now);
-    render_frame(NULL, &shot);
-    if (r->badge) movie_hud_frame(s_px, 1.0f, &shot);
-    char name[32];
-    snprintf(name, sizeof(name), "movie_%05d", r->pic);
-    save(name);
-    // The HUD: how much of the story is typed (-1: gone), a turret's words,
-    // and the message in the middle.
-    int const len   = (int)strlen(r->story);
-    int       shown = (int)(now * STORY_CPS);
-    if (shown > len) shown = len;
-    if (len == 0 || (now > (float)len / STORY_CPS + STORY_HOLD && !sound_saying())) shown = -1;
-    char const* msg = r->exit_t >= 0.0f ? r->done : now < MESSAGE_S ? g->lv.name : "";
-    fprintf(r->txt, "P\t%d\t%d\t%s\t%s\t%.3f\t%.3f\n", r->pic, shown,
-            r->sub != NULL && now - r->sub_t < TURRET_SUB ? r->sub : "", msg, (double)now, (double)r->exit_t);
-    r->pic++;
-    r->frame++;
+    picture(r, g, k < s_n ? s_cam[k][0] : g->pl.yaw, k < s_n ? s_cam[k][1] : g->pl.pitch, now);
 }
 
 // A ride, up out of the chamber in `g` (from its exit) or down into it
@@ -840,6 +985,12 @@ int main(int argc, char** argv) {
     float const cap  = (float)atof(argv[1]);
     char const* tick = getenv("HOST_MOVIE_TICK");
     if (tick != NULL && atof(tick) > 0.0) s_tick = (float)atof(tick);
+    char const* fps = getenv("HOST_MOVIE_FPS");
+    if (fps != NULL && atoi(fps) > 0) s_fps = atoi(fps);
+    char const* pace_s = getenv("HOST_MOVIE_PACE");
+    if (pace_s != NULL && atof(pace_s) >= 0.0) s_pace = (float)atof(pace_s);
+    char const* scenic = getenv("HOST_MOVIE_SCENIC");
+    s_scenic           = scenic != NULL && scenic[0] == '1';
     char const* tas = getenv("HOST_MOVIE_TAS");
     r.tas           = tas != NULL && tas[0] == '1';
     char const* lifts = getenv("HOST_MOVIE_LIFTS");
@@ -970,6 +1121,8 @@ int main(int argc, char** argv) {
             plan_camera();
         }
         r.story  = story;
+        r.hold   = 0.0f;
+        r.story_at = 0.0f;
         r.exit_t = -1.0f;
         r.sub    = NULL;
         r.last   = 0.0f;
@@ -977,7 +1130,7 @@ int main(int argc, char** argv) {
         r.done   = j + 1 < n_items ? "Chamber complete" : "All chambers complete. Cake later.";
         if (!r.badge) sound_say(story[0] ? story : NULL);
         run_item(i, j, cap, TICK, &st, film_tick, &r, pace);
-        r.t0 += r.last;
+        r.t0 += r.last + r.hold;
         // The total: the runs to their exits, as watch.c's s_total -- a run
         // that lost its way adds nothing.
         if (r.exit_t >= 0.0f) s_timer_done += r.exit_t;

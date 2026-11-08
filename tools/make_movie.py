@@ -44,7 +44,7 @@ YELLOW, RED = (0xFF, 0xE0, 0x8A), (0xFF, 0x7A, 0x6A)
 def font(names, size):
     for n in names:
         try:
-            return ImageFont.truetype(n, size)
+            return ImageFont.truetype(n, int(round(size)))
         except OSError:
             pass
     return ImageFont.load_default()
@@ -122,7 +122,7 @@ def runs(frames):
 
 
 def main():
-    global SCALE
+    global SCALE, FPS
     ap = argparse.ArgumentParser()
     ap.add_argument("demos", nargs="*", help="demo names: chamber ids, filmed one after the other")
     ap.add_argument("--recording", help="film a recording (main/recording.h) instead of demos: a run recorded on "
@@ -142,6 +142,13 @@ def main():
     ap.add_argument("--preset", default="medium", help="x264 preset of the film")
     ap.add_argument("--tune", help="x264 tune of the film (animation suits the badge's flat pixels)")
     ap.add_argument("--chambers", help="a directory of chamber files, as on the SD card")
+    ap.add_argument("--scenic", action="store_true",
+                    help="the scenic tour (host_movie HOST_MOVIE_SCENIC): a look round each chamber, the player "
+                    "standing --pace seconds before each act, the set pieces lingered on")
+    ap.add_argument("--pace", type=float, default=1.6, help="with --scenic: seconds before each shot and Use")
+    ap.add_argument("--fps", type=int, default=FPS, help="pictures a second (30 steps the game at 1/30 s too)")
+    ap.add_argument("--size", help="the film's size, WxH (as a 4K recorder draws: 3840x2160); the HUD scales "
+                    "with the height")
     ap.add_argument("--seconds", type=float, default=120.0, help="each chamber at most this long")
     ap.add_argument("--work", help="where the frames go (default build/movie): one each, to film several at once")
     ap.add_argument("--keep-shots", action="store_true",
@@ -172,6 +179,10 @@ def main():
                     help="tool-assisted runs (tools/tas.py): as they go, GLaDOS cut off as in the game, with a timer")
     a = ap.parse_args()
     SCALE = a.scale
+    FPS = a.fps
+    size = tuple(int(v) for v in a.size.split("x")) if a.size else None
+    if size:
+        SCALE = size[1] / 480.0  # the HUD as the badge lays it out, at this height
     if not a.mp4 and not a.gif:
         ap.error("--mp4 and/or --gif")
     if a.recording:
@@ -200,6 +211,13 @@ def main():
                HOST_MOVIE_LIFTS="1" if a.lifts else "0", HOST_MOVIE_BADGE="1" if a.badge else "0")
     if a.tas:
         env["HOST_MOVIE_TICK"] = "0.033333"  # 30 frames a second: the badge's TAS (tools/tas.py)
+    env["HOST_MOVIE_FPS"] = str(FPS)
+    if FPS >= 30 and not a.tas and not a.recording:
+        env["HOST_MOVIE_TICK"] = "%.6f" % (1.0 / FPS)  # a picture a step (every solution reaches its exit at 1/60)
+    if a.scenic:
+        env["HOST_MOVIE_SCENIC"] = "1"
+        env["HOST_MOVIE_PACE"] = str(a.pace)
+        env["HOST_SHOT_QUIET"] = "1"
     if a.chambers:
         env["PORTALS_CHAMBERS"] = os.path.abspath(a.chambers)
     if a.story:
@@ -229,7 +247,7 @@ def main():
 
     with open(os.path.join(build, "movie.txt")) as f:
         lines = [line.rstrip("\n").split("\t") for line in f]
-    w, h = 800 * SCALE, 480 * SCALE
+    w, h = size if size else (800 * SCALE, 480 * SCALE)
     f_hud = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 13 * SCALE)
     f_big = font(["DejaVuSans-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSans-Bold.ttf"], 46 * SCALE)
     f_small = font(["DejaVuSans.ttf", "/usr/share/fonts/truetype/DejaVuSans.ttf"], 14 * SCALE)
@@ -242,6 +260,8 @@ def main():
             done = 0.0
             ci += 1
             chamber = {"name": line[1], "hint": line[2], "story": line[3] if len(line) > 3 else "", "ci": ci}
+        elif line[0] == "T":  # a new story line, from here on (host_movie's scenic incinerator)
+            chamber = dict(chamber, story=line[1])
         elif line[0] == "P":
             now, exit_t = float(line[5]), float(line[6])
             run = exit_t if exit_t >= 0 else now
@@ -275,6 +295,8 @@ def main():
             if out:
                 silences.append((0, len(out), splash_sound(a.splash, len(out))))
         for line in lines:
+            if line[0] == "T":
+                continue
             if line[0] == "C" and not opened:
                 opened = True  # the splash screens, before the opening card, with their sound
                 extra = pictures("start")
@@ -337,13 +359,18 @@ def main():
     f_msg = font(["DejaVuSansMono.ttf", "/usr/share/fonts/truetype/DejaVuSansMono.ttf"], 22 * SCALE)
     f_timer = font(["DejaVuSansMono-Bold.ttf", "/usr/share/fonts/truetype/DejaVuSansMono-Bold.ttf"], 26 * SCALE)
 
+    def shot_of(f):
+        """Picture f as the recorder saved it: a PNG (built with HOST_SHOT_PNG) or a PPM."""
+        png = os.path.join(shots, "movie_%05d.png" % f["pic"])
+        return png if os.path.exists(png) else os.path.join(shots, "movie_%05d.ppm" % f["pic"])
+
     def hud(f):
         """A frame of play, with the HUD on it as hud.c draws it."""
         if a.badge:  # drawn by hud.c itself: the badge's pixels, each doubled
-            return Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize((w, h),
+            return Image.open(shot_of(f)).convert("RGB").resize((w, h),
                                                                                                       Image.NEAREST)
         # The badge's pixels, each doubled, as it shows them (--smooth: blended); the text over them sharp.
-        im = Image.open(os.path.join(shots, "movie_%05d.ppm" % f["pic"])).convert("RGB").resize(
+        im = Image.open(shot_of(f)).convert("RGB").resize(
             (w, h), Image.LANCZOS if a.smooth else Image.NEAREST)
         d = ImageDraw.Draw(im)
         d.text((8 * SCALE, 6 * SCALE), f["name"], font=f_name, fill=(255, 255, 255))
@@ -395,8 +422,16 @@ def main():
     def picture(f):
         if f["png"] not in pic_cache:
             pic_cache.clear()
-            pic_cache[f["png"]] = Image.open(f["png"]).convert("RGB").resize(
-                (w, h), Image.NEAREST if a.badge else Image.LANCZOS)
+            pic = Image.open(f["png"]).convert("RGB")
+            if size and abs(pic.width / pic.height - w / h) > 0.01:
+                # The badge's 5:3 in a film of another shape (--size): whole, black at the sides.
+                k = min(w / pic.width, h / pic.height)
+                fit = pic.resize((int(pic.width * k), int(pic.height * k)), Image.LANCZOS)
+                pic = Image.new("RGB", (w, h), (0, 0, 0))
+                pic.paste(fit, ((w - fit.width) // 2, (h - fit.height) // 2))
+                pic_cache[f["png"]] = pic
+            else:
+                pic_cache[f["png"]] = pic.resize((w, h), Image.NEAREST if a.badge else Image.LANCZOS)
         return pic_cache[f["png"]]
 
     # Where each run is in the film, for a page to jump to: its first and last
@@ -417,7 +452,7 @@ def main():
                            "%dx%d" % (w, h), "-framerate", str(FPS), "-i", "-", "-i",
                            wav, "-c:v", "libx264", "-preset", a.preset, "-crf", str(a.crf)] +
                           (["-tune", a.tune] if a.tune else []) +
-                          ["-pix_fmt", "yuv420p", "-r", "30", "-c:a", "aac", "-b:a", "160k", "-shortest",
+                          ["-pix_fmt", "yuv420p", "-r", str(max(30, FPS)), "-c:a", "aac", "-b:a", "160k", "-shortest",
                            "-movflags", "+faststart", mp4], stdin=subprocess.PIPE)
     n, fade_n = 0, FADE_S * FPS
     for kind, run in runs(frames):
